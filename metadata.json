@@ -1,0 +1,5 @@
+{
+  "name": "Commentaries on Rabbi Kook's Teachings",
+  "description": "A web application to display paragraphs from Rabbi Kook's books alongside detailed commentaries, sources, and user discussions.",
+  "requestFramePermissions": []
+}
