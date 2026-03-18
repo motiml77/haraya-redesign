@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { BookOpen, Plus, ChevronDown, ArrowUp, ArrowDown, Pen, Pencil, Trash2, Loader2, FolderPlus, Check, X } from 'lucide-react';
+import { BookOpen, Plus, ChevronDown, ArrowUp, ArrowDown, Pencil, Trash2, Loader2, FolderPlus, Check, X, Eye, EyeOff } from 'lucide-react';
 import { authFetch } from '@/lib/auth-fetch';
 import { useAdminUser } from '../admin-context';
 import Link from 'next/link';
@@ -15,6 +15,7 @@ interface SectionNode {
   orderIndex: number;
   hasContent: boolean;
   isEdited?: boolean;
+  isHidden?: boolean;
   children: SectionNode[];
 }
 
@@ -145,13 +146,33 @@ export default function AdminBooksPage() {
         body: JSON.stringify({ bookId, parentId, title: newSectionTitle }),
       });
       if (res.ok) {
+        const { id: newId } = await res.json();
+        const title = newSectionTitle;
         setNewSectionTitle('');
         setAddingToParent(null);
         bookCache.current.delete(bookId);
-        await loadBookDetails(bookId, true);
-        // Auto-expand parent to show new child
+
+        // Optimistic update: add new section directly to the tree
+        const newNode: SectionNode = {
+          id: newId, title, bookId, parentId: parentId || null,
+          depth: 0, orderIndex: 999, hasContent: false, isEdited: false, isHidden: false, children: [],
+        };
+
         if (parentId) {
+          // Add as child of parent
+          const addToParent = (nodes: SectionNode[]): SectionNode[] =>
+            nodes.map(n => {
+              if (n.id === parentId) {
+                newNode.depth = n.depth + 1;
+                return { ...n, children: [...n.children, newNode] };
+              }
+              return { ...n, children: addToParent(n.children) };
+            });
+          setBookSections(prev => addToParent(prev));
           setExpandedSections(prev => new Set(prev).add(parentId));
+        } else {
+          // Add as top-level
+          setBookSections(prev => [...prev, newNode]);
         }
       } else {
         const data = await res.json();
@@ -280,6 +301,22 @@ export default function AdminBooksPage() {
       .catch(() => { alert('שגיאה בשינוי שם'); loadBookDetails(bookId, true); });
   };
 
+  const toggleSectionVisibility = (sectionId: string, bookId: string, currentlyHidden: boolean) => {
+    const newHidden = !currentlyHidden;
+    // Optimistic update
+    const updateTree = (nodes: SectionNode[]): SectionNode[] =>
+      nodes.map(n => ({
+        ...n,
+        isHidden: n.id === sectionId ? newHidden : n.isHidden,
+        children: updateTree(n.children),
+      }));
+    setBookSections(prev => updateTree(prev));
+    // Save to Firebase
+    authFetch(`/api/sections/${sectionId}`, { method: 'PUT', body: JSON.stringify({ isHidden: newHidden }) })
+      .then(res => { if (!res.ok) throw new Error(); bookCache.current.delete(bookId); })
+      .catch(() => { alert('שגיאה בעדכון נראות'); loadBookDetails(bookId, true); });
+  };
+
   return (
     <div className="space-y-6">
       {/* Create Book - admin only */}
@@ -311,7 +348,7 @@ export default function AdminBooksPage() {
       {/* Books list */}
       <div className="space-y-4">
         {books.map((book, bookIndex) => (
-          <div key={book.id} className="bg-white rounded-2xl shadow-sm border border-[#E5E0D8] overflow-hidden">
+          <div key={book.id} className={`bg-white rounded-2xl shadow-sm border border-[#E5E0D8] overflow-hidden ${book.isHidden ? 'opacity-50' : ''}`}>
             <div onClick={() => editingId !== `book-${book.id}` && toggleBook(book.id)}
               className="w-full flex justify-between items-center p-5 hover:bg-[#FAF8F5] transition-colors text-right cursor-pointer">
               <div className="flex items-center gap-3">
@@ -356,6 +393,19 @@ export default function AdminBooksPage() {
               </div>
               <div className="flex items-center gap-2">
                 {isAdmin && (
+                  <button onClick={(e) => {
+                    e.stopPropagation();
+                    const newHidden = !book.isHidden;
+                    setBooks(prev => prev.map(b => b.id === book.id ? { ...b, isHidden: newHidden } : b));
+                    authFetch(`/api/books/${book.id}`, { method: 'PUT', body: JSON.stringify({ isHidden: newHidden }) })
+                      .catch(() => { alert('שגיאה בעדכון נראות'); loadBooks(true); });
+                  }}
+                    className={`p-1.5 rounded-lg transition-colors ${book.isHidden ? 'text-[#D5D0C8] hover:text-[#4A3B32]' : 'text-[#4A3B32] hover:text-[#8C7A6B]'}`}
+                    title={book.isHidden ? 'הצג לציבור' : 'הסתר מהציבור'}>
+                    {book.isHidden ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                )}
+                {isAdmin && (
                   <button onClick={(e) => { e.stopPropagation(); deleteItem('books', book.id, book.id); }}
                     disabled={deletingId === book.id}
                     className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50">
@@ -397,6 +447,7 @@ export default function AdminBooksPage() {
                     onEditingTitleChange={setEditingTitle}
                     onRenameSection={renameSection}
                     onCancelRename={() => setEditingId(null)}
+                    onToggleVisibility={(id, hidden) => toggleSectionVisibility(id, book.id, hidden)}
                   />
                 ))}
 
@@ -439,7 +490,7 @@ export default function AdminBooksPage() {
 function SectionItem({ section, index, siblingCount, bookId, isAdmin, expandedSections, onToggle, onDelete,
   deletingId, onReorder, addingToParent, onStartAdd, newSectionTitle, onNewSectionTitleChange,
   onCreateSection, creatingSection, editingId, editingTitle, onStartRename, onEditingTitleChange,
-  onRenameSection, onCancelRename,
+  onRenameSection, onCancelRename, onToggleVisibility,
 }: {
   section: SectionNode; index: number; siblingCount: number; bookId: string; isAdmin: boolean;
   expandedSections: Set<string>; onToggle: (id: string) => void;
@@ -458,6 +509,7 @@ function SectionItem({ section, index, siblingCount, bookId, isAdmin, expandedSe
   onEditingTitleChange: (v: string) => void;
   onRenameSection: (sectionId: string, bookId: string) => void;
   onCancelRename: () => void;
+  onToggleVisibility: (id: string, currentlyHidden: boolean) => void;
 }) {
   const hasChildren = section.children.length > 0;
   const isExpanded = expandedSections.has(section.id);
@@ -467,7 +519,7 @@ function SectionItem({ section, index, siblingCount, bookId, isAdmin, expandedSe
   const bgColor = depthColors[Math.min(section.depth, depthColors.length - 1)];
 
   return (
-    <div className={`${bgColor} rounded-xl border border-[#E5E0D8] overflow-hidden`}>
+    <div className={`${bgColor} rounded-xl border border-[#E5E0D8] overflow-hidden ${section.isHidden ? 'opacity-50' : ''}`}>
       <div className="flex items-center gap-1 group">
         {/* Move up/down buttons */}
         <div className="flex flex-col items-center">
@@ -494,41 +546,39 @@ function SectionItem({ section, index, siblingCount, bookId, isAdmin, expandedSe
           <ChevronDown size={14} className={`text-[#8C7A6B] transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
         </button>
 
-        {/* Title - clickable row */}
-        <div
-          onClick={() => editingId !== section.id && hasChildren ? onToggle(section.id) : undefined}
-          className="flex-1 flex items-center gap-2 p-2 min-w-0 cursor-pointer hover:bg-black/5 rounded transition-colors"
-        >
-          {section.hasContent && (
-            <span className={`w-2 h-2 rounded-full shrink-0 ${section.isEdited ? 'bg-green-500' : 'bg-red-400'}`}></span>
-          )}
-          {editingId === section.id ? (
+        {/* Title - click navigates to edit page */}
+        {editingId === section.id ? (
+          <div className="flex-1 flex items-center gap-2 p-2 min-w-0">
             <input type="text" value={editingTitle} onChange={(e) => onEditingTitleChange(e.target.value)}
-              onClick={(e) => e.stopPropagation()}
               onKeyDown={(e) => { if (e.key === 'Enter') onRenameSection(section.id, bookId); if (e.key === 'Escape') onCancelRename(); }}
               onBlur={() => onRenameSection(section.id, bookId)}
               className="text-sm font-bold text-[#4A3B32] bg-white border border-[#8C2B2B] rounded-lg px-2 py-0.5 outline-none focus:ring-2 focus:ring-[#8C2B2B]/30 flex-1 min-w-0"
               autoFocus />
-          ) : (
-            <>
-              <span className="text-sm font-bold text-[#4A3B32] truncate">{section.title}</span>
-              <button onClick={(e) => { e.stopPropagation(); onStartRename(section.id, section.title); }}
-                className="p-0.5 text-[#D5D0C8] hover:text-[#8C2B2B] transition-colors rounded shrink-0" title="שנה שם">
-                <Pencil size={12} />
-              </button>
-            </>
-          )}
-          {hasChildren && editingId !== section.id && (
-            <span className="text-xs text-[#8C7A6B] bg-[#F0EBE1] px-1.5 py-0.5 rounded-full shrink-0">{section.children.length}</span>
-          )}
-        </div>
+          </div>
+        ) : (
+          <Link href={`/admin/sections/${section.id}`}
+            className="flex-1 flex items-center gap-2 p-2 min-w-0 cursor-pointer hover:bg-black/5 rounded transition-colors">
+            {section.hasContent && (
+              <span className={`w-2 h-2 rounded-full shrink-0 ${section.isEdited ? 'bg-green-500' : 'bg-red-400'}`}></span>
+            )}
+            <span className="text-sm font-bold text-[#4A3B32] truncate">{section.title}</span>
+            {hasChildren && (
+              <span className="text-xs text-[#8C7A6B] bg-[#F0EBE1] px-1.5 py-0.5 rounded-full shrink-0">{section.children.length}</span>
+            )}
+          </Link>
+        )}
 
         {/* Actions */}
         <div className="flex items-center gap-1 shrink-0 px-1">
-          <Link href={`/admin/sections/${section.id}`}
-            className="p-1.5 text-[#8C7A6B] hover:text-[#8C2B2B] rounded transition-colors" title={section.hasContent ? 'ערוך תוכן' : 'הוסף תוכן'}>
-            <Pen size={14} />
-          </Link>
+          <button onClick={() => onToggleVisibility(section.id, !!section.isHidden)}
+            className={`p-1.5 rounded transition-colors ${section.isHidden ? 'text-[#D5D0C8] hover:text-[#4A3B32]' : 'text-[#4A3B32] hover:text-[#8C7A6B]'}`}
+            title={section.isHidden ? 'הצג לציבור' : 'הסתר מהציבור'}>
+            {section.isHidden ? <EyeOff size={14} /> : <Eye size={14} />}
+          </button>
+          <button onClick={() => onStartRename(section.id, section.title)}
+            className="p-1.5 text-[#8C7A6B] hover:text-[#8C2B2B] rounded transition-colors" title="שנה שם">
+            <Pencil size={14} />
+          </button>
           <button onClick={() => onStartAdd(section.id)}
             className="p-1.5 text-[#8C7A6B] hover:text-[#6B5A4E] rounded transition-colors" title="הוסף תת-חלק">
             <FolderPlus size={14} />
@@ -573,6 +623,7 @@ function SectionItem({ section, index, siblingCount, bookId, isAdmin, expandedSe
               onEditingTitleChange={onEditingTitleChange}
               onRenameSection={onRenameSection}
               onCancelRename={onCancelRename}
+              onToggleVisibility={onToggleVisibility}
             />
           ))}
         </div>

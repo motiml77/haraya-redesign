@@ -11,3 +11,5 @@ tsconfig.tsbuildinfo
 build_output.txt
 ts_errors.txt
 *.docx
+
+.vercel

@@ -13,6 +13,7 @@ const EDIT_ROLES = ['admin', 'editor', 'rabbi'];
 export function useEditAuth() {
   const [user, setUser] = useState<EditUser | null>(null);
   const [canEdit, setCanEdit] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -40,9 +41,10 @@ export function useEditAuth() {
         setUser(null);
         setCanEdit(false);
       }
+      setLoading(false);
     });
     return () => unsubscribe();
   }, []);
 
-  return { user, canEdit };
+  return { user, canEdit, loading };
 }

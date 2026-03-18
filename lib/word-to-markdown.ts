@@ -18,8 +18,12 @@ export function convertWordHtmlToMarkdown(html: string): string {
   // Remove <meta>, <link>, <xml>, <o:*>, <w:*> tags
   cleaned = cleaned.replace(/<\/?(?:meta|link|xml|o:\w+|w:\w+|v:\w+|st\d:\w+)[^>]*>/gi, '');
 
-  // Remove class="Mso*" attributes
-  cleaned = cleaned.replace(/\s*class="[^"]*"/gi, '');
+  // Preserve Word heading classes as data attributes, then strip all classes
+  cleaned = cleaned.replace(/\s*class="([^"]*)"/gi, (_match, classes) => {
+    const headingMatch = classes.match(/MsoHeading(\d)/i);
+    if (headingMatch) return ` data-word-heading="${headingMatch[1]}"`;
+    return '';
+  });
 
   // Step 2: Parse with DOMParser
   const parser = new DOMParser();
@@ -31,6 +35,10 @@ export function convertWordHtmlToMarkdown(html: string): string {
   // Step 4: Detect baseline font size and font family
   const baselineSize = detectBaselineFontSize(doc.body);
   const baselineFont = detectBaselineFont(doc.body);
+
+  // Debug: log detection results (remove after debugging)
+  console.log('[Word→MD] baselineFont:', baselineFont, '| baselineSize:', baselineSize);
+  console.log('[Word→MD] raw HTML (first 2000 chars):', cleaned.substring(0, 2000));
 
   // Step 5: Walk DOM tree and build Markdown
   // Track used footnotes with renumbering (Word may have non-sequential numbers)
@@ -265,7 +273,7 @@ function walkNode(node: Node, baselineSize: number, baselineFont: string, ctx: W
         // and strip outer bold markers since heading itself implies emphasis
         const cleanContent = content
           .replace(/<span class="citation-font">([\s\S]*?)<\/span>/g, '$1')
-          .replace(/^\*\*(.+)\*\*$/, '$1');
+          .replace(/\*\*/g, '');  // Strip all bold markers — heading style implies emphasis
         return '#'.repeat(headingLevel) + ' ' + cleanContent + '\n\n';
       }
 
@@ -290,6 +298,10 @@ function walkNode(node: Node, baselineSize: number, baselineFont: string, ctx: W
     case 'em': {
       const content = childContent().trim();
       if (!content) return '';
+      // Check if this italic element itself carries a different font (Word sometimes sets font on <i>)
+      const iStyle = el.getAttribute('style') || '';
+      const iIsDiffFont = isDiffFont(iStyle, baselineFont);
+      if (iIsDiffFont) return `<span class="citation-font">${content}</span>`;
       return `*${content}*`;
     }
 
@@ -391,14 +403,24 @@ function walkNode(node: Node, baselineSize: number, baselineFont: string, ctx: W
       const isBold = isBoldStyle(style);
       // Check for underline
       const isUnderline = /text-decoration\s*:[^;]*underline/i.test(style);
-      // Check for italic
-      const isItalic = /font-style\s*:\s*italic/i.test(style);
+      // Check for italic (including mso-bidi/mso-ansi variants for Hebrew/RTL)
+      const isItalic = /(?:^|;|\s)font-style\s*:\s*italic/i.test(style)
+        || /mso-(?:bidi|ansi)-font-style\s*:\s*italic/i.test(style);
       // Check for small font
       const isSmall = isSmallFont(style, baselineSize);
-      // Check for different font (citations/quotes)
-      const isDifferentFont = isDiffFont(style, baselineFont);
+      // Check for different font (citations/quotes) — also check inherited from parent
+      const isDifferentFont = isDiffFont(style, baselineFont)
+        || (!extractFontFamily(style) && getInheritedFont(el, baselineFont));
 
       const trimmed = content.trim();
+
+      // Debug: log font detection for non-empty spans
+      if (trimmed.length > 5 && trimmed.length < 200) {
+        const spanFont = extractFontFamily(style);
+        if (spanFont || isDifferentFont) {
+          console.log('[Word→MD] span font:', spanFont || '(inherited)', '| isDiff:', isDifferentFont, '| text:', trimmed.substring(0, 50));
+        }
+      }
       const leadingSpace = content.startsWith(' ') ? ' ' : '';
       const trailingSpace = content.endsWith(' ') ? ' ' : '';
 
@@ -482,21 +504,39 @@ function normalizeFontName(font: string): string {
 
 /** Checks if a span uses a different font than the baseline */
 function isDiffFont(style: string, baselineFont: string): boolean {
-  if (!baselineFont) return false;
   const font = extractFontFamily(style);
-  if (!font || font === baselineFont) return false;
+  if (!font) return false; // No explicit font on this element
   // Ignore generic families
   const generic = ['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui'];
   if (generic.includes(font)) return false;
+  // If baseline is implicit (most text has no explicit font), any non-generic explicit font is different
+  if (!baselineFont) return true;
+  if (font === baselineFont) return false;
   // Ignore weight/style variants (e.g., "David Bold" vs "David")
   if (normalizeFontName(font) === normalizeFontName(baselineFont)) return false;
   return true;
 }
 
+/** Walks up DOM tree to find the nearest ancestor with a font-family style */
+function getInheritedFont(el: HTMLElement | null, baselineFont: string): boolean {
+  let current = el?.parentElement;
+  while (current && current.tagName.toLowerCase() !== 'body') {
+    const style = current.getAttribute('style') || '';
+    if (isDiffFont(style, baselineFont)) return true;
+    // If this element specifies a font that matches baseline, stop searching
+    const font = extractFontFamily(style);
+    if (font) return false;
+    current = current.parentElement;
+  }
+  return false;
+}
+
 /** Detects the most common font-family in the document.
- *  Normalizes font names so "David Bold" and "David" are counted together. */
+ *  Normalizes font names so "David Bold" and "David" are counted together.
+ *  Returns '' if most text has no explicit font (meaning baseline is the implicit default). */
 function detectBaselineFont(body: HTMLElement): string {
   const fonts: Map<string, number> = new Map();
+  let implicitFontChars = 0;
 
   function scanElement(el: HTMLElement) {
     const style = el.getAttribute('style') || '';
@@ -506,6 +546,13 @@ function detectBaselineFont(body: HTMLElement): string {
       const normalized = normalizeFontName(font);
       if (normalized) {
         fonts.set(normalized, (fonts.get(normalized) || 0) + (el.textContent?.length || 0));
+      }
+    } else {
+      // Count direct text nodes (not descendant text) for elements without explicit font
+      for (let i = 0; i < el.childNodes.length; i++) {
+        if (el.childNodes[i].nodeType === 3) { // TEXT_NODE
+          implicitFontChars += (el.childNodes[i].textContent?.length || 0);
+        }
       }
     }
     for (let i = 0; i < el.children.length; i++) {
@@ -525,6 +572,9 @@ function detectBaselineFont(body: HTMLElement): string {
       baseline = font;
     }
   });
+
+  // If most text has no explicit font, the baseline is the implicit/default font
+  if (implicitFontChars > maxCount) return '';
 
   return baseline;
 }
@@ -575,9 +625,17 @@ function detectBaselineFontSize(body: HTMLElement): number {
  */
 function detectHeadingLevel(el: HTMLElement, markdownContent: string, baselineSize: number): number | false {
   const textContent = el.textContent?.trim() || '';
+  if (!textContent) return false;
 
-  // Must have content and be short enough to be a heading
-  if (!textContent || textContent.length > 80) return false;
+  // Priority 1: Word heading class (MsoHeading1, MsoHeading2, etc.)
+  const wordLevel = el.getAttribute('data-word-heading');
+  if (wordLevel) {
+    const level = parseInt(wordLevel);
+    if (level >= 1 && level <= 6) return Math.max(level + 1, 2); // Shift down: Word H1→##, H2→###
+  }
+
+  // Priority 2: Heuristic detection for unlabeled headings
+  if (textContent.length > 80) return false;
 
   // Don't treat list-like lines as headings
   if (/^[\-•·]\s/.test(textContent) || /^\d+[.)]\s/.test(textContent)) return false;

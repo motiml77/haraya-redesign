@@ -98,7 +98,7 @@ export function SectionViewer({
     };
   }, []);
 
-  const { user: editUser, canEdit } = useEditAuth();
+  const { user: editUser, canEdit, loading: authLoading } = useEditAuth();
   const bookContainerRef = useRef<HTMLDivElement>(null);
   const bookPageRef = useRef(0);
 
@@ -296,7 +296,7 @@ export function SectionViewer({
             </div>
           </div>
           <div className="flex gap-3 items-center">
-            {editUser && (
+            {!authLoading && editUser && (
               <Link href="/admin" className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-[#F0EBE1] rounded-full hover:bg-[#E5E0D8] transition-colors">
                 <User size={14} className="text-[#8C2B2B]" />
                 <span className="text-xs font-bold text-[#8C7A6B]">{editUser.name}</span>
@@ -342,6 +342,36 @@ export function SectionViewer({
           </div>
         </div>
       </header>
+
+      {/* Introduction - shown to visitors only if real content exists; editors always see it */}
+      {(section.introduction?.trim() || (!authLoading && canEdit)) && (
+        <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 pt-6" dir="rtl">
+          {section.introduction?.trim() ? (
+            <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-[#E5E0D8]">
+              <h3 className="text-xl font-bold text-[#8C2B2B] font-serif border-b border-[#F0EBE1] pb-4 mb-6">הקדמה</h3>
+              <InlineEditor
+                value={section.introduction || ''}
+                onSave={async (newValue) => { await saveSectionField({ introduction: newValue }); }}
+                canEdit={canEdit}
+                minHeight="80px"
+                renderContent={
+                  <div className="font-serif leading-loose text-[#2C2A29] text-justify text-base">
+                    <MarkdownRenderer>{section.introduction}</MarkdownRenderer>
+                  </div>
+                }
+              />
+            </div>
+          ) : canEdit && (
+            <button
+              onClick={async () => { await saveSectionField({ introduction: ' ' }); }}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-dashed border-[#E5E0D8] text-[#8C7A6B] hover:text-[#8C2B2B] hover:border-[#8C2B2B] transition-all text-sm font-bold"
+            >
+              <Pencil size={14} />
+              הוסף הקדמה
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Main */}
       <main className="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8" dir="rtl">

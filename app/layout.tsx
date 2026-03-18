@@ -14,8 +14,8 @@ const assistant = Assistant({
 });
 
 export const metadata: Metadata = {
-  title: "Commentaries on Rabbi Kook's Teachings",
-  description: "A web application to display paragraphs from Rabbi Kook's books alongside detailed commentaries, sources, and user discussions.",
+  title: "שיעורים בכתבי הרב קוק",
+  description: "ביאורים והרחבות על כתבי מרן הרב אברהם יצחק הכהן קוק זצ״ל",
 };
 
 export default function RootLayout({children}: {children: React.ReactNode}) {

@@ -64,7 +64,7 @@ export default async function HomePage() {
         <div className="absolute top-4 left-4 flex items-center gap-2">
           <PageHeaderAuth />
           <Link href="/topics"
-            className="flex items-center gap-1.5 text-xs text-[#8C7A6B] hover:text-[#8C2B2B] transition-colors px-3 py-1.5 rounded-full border border-[#E5E0D8] hover:border-[#8C2B2B] bg-[#FAF8F5]">
+            className="flex items-center gap-0.5 text-xs text-[#8C7A6B] hover:text-[#8C2B2B] transition-colors px-3 py-1.5 rounded-full border border-[#E5E0D8] hover:border-[#8C2B2B] bg-[#FAF8F5]">
             <Hash size={14} />
             נושאים
           </Link>
@@ -84,7 +84,7 @@ export default async function HomePage() {
           <span className="text-lg font-serif font-bold text-[#8C2B2B]">ראשי</span>
         </div>
         <div className="max-w-4xl mx-auto text-center">
-          <h1 className="text-4xl font-serif font-bold text-[#4A3B32]">פירושים על כתבי הרב קוק</h1>
+          <h1 className="text-4xl font-serif font-bold text-[#4A3B32]">שיעורים בכתבי הרב קוק</h1>
           <p className="text-[#8C7A6B] mt-3 text-lg">ביאורים והרחבות על כתבי מרן הרב אברהם יצחק הכהן קוק זצ״ל</p>
         </div>
       </header>
@@ -94,7 +94,7 @@ export default async function HomePage() {
       <main className="max-w-4xl mx-auto px-6 py-10">
         {books.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {books.map((book: any) => (
+            {books.filter((book: any) => !book.isHidden).map((book: any) => (
               <Link key={book.id} href={`/book/${book.id}`}
                 className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E0D8] hover:border-[#8C2B2B] hover:shadow-md transition-all group">
                 <div className="flex items-center gap-3 mb-3">

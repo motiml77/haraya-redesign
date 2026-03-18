@@ -8,21 +8,23 @@ import { auth } from '@/lib/firebase';
 
 export function PageHeaderAuth() {
   const [userName, setUserName] = useState<string | null>(null);
-  const [isMounted, setIsMounted] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
-    setIsMounted(true);
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       setUserName(firebaseUser?.displayName || null);
+      setAuthReady(true);
     });
     return () => unsubscribe();
   }, []);
+
+  if (!authReady) return null;
 
   return (
     <Link href="/admin"
       className="flex items-center gap-1.5 text-xs text-[#8C7A6B] hover:text-[#8C2B2B] transition-colors px-3 py-1.5 rounded-full border border-[#E5E0D8] hover:border-[#8C2B2B] bg-[#FAF8F5]">
       {userName ? <User size={14} /> : <LogIn size={14} />}
-      {!isMounted ? 'כניסת מנהלים' : (userName || 'כניסת מנהלים')}
+      {userName || 'כניסת מנהלים'}
     </Link>
   );
 }

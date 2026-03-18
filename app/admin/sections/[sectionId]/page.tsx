@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Save, Eye, Plus, Trash2, Check } from 'lucide-react';
+import { Save, Eye, Plus, Trash2, Check, ChevronRight, ChevronLeft } from 'lucide-react';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { authFetch } from '@/lib/auth-fetch';
 import { useAdminUser } from '../../admin-context';
@@ -71,7 +72,7 @@ export default function SectionEditorPage() {
   const { user } = useAdminUser();
 
   const [formData, setFormData] = useState({
-    title: '', originalText: '', isEdited: false,
+    title: '', originalText: '', introduction: '', isEdited: false,
     bookTitle: '', bookId: '', parentId: '',
   });
   const [tags, setTags] = useState<string[]>([]);
@@ -83,10 +84,11 @@ export default function SectionEditorPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [breadcrumbItems, setBreadcrumbItems] = useState<{ label: string; href?: string }[]>([]);
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [siblings, setSiblings] = useState<{ id: string; title: string }[]>([]);
 
   const originalTextRef = useRef<HTMLTextAreaElement>(null);
   const lastSavedRef = useRef<string>('');
-  const dataRef = useRef({ formData: { title: '', originalText: '', isEdited: false, bookTitle: '', bookId: '', parentId: '' }, tags: [] as string[], commentaries: [] as any[], existingComments: [] as any[], questionsForRabbi: [] as any[] });
+  const dataRef = useRef({ formData: { title: '', originalText: '', introduction: '', isEdited: false, bookTitle: '', bookId: '', parentId: '' }, tags: [] as string[], commentaries: [] as any[], existingComments: [] as any[], questionsForRabbi: [] as any[] });
 
   useWordPasteHandler(
     originalTextRef,
@@ -105,7 +107,7 @@ export default function SectionEditorPage() {
     const interval = setInterval(async () => {
       const { formData: fd, tags: t, commentaries: c, existingComments: ec, questionsForRabbi: q } = dataRef.current;
       const payload = {
-        title: fd.title, originalText: fd.originalText, isEdited: fd.isEdited,
+        title: fd.title, originalText: fd.originalText, introduction: fd.introduction, isEdited: fd.isEdited,
         tags: t, commentary: c, comments: ec, questionsForRabbi: q,
       };
       const payloadStr = JSON.stringify(payload);
@@ -134,11 +136,30 @@ export default function SectionEditorPage() {
           setFormData({
             title: data.title || '',
             originalText: decodeTooltips(data.originalText || ''),
+            introduction: data.introduction || '',
             isEdited: data.isEdited || false,
             bookTitle: data.bookTitle || '',
             bookId: data.bookId || '',
             parentId: data.parentId || '',
           });
+
+          // Fetch siblings for prev/next navigation
+          if (data.bookId) {
+            fetch(`/api/sections?bookId=${data.bookId}`)
+              .then(r => r.json())
+              .then((sections: any[]) => {
+                // Flatten tree depth-first for reading order
+                const roots = sections.filter(s => !s.parentId).sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+                const flat: { id: string; title: string }[] = [];
+                const addWithChildren = (node: any) => {
+                  flat.push({ id: node.id, title: node.title });
+                  sections.filter(s => s.parentId === node.id).sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0)).forEach(addWithChildren);
+                };
+                roots.forEach(addWithChildren);
+                setSiblings(flat);
+              })
+              .catch(() => {});
+          }
           setTags(Array.isArray(data.tags) ? data.tags : (data.tags ? data.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []));
           const decodedCommentary = (data.commentary || []).map((c: any) => ({ ...c, text: decodeTooltips(c.text || '') }));
           const loadedComments = data.comments || [];
@@ -149,7 +170,7 @@ export default function SectionEditorPage() {
 
           // Set initial save snapshot so auto-save knows the baseline
           lastSavedRef.current = JSON.stringify({
-            title: data.title || '', originalText: decodeTooltips(data.originalText || ''), isEdited: data.isEdited || false,
+            title: data.title || '', originalText: decodeTooltips(data.originalText || ''), introduction: data.introduction || '', isEdited: data.isEdited || false,
             tags: Array.isArray(data.tags) ? data.tags : (data.tags ? data.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []),
             commentary: decodedCommentary, comments: loadedComments, questionsForRabbi: loadedQuestions,
           });
@@ -210,6 +231,7 @@ export default function SectionEditorPage() {
       const payload = {
         title: formData.title,
         originalText: formData.originalText,
+        introduction: formData.introduction,
         isEdited: formData.isEdited,
         tags,
         commentary: commentaries,
@@ -302,6 +324,12 @@ export default function SectionEditorPage() {
             </div>
           </div>
 
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E0D8] space-y-4">
+            <h2 className="text-xl font-bold text-[#8C2B2B] border-b border-[#F0EBE1] pb-3">הקדמה</h2>
+            <textarea name="introduction" value={formData.introduction} onChange={handleInputChange}
+              className="w-full p-4 h-28 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none resize-y font-serif text-base leading-loose" placeholder="הקדמה לפרק (אופציונלי)..." />
+          </div>
+
           <div className="bg-white rounded-2xl shadow-sm border border-[#E5E0D8] overflow-hidden">
             <div className="p-4 border-b border-[#E5E0D8] bg-[#FAF8F5]">
               <h2 className="text-xl font-bold text-[#4A3B32]">טקסט המקור</h2>
@@ -314,7 +342,7 @@ export default function SectionEditorPage() {
 
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E0D8] space-y-4">
             <div className="flex justify-between items-center border-b border-[#F0EBE1] pb-3">
-              <h2 className="text-xl font-bold text-[#4A3B32]">ביאור והרחבה</h2>
+              <h2 className="text-xl font-bold text-[#8C2B2B]">ביאור והרחבה</h2>
               <button onClick={() => setCommentaries([...commentaries, { id: Date.now(), text: '' }])}
                 className="flex items-center gap-1 text-sm text-[#8C2B2B] hover:text-[#7A2525] font-bold bg-[#F0EBE1] px-3 py-1.5 rounded-lg transition-colors">
                 <Plus size={16} /> הוסף קטע
@@ -365,10 +393,18 @@ export default function SectionEditorPage() {
               <h1 className="text-xl font-serif font-bold text-[#4A3B32]">{formData.bookTitle}</h1>
             </div>
             <h2 className="text-lg font-bold text-[#8C2B2B] mb-4 font-serif">{formData.title}</h2>
+            {formData.introduction.trim() && (
+              <div className="mb-6 p-4 bg-white rounded-xl border border-[#E5E0D8]">
+                <h3 className="text-base font-bold text-[#8C2B2B] font-serif border-b border-[#F0EBE1] pb-2 mb-3">הקדמה</h3>
+                <div className="font-serif leading-loose text-[#2C2A29] text-justify text-sm">
+                  <MarkdownRenderer>{formData.introduction}</MarkdownRenderer>
+                </div>
+              </div>
+            )}
             <div className="font-serif text-xl leading-loose text-[#2C2A29] text-justify mb-8 p-4 bg-[#FAF8F5] rounded-xl border border-[#E5E0D8]">
               <MarkdownRenderer>{formData.originalText}</MarkdownRenderer>
             </div>
-            <h3 className="text-lg font-bold text-[#4A3B32] mb-4 border-b border-[#F0EBE1] pb-2">ביאור והרחבה</h3>
+            <h3 className="text-lg font-bold text-[#8C2B2B] mb-4 border-b border-[#F0EBE1] pb-2">ביאור והרחבה</h3>
             <div className="space-y-4">
               {commentaries.map(s => (
                 <div key={s.id} className="text-base leading-relaxed text-[#4A3B32]">
@@ -384,6 +420,27 @@ export default function SectionEditorPage() {
           </div>
         </div>
       </div>
+
+      {/* Prev/Next Navigation */}
+      {siblings.length > 1 && (() => {
+        const currentIdx = siblings.findIndex(s => s.id === sectionId);
+        const prev = currentIdx > 0 ? siblings[currentIdx - 1] : null;
+        const next = currentIdx >= 0 && currentIdx < siblings.length - 1 ? siblings[currentIdx + 1] : null;
+        return (prev || next) ? (
+          <div className="flex justify-between items-center mt-8 pt-6 border-t border-[#E5E0D8]">
+            {prev ? (
+              <Link href={`/admin/sections/${prev.id}`} className="flex items-center gap-2 text-[#8C2B2B] font-bold hover:underline">
+                <ChevronRight size={18} /> הקודם: {prev.title}
+              </Link>
+            ) : <div />}
+            {next ? (
+              <Link href={`/admin/sections/${next.id}`} className="flex items-center gap-2 text-[#8C2B2B] font-bold hover:underline">
+                הבא: {next.title} <ChevronLeft size={18} />
+              </Link>
+            ) : <div />}
+          </div>
+        ) : null;
+      })()}
     </div>
   );
 }

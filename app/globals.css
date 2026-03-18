@@ -1,1 +1,10 @@
 @import "tailwindcss";
+
+/* Headings must override citation-font styling */
+h2 .citation-font,
+h3 .citation-font,
+h4 .citation-font {
+  color: inherit !important;
+  border-bottom: none !important;
+  font-family: inherit !important;
+}

@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "clean": "next clean"
+    "clean": "next clean",
+    "deploy": "vercel --prod --scope motis-projects-15d82735"
   },
   "dependencies": {
     "@google/genai": "^1.17.0",

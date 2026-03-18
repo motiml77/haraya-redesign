@@ -45,15 +45,17 @@ async function getBookWithSections(bookId: string) {
 
   if (!doc.exists) return null;
 
-  const sections = sectionsSnap.docs.map(d => ({
-    id: d.id,
-    title: d.data().title,
-    bookId: d.data().bookId,
-    parentId: d.data().parentId,
-    orderIndex: d.data().orderIndex,
-    isEdited: d.data().isEdited,
-    hasContent: !!(d.data().originalText),
-  })).sort((a: any, b: any) => (a.orderIndex || 0) - (b.orderIndex || 0));
+  const sections = sectionsSnap.docs
+    .filter(d => !d.data().isHidden)
+    .map(d => ({
+      id: d.id,
+      title: d.data().title,
+      bookId: d.data().bookId,
+      parentId: d.data().parentId,
+      orderIndex: d.data().orderIndex,
+      isEdited: d.data().isEdited,
+      hasContent: !!(d.data().originalText),
+    })).sort((a: any, b: any) => (a.orderIndex || 0) - (b.orderIndex || 0));
 
   const result = { id: doc.id, ...doc.data(), sections };
   setCache(cacheKey, result, 60_000);
@@ -72,10 +74,25 @@ export default async function SectionPage({ params }: { params: Promise<{ bookId
     return <div className="min-h-screen bg-[#FAF8F5] flex items-center justify-center text-[#8C2B2B] font-serif text-xl" suppressHydrationWarning>התוכן לא נמצא</div>;
   }
 
-  // Find siblings
-  const siblings = book.sections
-    .filter((s: any) => s.parentId === section.parentId && s.hasContent)
-    .sort((a: any, b: any) => (a.orderIndex || 0) - (b.orderIndex || 0));
+  // Flatten tree to reading order (depth-first) for sequential navigation
+  function flattenSections(sections: any[]): any[] {
+    const roots = sections
+      .filter((s: any) => !s.parentId)
+      .sort((a: any, b: any) => (a.orderIndex || 0) - (b.orderIndex || 0));
+
+    const result: any[] = [];
+    const addWithChildren = (node: any) => {
+      if (node.hasContent) result.push(node);
+      sections
+        .filter((s: any) => s.parentId === node.id)
+        .sort((a: any, b: any) => (a.orderIndex || 0) - (b.orderIndex || 0))
+        .forEach(addWithChildren);
+    };
+    roots.forEach(addWithChildren);
+    return result;
+  }
+
+  const siblings = flattenSections(book.sections);
 
   // Build breadcrumbs
   const breadcrumbItems: { label: string; href?: string }[] = [

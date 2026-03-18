@@ -201,7 +201,7 @@ function makeComponents(pClassName: string) {
         return <TooltipSpan explanation={explanation}><span {...rest} /></TooltipSpan>;
       }
       if (className === 'citation-font') {
-        return <span className="font-['FrankRuehl',_'Miriam',_'Times_New_Roman',_serif] text-[#1a5276] border-b border-dotted border-[#1a5276]/30" {...props} />;
+        return <span className="citation-font font-['FrankRuehl',_'Miriam',_'Times_New_Roman',_serif] text-[#1a5276]" {...props} />;
       }
       return <span className={className} {...props} />;
     },
@@ -212,9 +212,9 @@ function makeComponents(pClassName: string) {
       return <sup className={className} {...props} />;
     },
     p: ({ node, ...props }: any) => <p {...props} className={pClassName} />,
-    h2: ({ node, ...props }: any) => <h2 {...props} className="text-xl font-serif font-bold text-[#4A3B32] mt-8 mb-3 pb-2 border-b border-[#E5E0D8]" />,
-    h3: ({ node, ...props }: any) => <h3 {...props} className="text-lg font-serif font-bold text-[#4A3B32] mt-6 mb-2" />,
-    h4: ({ node, ...props }: any) => <h4 {...props} className="text-base font-bold text-[#4A3B32] mt-4 mb-2" />,
+    h2: ({ node, ...props }: any) => <h2 {...props} className="text-lg font-bold text-[#8C2B2B] mt-8 mb-3 pb-2 border-b border-[#E5E0D8]" />,
+    h3: ({ node, ...props }: any) => <h3 {...props} className="text-lg font-bold text-[#8C2B2B] mt-6 mb-2 pb-2 border-b border-[#E5E0D8]" />,
+    h4: ({ node, ...props }: any) => <h4 {...props} className="text-base font-bold text-[#8C2B2B] mt-4 mb-2 pb-2 border-b border-[#E5E0D8]" />,
   };
 }
 

@@ -107,16 +107,16 @@ function SectionCard({ section, bookId, expandedSections, onToggle, depth }: {
   const isExpanded = expandedSections.has(section.id);
 
   const indent = depth === 0 ? '' : depth === 1 ? 'mr-4' : 'mr-8';
-  const textSize = depth === 0 ? 'text-base' : 'text-sm';
+  const textSize = depth === 0 ? 'text-sm' : 'text-xs';
 
   // If section has content and no children — direct link
   if (section.hasContent && !hasChildren) {
     return (
       <Link href={`/book/${bookId}/${section.id}`}
-        className={`flex items-center gap-2 bg-white p-3 rounded-xl shadow-sm border border-[#E5E0D8] hover:border-[#8C2B2B] hover:shadow-md transition-all group ${indent}`}>
-        <FileText size={16} className="text-[#8C7A6B] group-hover:text-[#8C2B2B] transition-colors shrink-0" />
+        className={`flex items-center gap-2 bg-white px-3 py-2 rounded-lg shadow-sm border border-[#E5E0D8] hover:border-[#8C2B2B] hover:shadow-md transition-all group ${indent}`}>
+        <FileText size={14} className="text-[#8C7A6B] group-hover:text-[#8C2B2B] transition-colors shrink-0" />
         <span className={`${textSize} font-bold text-[#4A3B32] flex-1`}>{section.title}</span>
-        <span className={`w-2 h-2 rounded-full shrink-0 ${section.isEdited ? 'bg-green-500' : 'bg-red-400'}`}
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${section.isEdited ? 'bg-green-500' : 'bg-red-400'}`}
           title={section.isEdited ? 'ערוך' : 'לא ערוך'}></span>
       </Link>
     );
@@ -124,31 +124,31 @@ function SectionCard({ section, bookId, expandedSections, onToggle, depth }: {
 
   // Container with children (may also have content)
   return (
-    <div className={`bg-white rounded-xl shadow-sm border border-[#E5E0D8] overflow-hidden ${indent}`}>
+    <div className={`bg-white rounded-lg shadow-sm border border-[#E5E0D8] overflow-hidden ${indent}`}>
       <div className="flex items-center">
         {section.hasContent ? (
           <Link href={`/book/${bookId}/${section.id}`}
-            className="flex-1 flex items-center gap-2 p-3 hover:bg-[#FAF8F5] transition-colors text-right">
+            className="flex-1 flex items-center gap-2 px-3 py-2 hover:bg-[#FAF8F5] transition-colors text-right">
             <h2 className={`${textSize} font-bold text-[#4A3B32]`}>{section.title}</h2>
             {section.hasContent && (
-              <span className={`w-2 h-2 rounded-full shrink-0 ${section.isEdited ? 'bg-green-500' : 'bg-red-400'}`}></span>
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${section.isEdited ? 'bg-green-500' : 'bg-red-400'}`}></span>
             )}
           </Link>
         ) : (
           <button onClick={() => onToggle(section.id)}
-            className="flex-1 flex items-center gap-2 p-3 hover:bg-[#FAF8F5] transition-colors text-right">
+            className="flex-1 flex items-center gap-2 px-3 py-2 hover:bg-[#FAF8F5] transition-colors text-right">
             <h2 className={`${textSize} font-bold text-[#4A3B32]`}>{section.title}</h2>
           </button>
         )}
         {hasChildren && (
-          <button onClick={() => onToggle(section.id)} className="p-3">
-            <ChevronDown size={18} className={`text-[#8C7A6B] transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+          <button onClick={() => onToggle(section.id)} className="px-3 py-2">
+            <ChevronDown size={16} className={`text-[#8C7A6B] transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
           </button>
         )}
       </div>
 
       {isExpanded && hasChildren && (
-        <div className="border-t border-[#E5E0D8] p-3 space-y-2">
+        <div className="border-t border-[#E5E0D8] px-3 py-2 space-y-1.5">
           {section.children.map(child => (
             <SectionCard
               key={child.id}

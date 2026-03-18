@@ -32,11 +32,13 @@ async function getBookWithSections(bookId: string) {
 
     if (!doc.exists) return null;
 
-    const sections = sectionsSnap.docs.map(d => ({
-      id: d.id,
-      ...d.data(),
-      hasContent: !!(d.data().originalText),
-    })).sort((a: any, b: any) => (a.orderIndex || 0) - (b.orderIndex || 0));
+    const sections = sectionsSnap.docs
+      .filter(d => !d.data().isHidden)
+      .map(d => ({
+        id: d.id,
+        ...d.data(),
+        hasContent: !!(d.data().originalText),
+      })).sort((a: any, b: any) => (a.orderIndex || 0) - (b.orderIndex || 0));
 
     const result = { id: doc.id, ...doc.data(), sections };
     setCache(cacheKey, result, 60_000);
@@ -72,7 +74,7 @@ export default async function BookPage({ params }: { params: Promise<{ bookId: s
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-6 py-8 space-y-3">
+      <main className="max-w-4xl mx-auto px-6 py-6 space-y-2">
         {book.sections && book.sections.length > 0 ? (
           <BookSectionsTree sections={book.sections} bookId={bookId} />
         ) : (
