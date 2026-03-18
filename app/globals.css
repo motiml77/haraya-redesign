@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+/* Split panel: full width on mobile, custom width on desktop */
+.split-panel {
+  width: 100%;
+}
+@media (min-width: 1024px) {
+  .split-panel {
+    width: var(--split-width, 42%);
+  }
+}
+
 /* Headings must override citation-font styling */
 h2 .citation-font,
 h3 .citation-font,

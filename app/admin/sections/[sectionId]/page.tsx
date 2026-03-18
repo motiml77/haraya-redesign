@@ -1,20 +1,20 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Save, Eye, Plus, Trash2, Check, ChevronRight, ChevronLeft } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Save, Eye, Plus, Trash2, ChevronRight, ChevronLeft, ChevronUp, ChevronDown } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { authFetch } from '@/lib/auth-fetch';
 import { useAdminUser } from '../../admin-context';
 import { MarkdownToolbar } from '@/components/MarkdownToolbar';
 import { MarkdownRenderer, SimpleMarkdown } from '@/components/MarkdownRenderer';
-import { useWordPasteHandler } from '@/hooks/use-word-paste';
 import { convertWordHtmlToMarkdown } from '@/lib/word-to-markdown';
+import { normalizeSectionContent } from '@/lib/normalize-section';
 import { Breadcrumb } from '@/components/Breadcrumb';
 import { TagInput } from '@/components/TagInput';
+import { ContentBlock } from '@/lib/types';
 
 // Decode URL-encoded tooltips for readable editing
-// For encoded content: find last ) before next [ or newline (avoids paren-depth issues)
 function decodeTooltips(text: string): string {
   if (!text) return text;
   let output = '';
@@ -33,7 +33,6 @@ function decodeTooltips(text: string): string {
       const isUrlEncoded = /^%[0-9A-Fa-f]{2}/.test(text.substring(tooltipStart, tooltipStart + 3));
       let j: number;
       if (isUrlEncoded) {
-        // Find last ) before next [ or newline
         let searchEnd = text.length;
         const nextNl = text.indexOf('\n', tooltipStart);
         if (nextNl !== -1 && nextNl < searchEnd) searchEnd = nextNl;
@@ -72,11 +71,11 @@ export default function SectionEditorPage() {
   const { user } = useAdminUser();
 
   const [formData, setFormData] = useState({
-    title: '', originalText: '', introduction: '', isEdited: false,
+    title: '', introduction: '', isEdited: false,
     bookTitle: '', bookId: '', parentId: '',
   });
+  const [contentBlocks, setContentBlocks] = useState<ContentBlock[]>([]);
   const [tags, setTags] = useState<string[]>([]);
-  const [commentaries, setCommentaries] = useState<any[]>([]);
   const [existingComments, setExistingComments] = useState<any[]>([]);
   const [questionsForRabbi, setQuestionsForRabbi] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -86,29 +85,26 @@ export default function SectionEditorPage() {
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [siblings, setSiblings] = useState<{ id: string; title: string }[]>([]);
 
-  const originalTextRef = useRef<HTMLTextAreaElement>(null);
   const lastSavedRef = useRef<string>('');
-  const dataRef = useRef({ formData: { title: '', originalText: '', introduction: '', isEdited: false, bookTitle: '', bookId: '', parentId: '' }, tags: [] as string[], commentaries: [] as any[], existingComments: [] as any[], questionsForRabbi: [] as any[] });
-
-  useWordPasteHandler(
-    originalTextRef,
-    (val) => setFormData(prev => ({ ...prev, originalText: val })),
-    () => formData.originalText
-  );
+  const dataRef = useRef({
+    formData: { title: '', introduction: '', isEdited: false, bookTitle: '', bookId: '', parentId: '' },
+    contentBlocks: [] as ContentBlock[], tags: [] as string[],
+    existingComments: [] as any[], questionsForRabbi: [] as any[],
+  });
 
   // Keep dataRef in sync for auto-save interval to read
   useEffect(() => {
-    dataRef.current = { formData, tags, commentaries, existingComments, questionsForRabbi };
+    dataRef.current = { formData, contentBlocks, tags, existingComments, questionsForRabbi };
   });
 
   // Auto-save every 20 seconds
   useEffect(() => {
     if (isLoading) return;
     const interval = setInterval(async () => {
-      const { formData: fd, tags: t, commentaries: c, existingComments: ec, questionsForRabbi: q } = dataRef.current;
+      const { formData: fd, contentBlocks: cb, tags: t, existingComments: ec, questionsForRabbi: q } = dataRef.current;
       const payload = {
-        title: fd.title, originalText: fd.originalText, introduction: fd.introduction, isEdited: fd.isEdited,
-        tags: t, commentary: c, comments: ec, questionsForRabbi: q,
+        title: fd.title, introduction: fd.introduction, isEdited: fd.isEdited,
+        tags: t, contentBlocks: cb, comments: ec, questionsForRabbi: q,
       };
       const payloadStr = JSON.stringify(payload);
       if (payloadStr === lastSavedRef.current) return;
@@ -133,9 +129,11 @@ export default function SectionEditorPage() {
       .then(res => res.json())
       .then(async (data) => {
         if (data && !data.error) {
+          // Normalize legacy data to contentBlocks
+          const normalized = normalizeSectionContent(data);
+
           setFormData({
             title: data.title || '',
-            originalText: decodeTooltips(data.originalText || ''),
             introduction: data.introduction || '',
             isEdited: data.isEdited || false,
             bookTitle: data.bookTitle || '',
@@ -143,12 +141,19 @@ export default function SectionEditorPage() {
             parentId: data.parentId || '',
           });
 
+          // Decode tooltips in content blocks
+          const decodedBlocks: ContentBlock[] = (normalized.contentBlocks || []).map((b: ContentBlock) => ({
+            ...b,
+            sourceText: decodeTooltips(b.sourceText || ''),
+            commentaryText: decodeTooltips(b.commentaryText || ''),
+          }));
+          setContentBlocks(decodedBlocks);
+
           // Fetch siblings for prev/next navigation
           if (data.bookId) {
             fetch(`/api/sections?bookId=${data.bookId}`)
               .then(r => r.json())
               .then((sections: any[]) => {
-                // Flatten tree depth-first for reading order
                 const roots = sections.filter(s => !s.parentId).sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
                 const flat: { id: string; title: string }[] = [];
                 const addWithChildren = (node: any) => {
@@ -160,22 +165,20 @@ export default function SectionEditorPage() {
               })
               .catch(() => {});
           }
+
           setTags(Array.isArray(data.tags) ? data.tags : (data.tags ? data.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []));
-          const decodedCommentary = (data.commentary || []).map((c: any) => ({ ...c, text: decodeTooltips(c.text || '') }));
           const loadedComments = data.comments || [];
           const loadedQuestions = data.questionsForRabbi || [];
-          setCommentaries(decodedCommentary);
           setExistingComments(loadedComments);
           setQuestionsForRabbi(loadedQuestions);
 
-          // Set initial save snapshot so auto-save knows the baseline
+          // Set initial save snapshot
           lastSavedRef.current = JSON.stringify({
-            title: data.title || '', originalText: decodeTooltips(data.originalText || ''), introduction: data.introduction || '', isEdited: data.isEdited || false,
+            title: data.title || '', introduction: data.introduction || '', isEdited: data.isEdited || false,
             tags: Array.isArray(data.tags) ? data.tags : (data.tags ? data.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []),
-            commentary: decodedCommentary, comments: loadedComments, questionsForRabbi: loadedQuestions,
+            contentBlocks: decodedBlocks, comments: loadedComments, questionsForRabbi: loadedQuestions,
           });
 
-          // Build breadcrumbs by walking up parentId chain
           await buildBreadcrumbs(data);
         }
         setIsLoading(false);
@@ -187,12 +190,9 @@ export default function SectionEditorPage() {
     const items: { label: string; href?: string }[] = [
       { label: 'ספרים', href: '/admin/books' },
     ];
-
     if (section.bookId) {
       items.push({ label: section.bookTitle || 'ספר', href: `/admin/books` });
     }
-
-    // Walk up parentId chain to build path
     if (section.parentId) {
       const ancestors: { title: string; id: string }[] = [];
       let currentParentId = section.parentId;
@@ -210,7 +210,6 @@ export default function SectionEditorPage() {
         items.push({ label: a.title, href: `/admin/sections/${a.id}` });
       });
     }
-
     items.push({ label: section.title || 'חלק' });
     setBreadcrumbItems(items);
   };
@@ -224,17 +223,40 @@ export default function SectionEditorPage() {
     }
   };
 
+  // Block operations
+  const updateBlockField = (blockId: string, field: 'sourceText' | 'commentaryText', value: string) => {
+    setContentBlocks(prev => prev.map(b => b.id === blockId ? { ...b, [field]: value } : b));
+  };
+
+  const addBlock = () => {
+    setContentBlocks(prev => [...prev, { id: `cb_${Date.now()}`, sourceText: '', commentaryText: '' }]);
+  };
+
+  const deleteBlock = (blockId: string) => {
+    if (contentBlocks.length <= 1) return;
+    setContentBlocks(prev => prev.filter(b => b.id !== blockId));
+  };
+
+  const moveBlock = (index: number, direction: 'up' | 'down') => {
+    setContentBlocks(prev => {
+      const arr = [...prev];
+      const target = direction === 'up' ? index - 1 : index + 1;
+      if (target < 0 || target >= arr.length) return prev;
+      [arr[index], arr[target]] = [arr[target], arr[index]];
+      return arr;
+    });
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     setSaveMessage('');
     try {
       const payload = {
         title: formData.title,
-        originalText: formData.originalText,
         introduction: formData.introduction,
         isEdited: formData.isEdited,
         tags,
-        commentary: commentaries,
+        contentBlocks,
         comments: existingComments,
         questionsForRabbi,
       };
@@ -255,26 +277,31 @@ export default function SectionEditorPage() {
   };
 
   const handleAskRabbi = () => {
-    // Capture selected text from textarea
-    const textarea = originalTextRef.current;
-    let selectedText = '';
-    if (textarea) {
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      if (start !== end) selectedText = textarea.value.substring(start, end);
-    }
-
     const question = prompt('מה השאלה לרב על החלק הנוכחי?', '');
     if (question) {
       setQuestionsForRabbi([...questionsForRabbi, {
         id: Date.now(), author: user?.name || 'עורך',
         date: new Date().toISOString().split('T')[0],
         text: question, paragraphTitle: formData.title || 'ללא כותרת',
-        selectedText: selectedText || undefined,
-        replies: [],
-        resolved: false,
+        replies: [], resolved: false,
       }]);
     }
+  };
+
+  // Word paste handler for block textareas
+  const handleWordPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>, blockId: string, field: 'sourceText' | 'commentaryText') => {
+    const html = e.clipboardData?.getData('text/html');
+    if (!html || !/class="?Mso|mso-|<o:p>/i.test(html)) return;
+    e.preventDefault();
+    const markdown = convertWordHtmlToMarkdown(html);
+    const target = e.currentTarget;
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    const block = contentBlocks.find(b => b.id === blockId);
+    if (!block) return;
+    const current = block[field];
+    const newText = current.substring(0, start) + markdown + current.substring(end);
+    updateBlockField(blockId, field, newText);
   };
 
   if (isLoading) return <p className="text-center text-[#8C7A6B] py-12">טוען...</p>;
@@ -305,6 +332,7 @@ export default function SectionEditorPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Editor */}
         <div className="space-y-6">
+          {/* Section details */}
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E0D8] space-y-4">
             <div className="flex justify-between items-center border-b border-[#F0EBE1] pb-3">
               <h2 className="text-xl font-bold text-[#4A3B32]">פרטי החלק</h2>
@@ -324,59 +352,64 @@ export default function SectionEditorPage() {
             </div>
           </div>
 
+          {/* Introduction */}
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E0D8] space-y-4">
             <h2 className="text-xl font-bold text-[#8C2B2B] border-b border-[#F0EBE1] pb-3">הקדמה</h2>
             <textarea name="introduction" value={formData.introduction} onChange={handleInputChange}
               className="w-full p-4 h-28 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none resize-y font-serif text-base leading-loose" placeholder="הקדמה לפרק (אופציונלי)..." />
           </div>
 
-          <div className="bg-white rounded-2xl shadow-sm border border-[#E5E0D8] overflow-hidden">
-            <div className="p-4 border-b border-[#E5E0D8] bg-[#FAF8F5]">
-              <h2 className="text-xl font-bold text-[#4A3B32]">טקסט המקור</h2>
-              <p className="text-xs text-[#8C7A6B] mt-1">סמן מילה ולחץ על סמל הבועה כדי להוסיף ביאור צף.</p>
-            </div>
-            <MarkdownToolbar textareaRef={originalTextRef} onAskRabbi={handleAskRabbi} />
-            <textarea ref={originalTextRef} name="originalText" value={formData.originalText} onChange={handleInputChange}
-              className="w-full p-4 h-48 focus:outline-none resize-y font-serif text-lg leading-loose" placeholder="הזן את טקסט המקור כאן..." />
-          </div>
-
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E0D8] space-y-4">
-            <div className="flex justify-between items-center border-b border-[#F0EBE1] pb-3">
-              <h2 className="text-xl font-bold text-[#8C2B2B]">ביאור והרחבה</h2>
-              <button onClick={() => setCommentaries([...commentaries, { id: Date.now(), text: '' }])}
-                className="flex items-center gap-1 text-sm text-[#8C2B2B] hover:text-[#7A2525] font-bold bg-[#F0EBE1] px-3 py-1.5 rounded-lg transition-colors">
-                <Plus size={16} /> הוסף קטע
-              </button>
-            </div>
-            {commentaries.map((commentary, index) => {
-              const ref = React.createRef<HTMLTextAreaElement>();
-              return (
-                <div key={commentary.id} className="border border-[#E5E0D8] rounded-xl overflow-hidden relative">
-                  <div className="absolute top-2 left-2 z-10">
-                    <button onClick={() => setCommentaries(commentaries.filter(c => c.id !== commentary.id))}
-                      className="p-1.5 bg-white rounded-md text-red-500 hover:bg-red-50 transition-colors shadow-sm border border-red-100"><Trash2 size={16} /></button>
+          {/* Content Blocks */}
+          {contentBlocks.map((block, index) => {
+            const sourceRef = React.createRef<HTMLTextAreaElement>();
+            const commentaryRef = React.createRef<HTMLTextAreaElement>();
+            return (
+              <div key={block.id} className="bg-white rounded-2xl shadow-sm border border-[#E5E0D8] overflow-hidden">
+                {/* Block header */}
+                <div className="p-4 border-b border-[#E5E0D8] bg-[#FAF8F5] flex justify-between items-center">
+                  <h3 className="font-bold text-[#4A3B32]">קטע {index + 1}</h3>
+                  <div className="flex gap-1">
+                    <button onClick={() => moveBlock(index, 'up')} disabled={index === 0}
+                      className="p-1.5 rounded-md text-[#8C7A6B] hover:bg-[#E5E0D8] disabled:opacity-30 transition-colors"><ChevronUp size={16} /></button>
+                    <button onClick={() => moveBlock(index, 'down')} disabled={index === contentBlocks.length - 1}
+                      className="p-1.5 rounded-md text-[#8C7A6B] hover:bg-[#E5E0D8] disabled:opacity-30 transition-colors"><ChevronDown size={16} /></button>
+                    {contentBlocks.length > 1 && (
+                      <button onClick={() => deleteBlock(block.id)}
+                        className="p-1.5 rounded-md text-red-500 hover:bg-red-50 transition-colors"><Trash2 size={16} /></button>
+                    )}
                   </div>
-                  <MarkdownToolbar textareaRef={ref} />
-                  <textarea ref={ref} value={commentary.text}
-                    onChange={(e) => setCommentaries(commentaries.map(c => c.id === commentary.id ? { ...c, text: e.target.value } : c))}
-                    onPaste={(e) => {
-                      const html = e.clipboardData?.getData('text/html');
-                      if (!html || !/class="?Mso|mso-|<o:p>/i.test(html)) return;
-                      e.preventDefault();
-                      const markdown = convertWordHtmlToMarkdown(html);
-                      const target = e.currentTarget;
-                      const start = target.selectionStart;
-                      const end = target.selectionEnd;
-                      const current = commentary.text;
-                      const newText = current.substring(0, start) + markdown + current.substring(end);
-                      setCommentaries(commentaries.map(c => c.id === commentary.id ? { ...c, text: newText } : c));
-                    }}
-                    className="w-full p-4 h-32 focus:outline-none resize-y" placeholder={`קטע ביאור ${index + 1}...`} />
                 </div>
-              );
-            })}
-          </div>
 
+                {/* Source text */}
+                <div className="border-b border-[#E5E0D8]">
+                  <div className="px-4 pt-3 text-sm font-bold text-[#8C7A6B]">טקסט מקור</div>
+                  <MarkdownToolbar textareaRef={sourceRef} onAskRabbi={handleAskRabbi} />
+                  <textarea ref={sourceRef} value={block.sourceText}
+                    onChange={(e) => updateBlockField(block.id, 'sourceText', e.target.value)}
+                    onPaste={(e) => handleWordPaste(e, block.id, 'sourceText')}
+                    className="w-full p-4 h-36 focus:outline-none resize-y font-serif text-lg leading-loose" placeholder="טקסט המקור..." />
+                </div>
+
+                {/* Commentary text */}
+                <div>
+                  <div className="px-4 pt-3 text-sm font-bold text-[#8C7A6B]">ביאור</div>
+                  <MarkdownToolbar textareaRef={commentaryRef} />
+                  <textarea ref={commentaryRef} value={block.commentaryText}
+                    onChange={(e) => updateBlockField(block.id, 'commentaryText', e.target.value)}
+                    onPaste={(e) => handleWordPaste(e, block.id, 'commentaryText')}
+                    className="w-full p-4 h-36 focus:outline-none resize-y" placeholder="ביאור והרחבה..." />
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Add block button */}
+          <button onClick={addBlock}
+            className="flex items-center gap-2 justify-center w-full py-3 rounded-xl border-2 border-dashed border-[#E5E0D8] text-[#8C7A6B] hover:text-[#8C2B2B] hover:border-[#8C2B2B] transition-all text-sm font-bold">
+            <Plus size={18} /> הוסף קטע תוכן חדש
+          </button>
+
+          {/* Tags */}
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E0D8]">
             <label className="block text-sm font-bold text-[#8C7A6B] mb-2">נושאים</label>
             <TagInput tags={tags} onChange={setTags} />
@@ -401,14 +434,28 @@ export default function SectionEditorPage() {
                 </div>
               </div>
             )}
-            <div className="font-serif text-xl leading-loose text-[#2C2A29] text-justify mb-8 p-4 bg-[#FAF8F5] rounded-xl border border-[#E5E0D8]">
-              <MarkdownRenderer>{formData.originalText}</MarkdownRenderer>
-            </div>
-            <h3 className="text-lg font-bold text-[#8C2B2B] mb-4 border-b border-[#F0EBE1] pb-2">ביאור והרחבה</h3>
-            <div className="space-y-4">
-              {commentaries.map(s => (
-                <div key={s.id} className="text-base leading-relaxed text-[#4A3B32]">
-                  <SimpleMarkdown>{s.text || '*טקסט ריק*'}</SimpleMarkdown>
+            <div className="space-y-6">
+              {contentBlocks.map((block, index) => (
+                <div key={block.id}>
+                  {(block.sourceText || block.commentaryText) ? (
+                    <div className="space-y-3">
+                      {block.sourceText && (
+                        <div className="font-serif text-lg leading-loose text-[#2C2A29] text-justify p-4 bg-[#FAF8F5] rounded-xl border border-[#E5E0D8]">
+                          {index === 0 && <h3 className="text-base font-bold text-[#8C2B2B] font-serif mb-3">מקור</h3>}
+                          <MarkdownRenderer>{block.sourceText}</MarkdownRenderer>
+                        </div>
+                      )}
+                      {block.commentaryText && (
+                        <div className="text-base leading-relaxed text-[#4A3B32] p-4">
+                          {index === 0 && <h3 className="text-base font-bold text-[#8C2B2B] font-serif mb-3 border-b border-[#F0EBE1] pb-2">ביאורים והרחבות</h3>}
+                          <SimpleMarkdown>{block.commentaryText}</SimpleMarkdown>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-center py-4 text-sm text-[#8C7A6B]">קטע {index + 1} — ריק</div>
+                  )}
+                  {index < contentBlocks.length - 1 && <hr className="border-[#E5E0D8] my-2" />}
                 </div>
               ))}
             </div>

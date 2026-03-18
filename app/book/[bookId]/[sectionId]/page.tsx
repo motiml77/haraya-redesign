@@ -1,6 +1,7 @@
 import React from 'react';
 import { adminDb } from '@/lib/firebase-admin';
 import { getCached, setCache } from '@/lib/cache';
+import { normalizeSectionContent } from '@/lib/normalize-section';
 import { SectionViewer } from '@/components/SectionViewer';
 
 export const revalidate = 60;
@@ -8,13 +9,13 @@ export const revalidate = 60;
 // Pre-build section pages with content at build time
 export async function generateStaticParams() {
   try {
-    const snapshot = await adminDb.collection('sections')
-      .where('originalText', '!=', '')
-      .get();
-    return snapshot.docs.map(doc => ({
-      bookId: doc.data().bookId,
-      sectionId: doc.id,
-    }));
+    const snapshot = await adminDb.collection('sections').get();
+    return snapshot.docs
+      .filter(doc => doc.data().originalText || (doc.data().contentBlocks && doc.data().contentBlocks.length > 0))
+      .map(doc => ({
+        bookId: doc.data().bookId,
+        sectionId: doc.id,
+      }));
   } catch {
     return [];
   }
@@ -28,7 +29,7 @@ async function getSection(sectionId: string) {
   const doc = await adminDb.collection('sections').doc(sectionId).get();
   if (!doc.exists) return null;
 
-  const result = { id: doc.id, ...doc.data() };
+  const result = normalizeSectionContent({ id: doc.id, ...doc.data() });
   setCache(cacheKey, result, 30_000);
   return result;
 }
@@ -54,7 +55,7 @@ async function getBookWithSections(bookId: string) {
       parentId: d.data().parentId,
       orderIndex: d.data().orderIndex,
       isEdited: d.data().isEdited,
-      hasContent: !!(d.data().originalText),
+      hasContent: !!(d.data().originalText || (d.data().contentBlocks && d.data().contentBlocks.length > 0)),
     })).sort((a: any, b: any) => (a.orderIndex || 0) - (b.orderIndex || 0));
 
   const result = { id: doc.id, ...doc.data(), sections };

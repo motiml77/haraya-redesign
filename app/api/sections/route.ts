@@ -37,7 +37,7 @@ export async function GET(request: Request) {
       isEdited: doc.data().isEdited,
       tags: doc.data().tags,
       orderIndex: doc.data().orderIndex,
-      hasContent: !!(doc.data().originalText),
+      hasContent: !!(doc.data().originalText || (doc.data().contentBlocks && doc.data().contentBlocks.length > 0)),
     })).sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
 
     setCache(cacheKey, sections, 30_000);

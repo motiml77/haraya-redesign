@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminDb, verifyAuth, hasRole, unauthorized, forbidden } from '@/lib/firebase-admin';
 import { getCached, setCache, invalidateCache } from '@/lib/cache';
+import { normalizeSectionContent } from '@/lib/normalize-section';
 
 const CACHE_HEADERS = { 'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60' };
 
@@ -17,7 +18,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ sect
       return NextResponse.json({ error: 'חלק לא נמצא' }, { status: 404 });
     }
 
-    const result = { id: doc.id, ...doc.data() };
+    const result = normalizeSectionContent({ id: doc.id, ...doc.data() });
     setCache(`sections:${sectionId}`, result, 30_000);
     return NextResponse.json(result, { headers: CACHE_HEADERS });
   } catch (error) {
@@ -38,6 +39,12 @@ export async function PUT(request: Request, { params }: { params: Promise<{ sect
     // Ensure tags is array
     if (data.tags && typeof data.tags === 'string') {
       data.tags = data.tags.split(',').map((t: string) => t.trim()).filter(Boolean);
+    }
+
+    // When saving contentBlocks, clear legacy fields
+    if (data.contentBlocks && data.contentBlocks.length > 0) {
+      data.originalText = '';
+      data.commentary = [];
     }
 
     await adminDb.collection('sections').doc(sectionId).update({

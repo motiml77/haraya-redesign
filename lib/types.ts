@@ -16,8 +16,9 @@ export interface Section {
   depth: number;
 
   // Content fields (optional)
-  originalText?: string;
-  commentary?: Commentary[];
+  contentBlocks?: ContentBlock[];
+  originalText?: string;       // Legacy - use contentBlocks instead
+  commentary?: Commentary[];   // Legacy - use contentBlocks instead
   comments?: Comment[];
   questionsForRabbi?: QuestionForRabbi[];
   isEdited?: boolean;
@@ -28,6 +29,12 @@ export interface Section {
 
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ContentBlock {
+  id: string;
+  sourceText: string;
+  commentaryText: string;
 }
 
 export interface Commentary {

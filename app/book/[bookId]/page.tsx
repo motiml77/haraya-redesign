@@ -37,7 +37,7 @@ async function getBookWithSections(bookId: string) {
       .map(d => ({
         id: d.id,
         ...d.data(),
-        hasContent: !!(d.data().originalText),
+        hasContent: !!(d.data().originalText || (d.data().contentBlocks && d.data().contentBlocks.length > 0)),
       })).sort((a: any, b: any) => (a.orderIndex || 0) - (b.orderIndex || 0));
 
     const result = { id: doc.id, ...doc.data(), sections };

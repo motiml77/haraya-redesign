@@ -2,19 +2,13 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import dynamic from 'next/dynamic';
-import { Share2, MessageCircle, Columns, Menu, Bookmark, BookOpen, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Loader2, User, Pencil, Trash2, Check, X, Reply, FileText } from 'lucide-react';
+import { Share2, MessageCircle, Columns, Menu, Bookmark, BookOpen, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Loader2, User, Pencil, Trash2, Check, X, Reply, FileText, Plus } from 'lucide-react';
 import { MarkdownRenderer, SimpleMarkdown } from '@/components/MarkdownRenderer';
 import { Breadcrumb } from '@/components/Breadcrumb';
 import { InlineEditor } from '@/components/InlineEditor';
 import { useEditAuth } from '@/hooks/use-edit-auth';
 import { authFetch } from '@/lib/auth-fetch';
-
-// Lazy-load CommentaryManager — it's below the fold and has its own heavy dependencies
-const CommentaryManager = dynamic(
-  () => import('@/components/CommentaryManager').then(m => m.CommentaryManager),
-  { loading: () => <div className="animate-pulse bg-[#FAF8F5] rounded-xl h-32" /> }
-);
+import { ContentBlock } from '@/lib/types';
 
 export function SectionViewer({
   initialSection,
@@ -33,7 +27,6 @@ export function SectionViewer({
   const [section, setSection] = useState<any>(initialSection);
   const [isMobileCommentaryOpen, setIsMobileCommentaryOpen] = useState(true);
   const [layoutMode, setLayoutMode] = useState<'split' | 'stacked'>('split');
-  const [isBookMode, setIsBookMode] = useState(false);
   
   // Comments state
   const [newCommentText, setNewCommentText] = useState('');
@@ -99,8 +92,6 @@ export function SectionViewer({
   }, []);
 
   const { user: editUser, canEdit, loading: authLoading } = useEditAuth();
-  const bookContainerRef = useRef<HTMLDivElement>(null);
-  const bookPageRef = useRef(0);
 
   useEffect(() => {
     const saved = localStorage.getItem('kook_bookmarks');
@@ -114,24 +105,6 @@ export function SectionViewer({
       }
     } catch {}
   }, []);
-
-  const scrollBook = (direction: 'next' | 'prev') => {
-    if (!bookContainerRef.current) return;
-    const container = bookContainerRef.current;
-    const pageWidth = container.clientWidth;
-    // The gap between columns means each page boundary crosses one extra gap
-    const gap = parseFloat(getComputedStyle(container).columnGap) || 0;
-    const scrollPerPage = pageWidth + gap;
-    const maxScroll = container.scrollWidth - pageWidth;
-    const maxPages = Math.max(0, Math.round(maxScroll / scrollPerPage));
-    const newPage = direction === 'next'
-      ? Math.min(bookPageRef.current + 1, maxPages)
-      : Math.max(bookPageRef.current - 1, 0);
-    bookPageRef.current = newPage;
-    // RTL: page 0 = scrollLeft 0, clamp to max scrollable distance
-    const target = Math.min(newPage * scrollPerPage, maxScroll);
-    container.scrollTo({ left: -target, behavior: 'smooth' });
-  };
 
   const submitComment = async () => {
     if (!newCommentText.trim() || !newCommentAuthor.trim()) { alert('נא למלא שם ותגובה'); return; }
@@ -170,6 +143,24 @@ export function SectionViewer({
     if (!data.success) throw new Error(data.error || 'שגיאה בשמירה');
     const updated = { ...section, ...updates };
     setSection(updated);
+  };
+
+  // Content blocks
+  const blocks: ContentBlock[] = section.contentBlocks || [];
+
+  const saveBlockField = async (blockId: string, field: 'sourceText' | 'commentaryText', value: string) => {
+    const updatedBlocks = blocks.map(b => b.id === blockId ? { ...b, [field]: value } : b);
+    await saveSectionField({ contentBlocks: updatedBlocks });
+  };
+
+  const handleAddBlock = async () => {
+    const newBlock: ContentBlock = { id: `cb_${Date.now()}`, sourceText: '', commentaryText: '' };
+    await saveSectionField({ contentBlocks: [...blocks, newBlock] });
+  };
+
+  const handleDeleteBlock = async (blockId: string) => {
+    if (!confirm('למחוק קטע תוכן זה?')) return;
+    await saveSectionField({ contentBlocks: blocks.filter(b => b.id !== blockId) });
   };
 
   const canManageComments = editUser && ['admin', 'rabbi'].includes(editUser.role);
@@ -235,7 +226,8 @@ export function SectionViewer({
   const nextSection = currentIdx >= 0 && currentIdx < siblings.length - 1 ? siblings[currentIdx + 1] : null;
 
   // If section has no content but has children — show children list
-  if (!section.originalText && book?.sections) {
+  const hasContent = section.originalText || (section.contentBlocks && section.contentBlocks.length > 0);
+  if (!hasContent && book?.sections) {
     const children = book.sections
       .filter((s: any) => s.parentId === sectionId)
       .sort((a: any, b: any) => (a.orderIndex || 0) - (b.orderIndex || 0));
@@ -343,240 +335,328 @@ export function SectionViewer({
         </div>
       </header>
 
-      {/* Introduction - shown to visitors only if real content exists; editors always see it */}
-      {(section.introduction?.trim() || (!authLoading && canEdit)) && (
-        <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 pt-6" dir="rtl">
-          {section.introduction?.trim() ? (
-            <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-[#E5E0D8]">
-              <h3 className="text-xl font-bold text-[#8C2B2B] font-serif border-b border-[#F0EBE1] pb-4 mb-6">הקדמה</h3>
-              <InlineEditor
-                value={section.introduction || ''}
-                onSave={async (newValue) => { await saveSectionField({ introduction: newValue }); }}
-                canEdit={canEdit}
-                minHeight="80px"
-                renderContent={
-                  <div className="font-serif leading-loose text-[#2C2A29] text-justify text-base">
-                    <MarkdownRenderer>{section.introduction}</MarkdownRenderer>
-                  </div>
-                }
-              />
-            </div>
-          ) : canEdit && (
-            <button
-              onClick={async () => { await saveSectionField({ introduction: ' ' }); }}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-dashed border-[#E5E0D8] text-[#8C7A6B] hover:text-[#8C2B2B] hover:border-[#8C2B2B] transition-all text-sm font-bold"
-            >
-              <Pencil size={14} />
-              הוסף הקדמה
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Main */}
       <main className="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8" dir="rtl">
-        <div ref={containerRef} className={`flex flex-col gap-8 ${layoutMode === 'split' ? 'lg:flex-row lg:gap-0' : ''}`}>
-          {/* Original Text */}
-          <div className={layoutMode === 'split' ? '' : 'w-full'} style={layoutMode === 'split' ? { width: `${splitPercent}%` } : undefined}>
-            <div className={`${layoutMode === 'split' ? 'lg:sticky lg:top-28 max-h-[calc(100vh-8rem)] overflow-y-auto custom-scrollbar' : ''} bg-[#EDEAE5] p-6 sm:p-8 rounded-2xl shadow-sm border border-[#D5D0C8]`}>
-              <div className="flex justify-between items-start mb-4">
-                <h2 className="text-xl font-bold text-[#8C2B2B] font-serif flex items-center gap-2">
-                  {isBookmarked && <Bookmark size={18} fill="currentColor" className="shrink-0 text-[#C4960C]" />}
-                  {section.title}
-                </h2>
-                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${section.isEdited ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                  <span className={`w-2 h-2 rounded-full ${section.isEdited ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                  <span className={`text-xs font-bold ${section.isEdited ? 'text-green-700' : 'text-red-700'}`}>{section.isEdited ? 'ערוך' : 'לא ערוך'}</span>
-                </div>
-              </div>
-              <InlineEditor
-                value={section.originalText || ''}
-                onSave={async (newValue) => { await saveSectionField({ originalText: newValue }); }}
-                canEdit={canEdit}
-                minHeight="200px"
-                renderContent={
-                  <div className={`font-serif leading-loose text-[#2C2A29] text-justify ${layoutMode === 'split' ? 'text-lg' : 'text-xl'}`}>
-                    <MarkdownRenderer>{section.originalText}</MarkdownRenderer>
-                  </div>
-                }
-              />
-              <div className="mt-8 pt-6 border-t border-[#F0EBE1] flex flex-wrap gap-2">
-                {tagsArray.map((tag: string) => (
-                  <span key={tag} className="px-3 py-1 bg-[#F0EBE1] text-[#6B5A4E] text-sm rounded-full">#{tag}</span>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Drag Handle */}
-          {layoutMode === 'split' && (
-            <div
-              className="hidden lg:flex items-center justify-center w-4 cursor-col-resize group shrink-0 select-none"
-              onMouseDown={handleDragStart}
-              onTouchStart={handleDragStart}
-              title="גרור לשינוי גודל"
-            >
-              <div className="w-1 h-16 rounded-full bg-[#E5E0D8] group-hover:bg-[#8C2B2B] group-active:bg-[#8C2B2B] transition-colors" />
-            </div>
-          )}
-
-          {/* Commentary + Comments */}
-          <div className={`${layoutMode === 'split' ? 'flex-1 min-w-0' : 'w-full'} flex flex-col gap-6`}>
-            <div className="lg:hidden flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-[#E5E0D8]" onClick={() => setIsMobileCommentaryOpen(!isMobileCommentaryOpen)}>
-              <h3 className="text-lg font-bold text-[#8C2B2B]">ביאורים והרחבות</h3>
-              {isMobileCommentaryOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-            </div>
-
-            <div className={`flex-col gap-6 ${isMobileCommentaryOpen ? 'flex' : 'hidden lg:flex'}`}>
+        {/* Introduction header - spans full width above blocks */}
+        {(section.introduction?.trim() || (!authLoading && canEdit)) && (
+          <div className="mb-6">
+            {section.introduction?.trim() ? (
               <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-[#E5E0D8]">
-                <div className="flex justify-between items-center border-b border-[#F0EBE1] pb-4 mb-6">
-                  <h3 className="text-xl font-bold text-[#8C2B2B] font-serif hidden lg:block">ביאורים והרחבות</h3>
-                  <button onClick={() => { bookPageRef.current = 0; setIsBookMode(!isBookMode); }}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-colors mr-auto ${isBookMode ? 'bg-[#8C2B2B] text-white' : 'bg-[#F0EBE1] text-[#4A3B32] hover:bg-[#E5E0D8]'}`}>
-                    <BookOpen size={18} />
-                    {isBookMode ? 'חזור לתצוגה רגילה' : 'תצוגת ספר'}
-                  </button>
-                </div>
-
-                {isBookMode ? (
-                  <div className="relative bg-[#FAF8F5] border border-[#E5E0D8] rounded-2xl p-2 sm:p-6 group/book">
-                    <button onClick={() => scrollBook('prev')} className="absolute right-2 top-1/2 -translate-y-1/2 z-10 bg-white/90 shadow-md rounded-full p-2 text-[#8C2B2B] opacity-0 group-hover/book:opacity-90 transition-opacity duration-200"><ChevronRight size={24} /></button>
-                    <button onClick={() => scrollBook('next')} className="absolute left-2 top-1/2 -translate-y-1/2 z-10 bg-white/90 shadow-md rounded-full p-2 text-[#8C2B2B] opacity-0 group-hover/book:opacity-90 transition-opacity duration-200"><ChevronLeft size={24} /></button>
-                    <CommentaryManager
-                      commentaries={section.commentary || []}
-                      canEdit={canEdit}
-                      onSave={async (updated) => { await saveSectionField({ commentary: updated }); }}
-                      isBookMode={true}
-                      bookContainerRef={bookContainerRef}
-                    />
-                  </div>
-                ) : (
-                  <CommentaryManager
-                    commentaries={section.commentary || []}
-                    canEdit={canEdit}
-                    onSave={async (updated) => { await saveSectionField({ commentary: updated }); }}
-                    isBookMode={false}
-                  />
-                )}
+                <h3 className="text-xl font-bold text-[#8C2B2B] font-serif border-b border-[#F0EBE1] pb-4 mb-6">הקדמה</h3>
+                <InlineEditor
+                  value={section.introduction || ''}
+                  onSave={async (newValue) => { await saveSectionField({ introduction: newValue }); }}
+                  canEdit={canEdit}
+                  minHeight="80px"
+                  renderContent={
+                    <div className="font-serif leading-loose text-[#2C2A29] text-justify text-base">
+                      <MarkdownRenderer>{section.introduction}</MarkdownRenderer>
+                    </div>
+                  }
+                />
               </div>
-            </div>
+            ) : canEdit && (
+              <button
+                onClick={async () => { await saveSectionField({ introduction: ' ' }); }}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl border border-dashed border-[#E5E0D8] text-[#8C7A6B] hover:text-[#8C2B2B] hover:border-[#8C2B2B] transition-all text-sm font-bold"
+              >
+                <Pencil size={14} />
+                הוסף הקדמה
+              </button>
+            )}
+          </div>
+        )}
 
-            {/* Comments */}
-            <div className="mt-5 bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-[#E5E0D8]">
-              <h3 className="text-lg font-bold text-[#4A3B32] mb-4 flex items-center gap-2">
-                <MessageCircle size={20} className="text-[#8C2B2B]" />
-                בית מדרש - שאלות ותשובות
-              </h3>
-              <div className="space-y-4">
-                {(section.comments || []).map((comment: any) => (
-                  <div key={comment.id} className="space-y-3">
-                    <div className="bg-[#FAF8F5] p-3 rounded-xl">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="font-bold text-[#4A3B32]">{comment.author}</span>
-                        <div className="flex items-center gap-2">
-                          {comment.editedAt && <span className="text-xs text-[#8C7A6B]">(נערך {comment.editedAt})</span>}
-                          <span className="text-xs text-[#8C7A6B]">{comment.date}</span>
-                        </div>
-                      </div>
-                      {editingCommentId === comment.id ? (
-                        <div>
-                          <textarea value={editCommentText} onChange={(e) => setEditCommentText(e.target.value)}
-                            className="w-full p-3 rounded-xl border border-[#E5E0D8] bg-white focus:ring-2 focus:ring-[#8C2B2B] outline-none resize-none font-serif" rows={3} />
-                          <div className="flex gap-2 mt-2">
-                            <button onClick={() => saveCommentEdit(comment.id)} disabled={isSavingComment}
-                              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#8C2B2B] text-white hover:bg-[#7A2525] disabled:opacity-50">
-                              {isSavingComment ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} שמור
-                            </button>
-                            <button onClick={() => setEditingCommentId(null)}
-                              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#F0EBE1] text-[#4A3B32] hover:bg-[#E5E0D8]">
-                              <X size={12} /> ביטול
-                            </button>
+        {/* Content blocks */}
+        <div ref={containerRef} className="flex flex-col gap-8">
+          {blocks.map((block, index) => (
+            <div key={block.id}>
+              {/* SPLIT MODE (desktop) */}
+              {layoutMode === 'split' && (
+                <div className="flex flex-col lg:flex-row lg:items-stretch lg:gap-0">
+                  {/* Source panel (right side in RTL) */}
+                  <div className="split-panel flex flex-col" style={{ '--split-width': `${splitPercent}%` } as React.CSSProperties}>
+                    <div className="bg-[#EDEAE5] p-6 sm:p-8 rounded-2xl shadow-sm border border-[#D5D0C8] flex-1">
+                      {index === 0 && (
+                        <div className="flex justify-between items-start mb-4">
+                          <h2 className="text-xl font-bold text-[#8C2B2B] font-serif flex items-center gap-2">
+                            {isBookmarked && <Bookmark size={18} fill="currentColor" className="shrink-0 text-[#C4960C]" />}
+                            מקור
+                          </h2>
+                          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${section.isEdited ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                            <span className={`w-2 h-2 rounded-full ${section.isEdited ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                            <span className={`text-xs font-bold ${section.isEdited ? 'text-green-700' : 'text-red-700'}`}>{section.isEdited ? 'ערוך' : 'לא ערוך'}</span>
                           </div>
                         </div>
-                      ) : (
-                        <p className="text-[#4A3B32]">{comment.text}</p>
                       )}
-                      {canManageComments && editingCommentId !== comment.id && (
-                        <div className="flex gap-1 mt-2">
-                          <button onClick={() => { setReplyingToId(comment.id); setReplyText(''); }}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#E5E0D8] text-[#8C7A6B] hover:text-[#8C2B2B] hover:border-[#8C2B2B] transition-all text-xs font-bold">
-                            <Reply size={12} /> השב
+                      {block.sourceText ? (
+                        <InlineEditor
+                          value={block.sourceText}
+                          onSave={async (newValue) => { await saveBlockField(block.id, 'sourceText', newValue); }}
+                          canEdit={canEdit}
+                          minHeight="120px"
+                          renderContent={
+                            <div className="font-serif leading-loose text-[#2C2A29] text-justify text-lg">
+                              <MarkdownRenderer>{block.sourceText}</MarkdownRenderer>
+                            </div>
+                          }
+                        />
+                      ) : canEdit ? (
+                        <div className="text-center py-8 text-[#8C7A6B] text-sm">טקסט מקור ריק — לחץ לעריכה בעמוד הניהול</div>
+                      ) : null}
+                      {canEdit && blocks.length > 1 && (
+                        <div className="flex justify-end mt-3 pt-3 border-t border-[#D5D0C8]">
+                          <button onClick={() => handleDeleteBlock(block.id)} className="text-xs text-[#8C7A6B] hover:text-red-600 transition-colors flex items-center gap-1">
+                            <Trash2 size={12} /> מחק קטע
                           </button>
-                          <button onClick={() => { setEditingCommentId(comment.id); setEditCommentText(comment.text); }}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#E5E0D8] text-[#8C7A6B] hover:text-[#8C2B2B] hover:border-[#8C2B2B] transition-all text-xs font-bold">
-                            <Pencil size={12} /> ערוך
-                          </button>
-                          <button onClick={() => deleteComment(comment.id)} disabled={isSavingComment}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#E5E0D8] text-[#8C7A6B] hover:text-red-600 hover:border-red-400 transition-all text-xs font-bold">
-                            <Trash2 size={12} /> מחק
-                          </button>
-                        </div>
-                      )}
-                      {replyingToId === comment.id && (
-                        <div className="mt-3 pt-3 border-t border-[#E5E0D8]">
-                          <textarea value={replyText} onChange={(e) => setReplyText(e.target.value)}
-                            className="w-full p-3 rounded-xl border border-[#E5E0D8] bg-white focus:ring-2 focus:ring-[#8C2B2B] outline-none resize-none" rows={2} placeholder="הכנס תשובה..." />
-                          <div className="flex gap-2 mt-2">
-                            <button onClick={() => submitReply(comment.id)} disabled={isSavingComment}
-                              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#8C2B2B] text-white hover:bg-[#7A2525] disabled:opacity-50">
-                              {isSavingComment ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} שלח תשובה
-                            </button>
-                            <button onClick={() => setReplyingToId(null)}
-                              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#F0EBE1] text-[#4A3B32] hover:bg-[#E5E0D8]">
-                              <X size={12} /> ביטול
-                            </button>
-                          </div>
                         </div>
                       )}
                     </div>
-                    {comment.replies?.length > 0 && (
-                      <div className="mr-4 pr-4 border-r-2 border-[#E5E0D8] space-y-3">
-                        {comment.replies.map((reply: any) => (
-                          <div key={reply.id} className="bg-[#F0EBE1] p-3 rounded-xl">
-                            <div className="flex justify-between items-center mb-2">
-                              <span className="font-bold text-[#8C2B2B]">{reply.author}</span>
-                              <span className="text-xs text-[#8C7A6B]">{reply.date}</span>
-                            </div>
-                            <div className="text-[#4A3B32]">
-                              <SimpleMarkdown>{reply.text}</SimpleMarkdown>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
-                ))}
-              </div>
 
-              <div className="mt-5 pt-4 border-t border-[#E5E0D8]">
-                <input type="text" value={newCommentAuthor} onChange={(e) => setNewCommentAuthor(e.target.value)}
-                  className="w-full sm:w-1/3 p-2.5 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none mb-3 text-sm" placeholder="השם שלך" />
-                <textarea value={newCommentText} onChange={(e) => setNewCommentText(e.target.value)}
-                  className="w-full p-3 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none resize-none text-sm" rows={3} placeholder="הוסף שאלה או הערה..." />
-                <div className="flex justify-end mt-3">
-                  <button onClick={submitComment} disabled={isSubmittingComment}
-                    className={`px-6 py-2 rounded-full font-medium flex items-center gap-2 ${isSubmittingComment ? 'bg-[#D5D0C8] text-[#8C7A6B] cursor-not-allowed' : 'bg-[#4A3B32] text-white hover:bg-[#3A2B22]'}`}>
-                    {isSubmittingComment && <Loader2 size={16} className="animate-spin" />}
-                    {isSubmittingComment ? 'שולח...' : 'פרסם תגובה'}
-                  </button>
+                  {/* Drag handle (first block) / spacer (others) */}
+                  {index === 0 ? (
+                    <div
+                      className="hidden lg:flex items-center justify-center w-4 cursor-col-resize group shrink-0 select-none"
+                      onMouseDown={handleDragStart}
+                      onTouchStart={handleDragStart}
+                      title="גרור לשינוי גודל"
+                    >
+                      <div className="w-1 h-16 rounded-full bg-[#E5E0D8] group-hover:bg-[#8C2B2B] group-active:bg-[#8C2B2B] transition-colors" />
+                    </div>
+                  ) : (
+                    <div className="hidden lg:block w-4 shrink-0" />
+                  )}
+
+                  {/* Commentary panel (left side in RTL) */}
+                  <div className="flex-1 min-w-0 flex flex-col">
+                    <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-[#E5E0D8] flex-1">
+                      {index === 0 && (
+                        <h3 className="text-xl font-bold text-[#8C2B2B] font-serif border-b border-[#F0EBE1] pb-4 mb-6">ביאורים והרחבות</h3>
+                      )}
+                      {block.commentaryText ? (
+                        <InlineEditor
+                          value={block.commentaryText}
+                          onSave={async (newValue) => { await saveBlockField(block.id, 'commentaryText', newValue); }}
+                          canEdit={canEdit}
+                          minHeight="120px"
+                          renderContent={
+                            <div className="text-base leading-relaxed text-[#4A3B32] text-justify">
+                              <SimpleMarkdown>{block.commentaryText}</SimpleMarkdown>
+                            </div>
+                          }
+                        />
+                      ) : canEdit ? (
+                        <div className="text-center py-8 text-[#8C7A6B] text-sm">ביאור ריק — לחץ לעריכה בעמוד הניהול</div>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
+              )}
 
-            {/* Navigation */}
-            <div className="flex justify-between items-center mt-4">
-              {prevSection ? (
-                <Link href={`/book/${bookId}/${prevSection.id}`} className="flex items-center gap-2 text-[#8C2B2B] font-bold hover:underline">
-                  <ChevronRight size={18} /> {prevSection.title}
-                </Link>
-              ) : <div />}
-              {nextSection ? (
-                <Link href={`/book/${bookId}/${nextSection.id}`} className="flex items-center gap-2 text-[#8C2B2B] font-bold hover:underline">
-                  {nextSection.title} <ChevronLeft size={18} />
-                </Link>
-              ) : <div />}
+              {/* STACKED MODE (desktop) + MOBILE */}
+              {layoutMode === 'stacked' && (
+                <div className="space-y-4">
+                  {/* Source */}
+                  {(block.sourceText || canEdit) && (
+                    <div className="bg-[#EDEAE5] p-6 sm:p-8 rounded-2xl shadow-sm border border-[#D5D0C8]">
+                      {index === 0 && (
+                        <div className="flex justify-between items-start mb-4">
+                          <h2 className="text-xl font-bold text-[#8C2B2B] font-serif flex items-center gap-2">
+                            {isBookmarked && <Bookmark size={18} fill="currentColor" className="shrink-0 text-[#C4960C]" />}
+                            מקור
+                          </h2>
+                          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${section.isEdited ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                            <span className={`w-2 h-2 rounded-full ${section.isEdited ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                            <span className={`text-xs font-bold ${section.isEdited ? 'text-green-700' : 'text-red-700'}`}>{section.isEdited ? 'ערוך' : 'לא ערוך'}</span>
+                          </div>
+                        </div>
+                      )}
+                      {block.sourceText ? (
+                        <InlineEditor
+                          value={block.sourceText}
+                          onSave={async (newValue) => { await saveBlockField(block.id, 'sourceText', newValue); }}
+                          canEdit={canEdit}
+                          minHeight="120px"
+                          renderContent={
+                            <div className="font-serif leading-loose text-[#2C2A29] text-justify text-xl">
+                              <MarkdownRenderer>{block.sourceText}</MarkdownRenderer>
+                            </div>
+                          }
+                        />
+                      ) : canEdit ? (
+                        <div className="text-center py-8 text-[#8C7A6B] text-sm">טקסט מקור ריק</div>
+                      ) : null}
+                      {canEdit && blocks.length > 1 && (
+                        <div className="flex justify-end mt-3 pt-3 border-t border-[#D5D0C8]">
+                          <button onClick={() => handleDeleteBlock(block.id)} className="text-xs text-[#8C7A6B] hover:text-red-600 transition-colors flex items-center gap-1">
+                            <Trash2 size={12} /> מחק קטע
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Commentary */}
+                  {(block.commentaryText || canEdit) && (
+                    <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-[#E5E0D8]">
+                      {index === 0 && (
+                        <h3 className="text-xl font-bold text-[#8C2B2B] font-serif border-b border-[#F0EBE1] pb-4 mb-6">ביאורים והרחבות</h3>
+                      )}
+                      {block.commentaryText ? (
+                        <InlineEditor
+                          value={block.commentaryText}
+                          onSave={async (newValue) => { await saveBlockField(block.id, 'commentaryText', newValue); }}
+                          canEdit={canEdit}
+                          minHeight="120px"
+                          renderContent={
+                            <div className="text-base leading-relaxed text-[#4A3B32] text-justify">
+                              <SimpleMarkdown>{block.commentaryText}</SimpleMarkdown>
+                            </div>
+                          }
+                        />
+                      ) : canEdit ? (
+                        <div className="text-center py-8 text-[#8C7A6B] text-sm">ביאור ריק</div>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {/* Add block button (editors only) */}
+          {canEdit && (
+            <button onClick={handleAddBlock}
+              className="flex items-center gap-2 justify-center w-full py-3 rounded-xl border-2 border-dashed border-[#E5E0D8] text-[#8C7A6B] hover:text-[#8C2B2B] hover:border-[#8C2B2B] transition-all text-sm font-bold">
+              <Plus size={18} /> הוסף קטע תוכן חדש
+            </button>
+          )}
+
+          {/* Tags */}
+          {tagsArray.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {tagsArray.map((tag: string) => (
+                <span key={tag} className="px-3 py-1 bg-[#F0EBE1] text-[#6B5A4E] text-sm rounded-full">#{tag}</span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Comments */}
+        <div className="mt-8 bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-[#E5E0D8]">
+          <h3 className="text-lg font-bold text-[#4A3B32] mb-4 flex items-center gap-2">
+            <MessageCircle size={20} className="text-[#8C2B2B]" />
+            בית מדרש - שאלות ותשובות
+          </h3>
+          <div className="space-y-4">
+            {(section.comments || []).map((comment: any) => (
+              <div key={comment.id} className="space-y-3">
+                <div className="bg-[#FAF8F5] p-3 rounded-xl">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="font-bold text-[#4A3B32]">{comment.author}</span>
+                    <div className="flex items-center gap-2">
+                      {comment.editedAt && <span className="text-xs text-[#8C7A6B]">(נערך {comment.editedAt})</span>}
+                      <span className="text-xs text-[#8C7A6B]">{comment.date}</span>
+                    </div>
+                  </div>
+                  {editingCommentId === comment.id ? (
+                    <div>
+                      <textarea value={editCommentText} onChange={(e) => setEditCommentText(e.target.value)}
+                        className="w-full p-3 rounded-xl border border-[#E5E0D8] bg-white focus:ring-2 focus:ring-[#8C2B2B] outline-none resize-none font-serif" rows={3} />
+                      <div className="flex gap-2 mt-2">
+                        <button onClick={() => saveCommentEdit(comment.id)} disabled={isSavingComment}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#8C2B2B] text-white hover:bg-[#7A2525] disabled:opacity-50">
+                          {isSavingComment ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} שמור
+                        </button>
+                        <button onClick={() => setEditingCommentId(null)}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#F0EBE1] text-[#4A3B32] hover:bg-[#E5E0D8]">
+                          <X size={12} /> ביטול
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[#4A3B32]">{comment.text}</p>
+                  )}
+                  {canManageComments && editingCommentId !== comment.id && (
+                    <div className="flex gap-1 mt-2">
+                      <button onClick={() => { setReplyingToId(comment.id); setReplyText(''); }}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#E5E0D8] text-[#8C7A6B] hover:text-[#8C2B2B] hover:border-[#8C2B2B] transition-all text-xs font-bold">
+                        <Reply size={12} /> השב
+                      </button>
+                      <button onClick={() => { setEditingCommentId(comment.id); setEditCommentText(comment.text); }}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#E5E0D8] text-[#8C7A6B] hover:text-[#8C2B2B] hover:border-[#8C2B2B] transition-all text-xs font-bold">
+                        <Pencil size={12} /> ערוך
+                      </button>
+                      <button onClick={() => deleteComment(comment.id)} disabled={isSavingComment}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#E5E0D8] text-[#8C7A6B] hover:text-red-600 hover:border-red-400 transition-all text-xs font-bold">
+                        <Trash2 size={12} /> מחק
+                      </button>
+                    </div>
+                  )}
+                  {replyingToId === comment.id && (
+                    <div className="mt-3 pt-3 border-t border-[#E5E0D8]">
+                      <textarea value={replyText} onChange={(e) => setReplyText(e.target.value)}
+                        className="w-full p-3 rounded-xl border border-[#E5E0D8] bg-white focus:ring-2 focus:ring-[#8C2B2B] outline-none resize-none" rows={2} placeholder="הכנס תשובה..." />
+                      <div className="flex gap-2 mt-2">
+                        <button onClick={() => submitReply(comment.id)} disabled={isSavingComment}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#8C2B2B] text-white hover:bg-[#7A2525] disabled:opacity-50">
+                          {isSavingComment ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} שלח תשובה
+                        </button>
+                        <button onClick={() => setReplyingToId(null)}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#F0EBE1] text-[#4A3B32] hover:bg-[#E5E0D8]">
+                          <X size={12} /> ביטול
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {comment.replies?.length > 0 && (
+                  <div className="mr-4 pr-4 border-r-2 border-[#E5E0D8] space-y-3">
+                    {comment.replies.map((reply: any) => (
+                      <div key={reply.id} className="bg-[#F0EBE1] p-3 rounded-xl">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="font-bold text-[#8C2B2B]">{reply.author}</span>
+                          <span className="text-xs text-[#8C7A6B]">{reply.date}</span>
+                        </div>
+                        <div className="text-[#4A3B32]">
+                          <SimpleMarkdown>{reply.text}</SimpleMarkdown>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-5 pt-4 border-t border-[#E5E0D8]">
+            <input type="text" value={newCommentAuthor} onChange={(e) => setNewCommentAuthor(e.target.value)}
+              className="w-full sm:w-1/3 p-2.5 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none mb-3 text-sm" placeholder="השם שלך" />
+            <textarea value={newCommentText} onChange={(e) => setNewCommentText(e.target.value)}
+              className="w-full p-3 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none resize-none text-sm" rows={3} placeholder="הוסף שאלה או הערה..." />
+            <div className="flex justify-end mt-3">
+              <button onClick={submitComment} disabled={isSubmittingComment}
+                className={`px-6 py-2 rounded-full font-medium flex items-center gap-2 ${isSubmittingComment ? 'bg-[#D5D0C8] text-[#8C7A6B] cursor-not-allowed' : 'bg-[#4A3B32] text-white hover:bg-[#3A2B22]'}`}>
+                {isSubmittingComment && <Loader2 size={16} className="animate-spin" />}
+                {isSubmittingComment ? 'שולח...' : 'פרסם תגובה'}
+              </button>
             </div>
           </div>
+        </div>
+
+        {/* Navigation */}
+        <div className="flex justify-between items-center mt-6">
+          {prevSection ? (
+            <Link href={`/book/${bookId}/${prevSection.id}`} className="flex items-center gap-2 text-[#8C2B2B] font-bold hover:underline">
+              <ChevronRight size={18} /> {prevSection.title}
+            </Link>
+          ) : <div />}
+          {nextSection ? (
+            <Link href={`/book/${bookId}/${nextSection.id}`} className="flex items-center gap-2 text-[#8C2B2B] font-bold hover:underline">
+              {nextSection.title} <ChevronLeft size={18} />
+            </Link>
+          ) : <div />}
         </div>
       </main>
     </div>
