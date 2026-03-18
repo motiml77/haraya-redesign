@@ -55,6 +55,24 @@ export function InlineEditor({ value, onSave, renderContent, canEdit, minHeight 
     setMessage('');
   };
 
+  // Save when leaving page while editing
+  useEffect(() => {
+    if (!isEditing) return;
+    const saveOnLeave = () => {
+      if (editValue !== value) {
+        onSave(editValue);
+      }
+    };
+    const handleVisibility = () => { if (document.visibilityState === 'hidden') saveOnLeave(); };
+    const handleBeforeUnload = () => saveOnLeave();
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [isEditing, editValue, value]);
+
   // Handle textarea auto-resize
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setEditValue(e.target.value);

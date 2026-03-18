@@ -97,31 +97,60 @@ export default function SectionEditorPage() {
     dataRef.current = { formData, contentBlocks, tags, existingComments, questionsForRabbi };
   });
 
+  // Save function (used by interval and beforeunload)
+  const doSave = async () => {
+    const { formData: fd, contentBlocks: cb, tags: t, existingComments: ec, questionsForRabbi: q } = dataRef.current;
+    const payload = {
+      title: fd.title, introduction: fd.introduction, isEdited: fd.isEdited,
+      tags: t, contentBlocks: cb, comments: ec, questionsForRabbi: q,
+    };
+    const payloadStr = JSON.stringify(payload);
+    if (payloadStr === lastSavedRef.current) return;
+
+    setAutoSaveStatus('saving');
+    try {
+      const res = await authFetch(`/api/sections/${sectionId}`, {
+        method: 'PUT', body: payloadStr,
+      });
+      if (res.ok) {
+        lastSavedRef.current = payloadStr;
+        setAutoSaveStatus('saved');
+        setTimeout(() => setAutoSaveStatus(prev => prev === 'saved' ? 'idle' : prev), 4000);
+      }
+    } catch {}
+  };
+
   // Auto-save every 20 seconds
   useEffect(() => {
     if (isLoading) return;
-    const interval = setInterval(async () => {
+    const interval = setInterval(doSave, 20000);
+    return () => clearInterval(interval);
+  }, [sectionId, isLoading]);
+
+  // Save on page leave (beforeunload + visibilitychange)
+  useEffect(() => {
+    if (isLoading) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       const { formData: fd, contentBlocks: cb, tags: t, existingComments: ec, questionsForRabbi: q } = dataRef.current;
-      const payload = {
+      const payloadStr = JSON.stringify({
         title: fd.title, introduction: fd.introduction, isEdited: fd.isEdited,
         tags: t, contentBlocks: cb, comments: ec, questionsForRabbi: q,
-      };
-      const payloadStr = JSON.stringify(payload);
-      if (payloadStr === lastSavedRef.current) return;
-
-      setAutoSaveStatus('saving');
-      try {
-        const res = await authFetch(`/api/sections/${sectionId}`, {
-          method: 'PUT', body: payloadStr,
-        });
-        if (res.ok) {
-          lastSavedRef.current = payloadStr;
-          setAutoSaveStatus('saved');
-          setTimeout(() => setAutoSaveStatus(prev => prev === 'saved' ? 'idle' : prev), 4000);
-        }
-      } catch {}
-    }, 20000);
-    return () => clearInterval(interval);
+      });
+      if (payloadStr !== lastSavedRef.current) {
+        // Fire save with keepalive - will complete even after page unloads
+        doSave();
+        e.preventDefault();
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') doSave();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [sectionId, isLoading]);
 
   useEffect(() => {

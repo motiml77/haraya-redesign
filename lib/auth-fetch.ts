@@ -12,6 +12,7 @@ export async function authFetch(url: string, options: RequestInit = {}) {
 
   return fetch(url, {
     ...options,
+    keepalive: true,
     headers: {
       ...options.headers,
       'Authorization': `Bearer ${token}`,
