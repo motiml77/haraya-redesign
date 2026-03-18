@@ -6,8 +6,8 @@ import { getCached, setCache } from '@/lib/cache';
 import { PageHeaderAuth } from '@/components/PageHeaderAuth';
 import { AnnouncementsBanner } from '@/components/AnnouncementsBanner';
 
-// Option to force dynamic rendering if we want fresh announcements, but ISR is better:
-export const revalidate = 60; // Revalidate page every 60 seconds
+// ISR: serve static pages, revalidate in background every 30 seconds
+export const revalidate = 30;
 
 async function getBooks() {
   const cacheKey = 'books:list';

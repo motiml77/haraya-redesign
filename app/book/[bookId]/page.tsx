@@ -7,17 +7,8 @@ import { Breadcrumb } from '@/components/Breadcrumb';
 import { PageHeaderAuth } from '@/components/PageHeaderAuth';
 import { BookSectionsTree } from '@/components/BookSectionsTree';
 
-export const revalidate = 60; // Revalidate every 60 seconds
-
-// Pre-build all book pages at build time for instant loading
-export async function generateStaticParams() {
-  try {
-    const snapshot = await adminDb.collection('books').get();
-    return snapshot.docs.map(doc => ({ bookId: doc.id }));
-  } catch {
-    return [];
-  }
-}
+// ISR: serve static pages, revalidate in background every 30 seconds
+export const revalidate = 30;
 
 async function getBookWithSections(bookId: string) {
   const cacheKey = `books:${bookId}`;

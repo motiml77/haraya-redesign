@@ -4,22 +4,8 @@ import { getCached, setCache } from '@/lib/cache';
 import { normalizeSectionContent } from '@/lib/normalize-section';
 import { SectionViewer } from '@/components/SectionViewer';
 
-export const revalidate = 60;
-
-// Pre-build section pages with content at build time
-export async function generateStaticParams() {
-  try {
-    const snapshot = await adminDb.collection('sections').get();
-    return snapshot.docs
-      .filter(doc => doc.data().originalText || (doc.data().contentBlocks && doc.data().contentBlocks.length > 0))
-      .map(doc => ({
-        bookId: doc.data().bookId,
-        sectionId: doc.id,
-      }));
-  } catch {
-    return [];
-  }
-}
+// ISR: serve static pages, revalidate in background every 30 seconds
+export const revalidate = 30;
 
 async function getSection(sectionId: string) {
   const cacheKey = `sections:${sectionId}`;
