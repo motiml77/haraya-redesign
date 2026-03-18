@@ -341,15 +341,15 @@ export function SectionViewer({
         {(section.introduction?.trim() || (!authLoading && canEdit)) && (
           <div className="mb-6">
             {section.introduction?.trim() ? (
-              <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-[#E5E0D8]">
-                <h3 className="text-xl font-bold text-[#8C2B2B] font-serif border-b border-[#F0EBE1] pb-4 mb-6">הקדמה</h3>
+              <div className="bg-white px-4 py-3 sm:px-6 sm:py-4 rounded-2xl shadow-sm border border-[#E5E0D8] text-center">
+                <h3 className="text-lg font-bold text-[#8C2B2B] font-serif border-b border-[#F0EBE1] pb-2 mb-3">הקדמה</h3>
                 <InlineEditor
                   value={section.introduction || ''}
                   onSave={async (newValue) => { await saveSectionField({ introduction: newValue }); }}
                   canEdit={canEdit}
-                  minHeight="80px"
+                  minHeight="40px"
                   renderContent={
-                    <div className="font-serif leading-loose text-[#2C2A29] text-justify text-base">
+                    <div className="font-serif leading-loose text-[#2C2A29] text-center text-base">
                       <MarkdownRenderer>{section.introduction}</MarkdownRenderer>
                     </div>
                   }
@@ -374,9 +374,9 @@ export function SectionViewer({
               {/* SPLIT MODE (desktop) */}
               {layoutMode === 'split' && (
                 <div className="flex flex-col lg:flex-row lg:items-stretch lg:gap-0">
-                  {/* Source panel (right side in RTL) */}
-                  <div className="split-panel flex flex-col" style={{ '--split-width': `${splitPercent}%` } as React.CSSProperties}>
-                    <div className="bg-[#EDEAE5] p-6 sm:p-8 rounded-2xl shadow-sm border border-[#D5D0C8] flex-1">
+                  {/* Source panel (right side in RTL) - determines row height */}
+                  <div className="split-panel" style={{ '--split-width': `${splitPercent}%` } as React.CSSProperties}>
+                    <div className="bg-[#EDEAE5] p-6 sm:p-8 rounded-2xl shadow-sm border border-[#D5D0C8]">
                       {index === 0 && (
                         <div className="flex justify-between items-start mb-4">
                           <h2 className="text-xl font-bold text-[#8C2B2B] font-serif flex items-center gap-2">
@@ -428,9 +428,9 @@ export function SectionViewer({
                     <div className="hidden lg:block w-4 shrink-0" />
                   )}
 
-                  {/* Commentary panel (left side in RTL) */}
-                  <div className="flex-1 min-w-0 flex flex-col">
-                    <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-[#E5E0D8] flex-1">
+                  {/* Commentary panel (left side in RTL) - scrolls within source height */}
+                  <div className="flex-1 min-w-0 lg:relative">
+                    <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-[#E5E0D8] lg:absolute lg:inset-0 lg:overflow-y-auto custom-scrollbar">
                       {index === 0 && (
                         <h3 className="text-xl font-bold text-[#8C2B2B] font-serif border-b border-[#F0EBE1] pb-4 mb-6">ביאורים והרחבות</h3>
                       )}
@@ -528,8 +528,8 @@ export function SectionViewer({
           {/* Add block button (editors only) */}
           {canEdit && (
             <button onClick={handleAddBlock}
-              className="flex items-center gap-2 justify-center w-full py-3 rounded-xl border-2 border-dashed border-[#E5E0D8] text-[#8C7A6B] hover:text-[#8C2B2B] hover:border-[#8C2B2B] transition-all text-sm font-bold">
-              <Plus size={18} /> הוסף קטע תוכן חדש
+              className="flex items-center gap-2 justify-center w-full py-4 rounded-xl border-2 border-dashed border-[#8C2B2B]/30 text-[#8C2B2B] hover:bg-[#8C2B2B]/5 hover:border-[#8C2B2B] transition-all text-sm font-bold">
+              <Plus size={18} /> הוסף זוג מקור + ביאור חדש
             </button>
           )}
 

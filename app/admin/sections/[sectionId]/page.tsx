@@ -405,8 +405,8 @@ export default function SectionEditorPage() {
 
           {/* Add block button */}
           <button onClick={addBlock}
-            className="flex items-center gap-2 justify-center w-full py-3 rounded-xl border-2 border-dashed border-[#E5E0D8] text-[#8C7A6B] hover:text-[#8C2B2B] hover:border-[#8C2B2B] transition-all text-sm font-bold">
-            <Plus size={18} /> הוסף קטע תוכן חדש
+            className="flex items-center gap-2 justify-center w-full py-4 rounded-xl border-2 border-dashed border-[#8C2B2B]/30 text-[#8C2B2B] hover:bg-[#8C2B2B]/5 hover:border-[#8C2B2B] transition-all text-sm font-bold">
+            <Plus size={18} /> הוסף זוג מקור + ביאור חדש
           </button>
 
           {/* Tags */}
