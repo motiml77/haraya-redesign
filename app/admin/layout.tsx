@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
+import { signInWithEmailAndPassword, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence, browserSessionPersistence } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { authFetch } from '@/lib/auth-fetch';
 import { LayoutDashboard, BookOpen, MessageSquare, LogOut, Loader2, Info, Hash, Bell, X, Key } from 'lucide-react';
@@ -19,6 +19,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [questionsBadge, setQuestionsBadge] = useState(0);
   const pathname = usePathname();
 
@@ -128,6 +129,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     setLoginError('');
     setIsLoggingIn(true);
     try {
+      await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
       const credential = await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
       const idToken = await credential.user.getIdToken();
       const res = await fetch('/api/auth', {
@@ -222,6 +224,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 className="w-full p-3 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none" placeholder="••••••••"
                 onKeyDown={(e) => e.key === 'Enter' && handleLogin()} />
             </div>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)}
+                className="w-4 h-4 rounded border-[#E5E0D8] text-[#8C2B2B] focus:ring-[#8C2B2B] cursor-pointer accent-[#8C2B2B]" />
+              <span className="text-sm text-[#8C7A6B]">זכור אותי</span>
+            </label>
             <button onClick={handleLogin} disabled={isLoggingIn}
               className="w-full bg-[#8C2B2B] text-white py-3 rounded-xl hover:bg-[#7A2525] transition-colors font-bold mt-4 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
               {isLoggingIn && <Loader2 size={18} className="animate-spin" />}

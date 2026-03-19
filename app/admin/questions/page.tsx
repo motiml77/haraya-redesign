@@ -2,14 +2,16 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { MessageSquare, Bell, ExternalLink, ChevronDown, CheckCircle, Mail, History, Headphones, Trash2, AlertTriangle, Loader2 } from 'lucide-react';
+import { MessageSquare, Bell, ExternalLink, ChevronDown, CheckCircle, Mail, History, Headphones, Trash2, AlertTriangle, Loader2, FileText, Image as ImageIcon, File as FileIcon, Paperclip } from 'lucide-react';
 import { BookLoader } from '@/components/BookLoader';
 import { authFetch } from '@/lib/auth-fetch';
 import { useAdminUser } from '../admin-context';
 import { AudioRecorder } from '@/components/AudioRecorder';
 import { AudioPlayer } from '@/components/AudioPlayer';
+import { FileAttacher } from '@/components/FileAttacher';
 import { storage, auth } from '@/lib/firebase';
 import { ref, deleteObject } from 'firebase/storage';
+import type { ReplyAttachment } from '@/lib/types';
 
 export default function AdminQuestionsPage() {
   const { user, questionsBadge, setQuestionsBadge } = useAdminUser();
@@ -18,6 +20,7 @@ export default function AdminQuestionsPage() {
   const [contactMessages, setContactMessages] = useState<any[]>([]);
   const [replyText, setReplyText] = useState<{ [key: string]: string }>({});
   const [replyAudio, setReplyAudio] = useState<{ [key: string]: string }>({});
+  const [replyAttachments, setReplyAttachments] = useState<{ [key: string]: ReplyAttachment[] }>({});
   const [isLoading, setIsLoading] = useState(true);
   const [tab, setTab] = useState<'beit-midrash' | 'editor' | 'contact' | 'history' | 'recordings'>('beit-midrash');
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -29,8 +32,9 @@ export default function AdminQuestionsPage() {
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // Recording management state
+  // Recording & files management state
   const [recordings, setRecordings] = useState<{ name: string; fullPath: string; url: string; size: number; timeCreated: string; sectionId: string; sectionTitle: string; bookTitle: string; authorName: string }[]>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<{ name: string; fullPath: string; url: string; size: number; timeCreated: string; sectionId: string; sectionTitle: string; bookTitle: string; authorName: string; fileType: 'pdf' | 'docx' | 'image' }[]>([]);
   const [recordingsLoading, setRecordingsLoading] = useState(false);
   const [recordingsLoaded, setRecordingsLoaded] = useState(false);
   const [deletingPath, setDeletingPath] = useState<string | null>(null);
@@ -92,7 +96,8 @@ export default function AdminQuestionsPage() {
     const key = `${sectionId}-${commentId}`;
     const text = replyText[key];
     const audio = replyAudio[key];
-    if (!text && !audio) return;
+    const files = replyAttachments[key];
+    if (!text && !audio && (!files || files.length === 0)) return;
 
     try {
       const sectionRes = await fetch(`/api/sections/${sectionId}`);
@@ -100,6 +105,7 @@ export default function AdminQuestionsPage() {
 
       const reply: any = { id: Date.now(), author: user?.name || 'הרב המשיב', date: new Date().toISOString().split('T')[0], text: text || '' };
       if (audio) reply.audioUrl = audio;
+      if (files && files.length > 0) reply.attachments = files;
 
       const updatedComments = (sectionData.comments || []).map((c: any) => {
         if (c.id === commentId) {
@@ -111,6 +117,7 @@ export default function AdminQuestionsPage() {
       await authFetch(`/api/sections/${sectionId}`, { method: 'PUT', body: JSON.stringify({ comments: updatedComments }) });
       setReplyText({ ...replyText, [key]: '' });
       setReplyAudio({ ...replyAudio, [key]: '' });
+      setReplyAttachments({ ...replyAttachments, [key]: [] });
       setUnansweredComments(unansweredComments.filter(c => !(c.sectionId === sectionId && c.id === commentId)));
       setExpandedId(null);
       setHistoryLoaded(false);
@@ -123,7 +130,8 @@ export default function AdminQuestionsPage() {
     const key = `editor-${sectionId}-${questionId}`;
     const text = replyText[key];
     const audio = replyAudio[key];
-    if (!text && !audio) return;
+    const files = replyAttachments[key];
+    if (!text && !audio && (!files || files.length === 0)) return;
 
     try {
       const sectionRes = await fetch(`/api/sections/${sectionId}`);
@@ -131,6 +139,7 @@ export default function AdminQuestionsPage() {
 
       const reply: any = { id: Date.now(), author: user?.name || 'הרב המשיב', date: new Date().toISOString().split('T')[0], text: text || '' };
       if (audio) reply.audioUrl = audio;
+      if (files && files.length > 0) reply.attachments = files;
 
       const updatedQuestions = (sectionData.questionsForRabbi || []).map((q: any) => {
         if (q.id === questionId) {
@@ -142,6 +151,7 @@ export default function AdminQuestionsPage() {
       await authFetch(`/api/sections/${sectionId}`, { method: 'PUT', body: JSON.stringify({ questionsForRabbi: updatedQuestions }) });
       setReplyText({ ...replyText, [key]: '' });
       setReplyAudio({ ...replyAudio, [key]: '' });
+      setReplyAttachments({ ...replyAttachments, [key]: [] });
       refreshData();
       setHistoryLoaded(false);
       setQuestionsBadge((prev: number) => Math.max(0, prev - 1));
@@ -152,14 +162,22 @@ export default function AdminQuestionsPage() {
   const handleContactReply = async (messageId: string) => {
     const key = `contact-${messageId}`;
     const text = replyText[key];
-    if (!text) return;
+    const audio = replyAudio[key];
+    const files = replyAttachments[key];
+    if (!text && !audio && (!files || files.length === 0)) return;
 
     try {
+      const replyData: any = { author: user?.name || 'הרב המשיב', text: text || '' };
+      if (audio) replyData.audioUrl = audio;
+      if (files && files.length > 0) replyData.attachments = files;
+
       await authFetch(`/api/contact/${messageId}`, {
         method: 'PUT',
-        body: JSON.stringify({ reply: { author: user?.name || 'הרב המשיב', text } }),
+        body: JSON.stringify({ reply: replyData }),
       });
       setReplyText({ ...replyText, [key]: '' });
+      setReplyAudio({ ...replyAudio, [key]: '' });
+      setReplyAttachments({ ...replyAttachments, [key]: [] });
       refreshContact();
       setHistoryLoaded(false);
       setQuestionsBadge((prev: number) => Math.max(0, prev - 1));
@@ -219,7 +237,7 @@ export default function AdminQuestionsPage() {
     } catch { alert('שגיאה בעדכון סטטוס'); }
   };
 
-  // Load all recordings from Firebase Storage via REST API
+  // Load all recordings & uploaded files from Firebase Storage via REST API
   const loadRecordings = useCallback(async () => {
     if (recordingsLoaded) return;
     setRecordingsLoading(true);
@@ -228,76 +246,118 @@ export default function AdminQuestionsPage() {
       const token = await auth.currentUser?.getIdToken();
       if (!token) { setRecordingsLoading(false); return; }
 
-      // Single REST call to list all objects under audio-replies/
-      const listRes = await fetch(
-        `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?prefix=audio-replies%2F&maxResults=500`,
-        { headers: { 'Authorization': `Bearer ${token}` } }
-      );
-      if (!listRes.ok) throw new Error('Failed to list recordings');
-      const listData = await listRes.json();
-      const items: any[] = listData.items || [];
-
-      // Collect unique sectionIds and fetch titles in parallel
-      const sectionIds = [...new Set(items.map((item: any) => {
-        const parts = item.name.split('/');
-        return parts.length >= 2 ? parts[1] : '';
-      }).filter(Boolean))];
-
       const sectionMap: Record<string, { sectionTitle: string; bookTitle: string }> = {};
-      const sectionFetches = sectionIds.map(async (sid) => {
+      const sectionFetchPromises: Record<string, Promise<void>> = {};
+
+      const fetchSectionTitle = (sectionId: string) => {
+        if (sectionId && !sectionFetchPromises[sectionId]) {
+          sectionFetchPromises[sectionId] = fetch(`/api/sections/${sectionId}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => { if (data) sectionMap[sectionId] = { sectionTitle: data.title || sectionId, bookTitle: data.bookTitle || '' }; })
+            .catch(() => {});
+        }
+        return sectionFetchPromises[sectionId];
+      };
+
+      // List audio-replies/ and reply-attachments/ in parallel
+      const [audioListRes, filesListRes] = await Promise.all([
+        fetch(`https://firebasestorage.googleapis.com/v0/b/${bucket}/o?prefix=audio-replies%2F&maxResults=500`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch(`https://firebasestorage.googleapis.com/v0/b/${bucket}/o?prefix=reply-attachments%2F&maxResults=500`, { headers: { 'Authorization': `Bearer ${token}` } }),
+      ]);
+
+      const audioItems: any[] = audioListRes.ok ? ((await audioListRes.json()).items || []) : [];
+      const fileItems: any[] = filesListRes.ok ? ((await filesListRes.json()).items || []) : [];
+
+      // Process audio recordings
+      const allAudio: typeof recordings = (await Promise.all(audioItems.map(async (item: any) => {
         try {
-          const res = await fetch(`/api/sections/${sid}`);
-          if (res.ok) {
-            const data = await res.json();
-            sectionMap[sid] = { sectionTitle: data.title || sid, bookTitle: data.bookTitle || '' };
-          }
-        } catch {}
-      });
-      await Promise.all(sectionFetches);
+          const metaRes = await fetch(
+            `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(item.name)}`,
+            { headers: { 'Authorization': `Bearer ${token}` } }
+          );
+          if (!metaRes.ok) return null;
+          const meta = await metaRes.json();
 
-      const allFiles: typeof recordings = items.map((item: any) => {
-        const pathParts = item.name.split('/');
-        const sectionId = pathParts.length >= 2 ? pathParts[1] : '';
-        const fileName = pathParts[pathParts.length - 1] || '';
-        // Parse: reply_{commentId}_{authorName}_{timestamp}.ext
-        const nameParts = fileName.replace(/\.[^.]+$/, '').split('_');
-        const authorName = nameParts[2] || '?';
-        const info = sectionMap[sectionId];
-        const downloadToken = item.downloadTokens || '';
-        const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(item.name)}?alt=media&token=${downloadToken}`;
+          const pathParts = meta.name.split('/');
+          const sectionId = pathParts.length >= 2 ? pathParts[1] : '';
+          const fileName = pathParts[pathParts.length - 1] || '';
+          const nameParts = fileName.replace(/\.[^.]+$/, '').split('_');
+          const authorName = nameParts[2] || '?';
 
-        return {
-          name: fileName,
-          fullPath: item.name,
-          url,
-          size: parseInt(item.size || '0', 10),
-          timeCreated: item.timeCreated || '',
-          sectionId,
-          sectionTitle: info?.sectionTitle || sectionId,
-          bookTitle: info?.bookTitle || '',
-          authorName: decodeURIComponent(authorName).replace(/-/g, ' '),
-        };
-      });
+          await fetchSectionTitle(sectionId);
+          const info = sectionMap[sectionId];
+          const downloadToken = meta.downloadTokens || '';
+          const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(meta.name)}?alt=media&token=${downloadToken}`;
 
+          return {
+            name: fileName, fullPath: meta.name, url,
+            size: parseInt(meta.size || '0', 10), timeCreated: meta.timeCreated || '',
+            sectionId, sectionTitle: info?.sectionTitle || sectionId, bookTitle: info?.bookTitle || '',
+            authorName: decodeURIComponent(authorName).replace(/-/g, ' '),
+          };
+        } catch { return null; }
+      }))).filter(Boolean) as typeof recordings;
+
+      // Process uploaded files (PDF, Word, images)
+      const allFiles: typeof uploadedFiles = (await Promise.all(fileItems.map(async (item: any) => {
+        try {
+          const metaRes = await fetch(
+            `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(item.name)}`,
+            { headers: { 'Authorization': `Bearer ${token}` } }
+          );
+          if (!metaRes.ok) return null;
+          const meta = await metaRes.json();
+
+          const pathParts = meta.name.split('/');
+          const sectionId = pathParts.length >= 2 ? pathParts[1] : '';
+          const fileName = pathParts[pathParts.length - 1] || '';
+          // Path format: reply-attachments/{sectionId}/reply_{commentId}_{authorName}_{timestamp}_{originalName}
+          const nameParts = fileName.replace(/^reply_/, '').split('_');
+          const authorName = nameParts.length >= 2 ? nameParts[1] : '?';
+
+          await fetchSectionTitle(sectionId);
+          const info = sectionMap[sectionId];
+          const downloadToken = meta.downloadTokens || '';
+          const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(meta.name)}?alt=media&token=${downloadToken}`;
+
+          // Determine file type from content type
+          const ct = meta.contentType || '';
+          let fileType: 'pdf' | 'docx' | 'image' = 'image';
+          if (ct === 'application/pdf') fileType = 'pdf';
+          else if (ct.includes('wordprocessingml')) fileType = 'docx';
+
+          return {
+            name: fileName, fullPath: meta.name, url,
+            size: parseInt(meta.size || '0', 10), timeCreated: meta.timeCreated || '',
+            sectionId, sectionTitle: info?.sectionTitle || sectionId, bookTitle: info?.bookTitle || '',
+            authorName: decodeURIComponent(authorName).replace(/-/g, ' '),
+            fileType,
+          };
+        } catch { return null; }
+      }))).filter(Boolean) as typeof uploadedFiles;
+
+      allAudio.sort((a, b) => new Date(b.timeCreated).getTime() - new Date(a.timeCreated).getTime());
       allFiles.sort((a, b) => new Date(b.timeCreated).getTime() - new Date(a.timeCreated).getTime());
-      setRecordings(allFiles);
+      setRecordings(allAudio);
+      setUploadedFiles(allFiles);
       setRecordingsLoaded(true);
     } catch (err) {
-      console.error('Error loading recordings:', err);
+      console.error('Error loading recordings/files:', err);
     }
     setRecordingsLoading(false);
   }, [recordingsLoaded]);
 
-  const deleteRecording = useCallback(async (fullPath: string) => {
+  const deleteStorageFile = useCallback(async (fullPath: string) => {
     setDeletingPath(fullPath);
     try {
       const fileRef = ref(storage, fullPath);
       await deleteObject(fileRef);
       setRecordings(prev => prev.filter(r => r.fullPath !== fullPath));
+      setUploadedFiles(prev => prev.filter(f => f.fullPath !== fullPath));
       setConfirmDelete(null);
     } catch (err) {
       console.error('Delete error:', err);
-      alert('שגיאה במחיקת ההקלטה');
+      alert('שגיאה במחיקת הקובץ');
     }
     setDeletingPath(null);
   }, []);
@@ -348,7 +408,7 @@ export default function AdminQuestionsPage() {
         {isAdmin && (
           <button onClick={() => { setTab('recordings'); loadRecordings(); }}
             className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-bold transition-colors ${tab === 'recordings' ? 'bg-[#8C2B2B] text-white' : 'text-[#8C7A6B] hover:bg-[#F0EBE1]'} lg:flex-1`}>
-            <Headphones size={16} /> <span>הקלטות</span>
+            <Paperclip size={16} /> <span>הקלטות וקבצים</span>
           </button>
         )}
       </div>
@@ -394,7 +454,7 @@ export default function AdminQuestionsPage() {
                         <div className="pt-3 border-t border-[#E5E0D8]">
                           <textarea value={replyText[key] || ''} onChange={(e) => setReplyText({ ...replyText, [key]: e.target.value })}
                             className="w-full p-3 rounded-xl border border-[#E5E0D8] bg-white focus:ring-2 focus:ring-[#8C2B2B] outline-none resize-none mb-3 text-sm" rows={2} placeholder="הכנס תשובה כאן..." />
-                          <div className="mb-3">
+                          <div className="mb-2">
                             <AudioRecorder
                               sectionId={comment.sectionId}
                               commentId={comment.id}
@@ -402,6 +462,15 @@ export default function AdminQuestionsPage() {
                               audioUrl={replyAudio[key] || null}
                               onRecorded={(url) => setReplyAudio({ ...replyAudio, [key]: url })}
                               onClear={() => setReplyAudio({ ...replyAudio, [key]: '' })}
+                            />
+                          </div>
+                          <div className="mb-3">
+                            <FileAttacher
+                              sectionId={comment.sectionId}
+                              commentId={comment.id}
+                              authorName={user?.name || 'rabbi'}
+                              attachments={replyAttachments[key] || []}
+                              onAttachmentsChange={(atts) => setReplyAttachments({ ...replyAttachments, [key]: atts })}
                             />
                           </div>
                           <div className="flex justify-end">
@@ -463,6 +532,22 @@ export default function AdminQuestionsPage() {
                                 </div>
                                 {reply.text && <p className="text-[#4A3B32]">{reply.text}</p>}
                                 {reply.audioUrl && <div className="mt-1"><AudioPlayer src={reply.audioUrl} /></div>}
+                                {reply.attachments?.length > 0 && (
+                                  <div className="mt-1 flex flex-wrap gap-1.5">
+                                    {reply.attachments.map((att: any, ai: number) => (
+                                      att.type === 'image' ? (
+                                        <a key={ai} href={att.url} target="_blank" rel="noopener noreferrer">
+                                          <img src={att.url} alt={att.name} className="max-w-[120px] max-h-[80px] rounded border border-[#E5E0D8] object-cover" />
+                                        </a>
+                                      ) : (
+                                        <a key={ai} href={att.url} target="_blank" rel="noopener noreferrer"
+                                          className="flex items-center gap-1 px-2 py-1 bg-white border border-[#E5E0D8] rounded text-[10px] text-[#4A3B32] hover:bg-[#FAF8F5]">
+                                          {att.type === 'pdf' ? '📄' : '📝'} <span className="font-bold max-w-[100px] truncate">{att.name}</span>
+                                        </a>
+                                      )
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -481,7 +566,7 @@ export default function AdminQuestionsPage() {
                         <div className="pt-3 border-t border-[#E5E0D8]">
                           <textarea value={replyText[replyKey] || ''} onChange={(e) => setReplyText({ ...replyText, [replyKey]: e.target.value })}
                             className="w-full p-3 rounded-xl border border-[#E5E0D8] bg-white focus:ring-2 focus:ring-[#8C2B2B] outline-none resize-none mb-3 text-sm" rows={2} placeholder="הכנס תשובה כאן..." />
-                          <div className="mb-3">
+                          <div className="mb-2">
                             <AudioRecorder
                               sectionId={q.sectionId}
                               commentId={q.id}
@@ -489,6 +574,15 @@ export default function AdminQuestionsPage() {
                               audioUrl={replyAudio[replyKey] || null}
                               onRecorded={(url) => setReplyAudio({ ...replyAudio, [replyKey]: url })}
                               onClear={() => setReplyAudio({ ...replyAudio, [replyKey]: '' })}
+                            />
+                          </div>
+                          <div className="mb-3">
+                            <FileAttacher
+                              sectionId={q.sectionId}
+                              commentId={q.id}
+                              authorName={user?.name || 'rabbi'}
+                              attachments={replyAttachments[replyKey] || []}
+                              onAttachmentsChange={(atts) => setReplyAttachments({ ...replyAttachments, [replyKey]: atts })}
                             />
                           </div>
                           <div className="flex justify-end">
@@ -547,6 +641,22 @@ export default function AdminQuestionsPage() {
                                 </div>
                                 {reply.text && <p className="text-[#4A3B32]">{reply.text}</p>}
                                 {reply.audioUrl && <div className="mt-1"><AudioPlayer src={reply.audioUrl} /></div>}
+                                {reply.attachments?.length > 0 && (
+                                  <div className="mt-1 flex flex-wrap gap-1.5">
+                                    {reply.attachments.map((att: any, ai: number) => (
+                                      att.type === 'image' ? (
+                                        <a key={ai} href={att.url} target="_blank" rel="noopener noreferrer">
+                                          <img src={att.url} alt={att.name} className="max-w-[120px] max-h-[80px] rounded border border-[#E5E0D8] object-cover" />
+                                        </a>
+                                      ) : (
+                                        <a key={ai} href={att.url} target="_blank" rel="noopener noreferrer"
+                                          className="flex items-center gap-1 px-2 py-1 bg-white border border-[#E5E0D8] rounded text-[10px] text-[#4A3B32] hover:bg-[#FAF8F5]">
+                                          {att.type === 'pdf' ? '📄' : '📝'} <span className="font-bold max-w-[100px] truncate">{att.name}</span>
+                                        </a>
+                                      )
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -560,6 +670,25 @@ export default function AdminQuestionsPage() {
                         <div className="pt-3 border-t border-[#E5E0D8]">
                           <textarea value={replyText[key] || ''} onChange={(e) => setReplyText({ ...replyText, [key]: e.target.value })}
                             className="w-full p-3 rounded-xl border border-[#E5E0D8] bg-white focus:ring-2 focus:ring-[#8C2B2B] outline-none resize-none mb-3 text-sm" rows={2} placeholder="הכנס תשובה כאן..." />
+                          <div className="mb-2">
+                            <AudioRecorder
+                              sectionId={msg.id}
+                              commentId={msg.id}
+                              authorName={user?.name || 'rabbi'}
+                              audioUrl={replyAudio[key] || null}
+                              onRecorded={(url) => setReplyAudio({ ...replyAudio, [key]: url })}
+                              onClear={() => setReplyAudio({ ...replyAudio, [key]: '' })}
+                            />
+                          </div>
+                          <div className="mb-3">
+                            <FileAttacher
+                              sectionId={msg.id}
+                              commentId={msg.id}
+                              authorName={user?.name || 'rabbi'}
+                              attachments={replyAttachments[key] || []}
+                              onAttachmentsChange={(atts) => setReplyAttachments({ ...replyAttachments, [key]: atts })}
+                            />
+                          </div>
                           <div className="flex justify-end">
                             <button onClick={() => handleContactReply(msg.id)}
                               className="px-4 py-2 bg-[#8C2B2B] text-white rounded-lg hover:bg-[#7A2525] transition-colors text-sm font-bold">שלח תשובה</button>
@@ -575,62 +704,128 @@ export default function AdminQuestionsPage() {
         </div>
       )}
 
-      {/* Recordings Management tab - admin only */}
+      {/* Recordings & Files Management tab - admin only */}
       {tab === 'recordings' && isAdmin && (
-        <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-[#E5E0D8]">
-          <h2 className="text-xl font-bold text-[#4A3B32] mb-2 flex items-center gap-2">
-            <Headphones size={24} className="text-[#8C2B2B]" /> ניהול הקלטות ({recordings.length})
-          </h2>
-          <p className="text-sm text-[#8C7A6B] mb-4">כל ההקלטות שהועלו לפיירבייס סטורג&apos;</p>
+        <div className="space-y-4">
           {recordingsLoading ? (
             <div className="flex justify-center py-12"><BookLoader /></div>
-          ) : recordings.length === 0 ? (
-            <p className="text-[#8C7A6B] text-center py-8">אין הקלטות.</p>
           ) : (
-            <div className="space-y-1.5">
-              {recordings.map((rec) => (
-                <div key={rec.fullPath} className="border border-[#E5E0D8] rounded-lg px-3 py-2 bg-[#FAF8F5]">
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-xs font-bold text-[#4A3B32] truncate">
-                          {rec.bookTitle && <span className="text-[#8C2B2B]">{rec.bookTitle} &gt; </span>}
-                          {rec.sectionTitle}
-                        </p>
-                        <span className="text-[10px] text-[#8C7A6B]">
-                          {rec.authorName} &bull; {new Date(rec.timeCreated).toLocaleDateString('he-IL')}
-                        </span>
-                      </div>
-                      <div className="mt-1">
-                        <AudioPlayer src={rec.url} />
-                      </div>
-                    </div>
-                    <div className="shrink-0">
-                      {confirmDelete === rec.fullPath ? (
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => deleteRecording(rec.fullPath)}
-                            disabled={deletingPath === rec.fullPath}
-                            className="px-2 py-0.5 text-[10px] font-bold bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50">
-                            {deletingPath === rec.fullPath ? <Loader2 size={10} className="animate-spin" /> : 'מחק'}
-                          </button>
-                          <button
-                            onClick={() => setConfirmDelete(null)}
-                            className="px-2 py-0.5 text-[10px] text-[#8C7A6B] border border-[#E5E0D8] rounded hover:bg-white transition-colors">
-                            ביטול
-                          </button>
+            <>
+              {/* Audio Recordings */}
+              <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-[#E5E0D8]">
+                <h2 className="text-lg font-bold text-[#4A3B32] mb-2 flex items-center gap-2">
+                  <Headphones size={20} className="text-[#8C2B2B]" /> הקלטות ({recordings.length})
+                </h2>
+                {recordings.length === 0 ? (
+                  <p className="text-[#8C7A6B] text-center py-4 text-sm">אין הקלטות.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {recordings.map((rec) => (
+                      <div key={rec.fullPath} className="border border-[#E5E0D8] rounded-lg px-3 py-2 bg-[#FAF8F5]">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-xs font-bold text-[#4A3B32] truncate">
+                                {rec.bookTitle && <span className="text-[#8C2B2B]">{rec.bookTitle} &gt; </span>}
+                                {rec.sectionTitle}
+                              </p>
+                              <span className="text-[10px] text-[#8C7A6B]">
+                                {rec.authorName} &bull; {new Date(rec.timeCreated).toLocaleDateString('he-IL')}
+                              </span>
+                            </div>
+                            <div className="mt-1">
+                              <AudioPlayer src={rec.url} />
+                            </div>
+                          </div>
+                          <div className="shrink-0">
+                            {confirmDelete === rec.fullPath ? (
+                              <div className="flex items-center gap-1">
+                                <button onClick={() => deleteStorageFile(rec.fullPath)} disabled={deletingPath === rec.fullPath}
+                                  className="px-2 py-0.5 text-[10px] font-bold bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50">
+                                  {deletingPath === rec.fullPath ? <Loader2 size={10} className="animate-spin" /> : 'מחק'}
+                                </button>
+                                <button onClick={() => setConfirmDelete(null)}
+                                  className="px-2 py-0.5 text-[10px] text-[#8C7A6B] border border-[#E5E0D8] rounded hover:bg-white transition-colors">ביטול</button>
+                              </div>
+                            ) : (
+                              <button onClick={() => setConfirmDelete(rec.fullPath)}
+                                className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="מחק הקלטה">
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      ) : (
-                        <button onClick={() => setConfirmDelete(rec.fullPath)}
-                          className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="מחק הקלטה">
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                    </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
-              ))}
-            </div>
+                )}
+              </div>
+
+              {/* Uploaded Files (PDF, Word, Images) */}
+              <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-[#E5E0D8]">
+                <h2 className="text-lg font-bold text-[#4A3B32] mb-2 flex items-center gap-2">
+                  <Paperclip size={20} className="text-[#8C2B2B]" /> קבצים ותמונות ({uploadedFiles.length})
+                </h2>
+                {uploadedFiles.length === 0 ? (
+                  <p className="text-[#8C7A6B] text-center py-4 text-sm">אין קבצים מצורפים.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {uploadedFiles.map((file) => (
+                      <div key={file.fullPath} className="border border-[#E5E0D8] rounded-lg px-3 py-2 bg-[#FAF8F5]">
+                        <div className="flex items-center gap-2">
+                          {/* File type icon */}
+                          <div className="shrink-0">
+                            {file.fileType === 'pdf' ? <FileText size={18} className="text-red-500" /> :
+                             file.fileType === 'docx' ? <FileIcon size={18} className="text-blue-500" /> :
+                             <ImageIcon size={18} className="text-green-500" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-xs font-bold text-[#4A3B32] truncate">
+                                {file.bookTitle && <span className="text-[#8C2B2B]">{file.bookTitle} &gt; </span>}
+                                {file.sectionTitle}
+                              </p>
+                              <span className="text-[10px] text-[#8C7A6B]">
+                                {file.authorName} &bull; {new Date(file.timeCreated).toLocaleDateString('he-IL')} &bull; {file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(0)} KB` : `${(file.size / (1024 * 1024)).toFixed(1)} MB`}
+                              </span>
+                            </div>
+                            <div className="mt-0.5 flex items-center gap-2">
+                              {file.fileType === 'image' ? (
+                                <a href={file.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#8C2B2B] hover:underline flex items-center gap-1">
+                                  <ImageIcon size={10} /> צפה בתמונה
+                                </a>
+                              ) : (
+                                <a href={file.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#8C2B2B] hover:underline flex items-center gap-1">
+                                  <ExternalLink size={10} /> {file.fileType === 'pdf' ? 'פתח PDF' : 'הורד Word'}
+                                </a>
+                              )}
+                              <span className="text-[10px] text-[#8C7A6B] truncate max-w-[200px]">{file.name}</span>
+                            </div>
+                          </div>
+                          <div className="shrink-0">
+                            {confirmDelete === file.fullPath ? (
+                              <div className="flex items-center gap-1">
+                                <button onClick={() => deleteStorageFile(file.fullPath)} disabled={deletingPath === file.fullPath}
+                                  className="px-2 py-0.5 text-[10px] font-bold bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50">
+                                  {deletingPath === file.fullPath ? <Loader2 size={10} className="animate-spin" /> : 'מחק'}
+                                </button>
+                                <button onClick={() => setConfirmDelete(null)}
+                                  className="px-2 py-0.5 text-[10px] text-[#8C7A6B] border border-[#E5E0D8] rounded hover:bg-white transition-colors">ביטול</button>
+                              </div>
+                            ) : (
+                              <button onClick={() => setConfirmDelete(file.fullPath)}
+                                className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="מחק קובץ">
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </div>
       )}
@@ -676,6 +871,22 @@ export default function AdminQuestionsPage() {
                                       </div>
                                       {reply.text && <p className="text-[#4A3B32]">{reply.text}</p>}
                                 {reply.audioUrl && <div className="mt-1"><AudioPlayer src={reply.audioUrl} /></div>}
+                                {reply.attachments?.length > 0 && (
+                                  <div className="mt-1 flex flex-wrap gap-1.5">
+                                    {reply.attachments.map((att: any, ai: number) => (
+                                      att.type === 'image' ? (
+                                        <a key={ai} href={att.url} target="_blank" rel="noopener noreferrer">
+                                          <img src={att.url} alt={att.name} className="max-w-[120px] max-h-[80px] rounded border border-[#E5E0D8] object-cover" />
+                                        </a>
+                                      ) : (
+                                        <a key={ai} href={att.url} target="_blank" rel="noopener noreferrer"
+                                          className="flex items-center gap-1 px-2 py-1 bg-white border border-[#E5E0D8] rounded text-[10px] text-[#4A3B32] hover:bg-[#FAF8F5]">
+                                          {att.type === 'pdf' ? '📄' : '📝'} <span className="font-bold max-w-[100px] truncate">{att.name}</span>
+                                        </a>
+                                      )
+                                    ))}
+                                  </div>
+                                )}
                                     </div>
                                   ))}
                                 </div>
@@ -737,6 +948,22 @@ export default function AdminQuestionsPage() {
                                       </div>
                                       {reply.text && <p className="text-[#4A3B32]">{reply.text}</p>}
                                 {reply.audioUrl && <div className="mt-1"><AudioPlayer src={reply.audioUrl} /></div>}
+                                {reply.attachments?.length > 0 && (
+                                  <div className="mt-1 flex flex-wrap gap-1.5">
+                                    {reply.attachments.map((att: any, ai: number) => (
+                                      att.type === 'image' ? (
+                                        <a key={ai} href={att.url} target="_blank" rel="noopener noreferrer">
+                                          <img src={att.url} alt={att.name} className="max-w-[120px] max-h-[80px] rounded border border-[#E5E0D8] object-cover" />
+                                        </a>
+                                      ) : (
+                                        <a key={ai} href={att.url} target="_blank" rel="noopener noreferrer"
+                                          className="flex items-center gap-1 px-2 py-1 bg-white border border-[#E5E0D8] rounded text-[10px] text-[#4A3B32] hover:bg-[#FAF8F5]">
+                                          {att.type === 'pdf' ? '📄' : '📝'} <span className="font-bold max-w-[100px] truncate">{att.name}</span>
+                                        </a>
+                                      )
+                                    ))}
+                                  </div>
+                                )}
                                     </div>
                                   ))}
                                 </div>
@@ -796,6 +1023,22 @@ export default function AdminQuestionsPage() {
                                       </div>
                                       {reply.text && <p className="text-[#4A3B32]">{reply.text}</p>}
                                 {reply.audioUrl && <div className="mt-1"><AudioPlayer src={reply.audioUrl} /></div>}
+                                {reply.attachments?.length > 0 && (
+                                  <div className="mt-1 flex flex-wrap gap-1.5">
+                                    {reply.attachments.map((att: any, ai: number) => (
+                                      att.type === 'image' ? (
+                                        <a key={ai} href={att.url} target="_blank" rel="noopener noreferrer">
+                                          <img src={att.url} alt={att.name} className="max-w-[120px] max-h-[80px] rounded border border-[#E5E0D8] object-cover" />
+                                        </a>
+                                      ) : (
+                                        <a key={ai} href={att.url} target="_blank" rel="noopener noreferrer"
+                                          className="flex items-center gap-1 px-2 py-1 bg-white border border-[#E5E0D8] rounded text-[10px] text-[#4A3B32] hover:bg-[#FAF8F5]">
+                                          {att.type === 'pdf' ? '📄' : '📝'} <span className="font-bold max-w-[100px] truncate">{att.name}</span>
+                                        </a>
+                                      )
+                                    ))}
+                                  </div>
+                                )}
                                     </div>
                                   ))}
                                 </div>

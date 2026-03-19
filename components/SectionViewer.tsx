@@ -630,6 +630,23 @@ export function SectionViewer({
                             <AudioPlayer src={reply.audioUrl} />
                           </div>
                         )}
+                        {reply.attachments?.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {reply.attachments.map((att: any, i: number) => (
+                              att.type === 'image' ? (
+                                <a key={i} href={att.url} target="_blank" rel="noopener noreferrer" className="block">
+                                  <img src={att.url} alt={att.name} className="max-w-[200px] max-h-[150px] rounded-lg border border-[#E5E0D8] object-cover hover:opacity-90 transition-opacity" />
+                                </a>
+                              ) : (
+                                <a key={i} href={att.url} target="_blank" rel="noopener noreferrer"
+                                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-[#E5E0D8] rounded-lg text-xs text-[#4A3B32] hover:bg-[#FAF8F5] transition-colors">
+                                  {att.type === 'pdf' ? '📄' : '📝'}
+                                  <span className="font-bold max-w-[150px] truncate">{att.name}</span>
+                                </a>
+                              )
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

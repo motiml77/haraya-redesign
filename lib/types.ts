@@ -54,12 +54,20 @@ export interface Comment {
   resolvedDate?: string;
 }
 
+export interface ReplyAttachment {
+  url: string;
+  name: string;
+  type: 'pdf' | 'docx' | 'image';
+  size: number;
+}
+
 export interface Reply {
   id: number | string;
   author: string;
   date: string;
   text: string;
   audioUrl?: string;
+  attachments?: ReplyAttachment[];
 }
 
 export interface QuestionForRabbi {

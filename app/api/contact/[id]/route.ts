@@ -22,12 +22,23 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     // Add reply
     if (body.reply) {
       const replies = data.replies || [];
-      replies.push({
+      const newReply: any = {
         id: Date.now(),
         author: body.reply.author,
         date: new Date().toISOString().split('T')[0],
-        text: body.reply.text,
-      });
+        text: body.reply.text || '',
+      };
+      if (body.reply.audioUrl && typeof body.reply.audioUrl === 'string' && body.reply.audioUrl.startsWith('https://')) {
+        newReply.audioUrl = body.reply.audioUrl;
+      }
+      if (Array.isArray(body.reply.attachments) && body.reply.attachments.length > 0) {
+        newReply.attachments = body.reply.attachments.filter((a: any) =>
+          a && typeof a.url === 'string' && a.url.startsWith('https://') &&
+          typeof a.name === 'string' && ['pdf', 'docx', 'image'].includes(a.type) &&
+          typeof a.size === 'number'
+        );
+      }
+      replies.push(newReply);
       await docRef.update({ replies });
     }
 
