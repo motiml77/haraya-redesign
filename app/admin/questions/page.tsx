@@ -284,40 +284,40 @@ export default function AdminQuestionsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex gap-2 bg-white p-2 rounded-2xl shadow-sm border border-[#E5E0D8] flex-wrap">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:flex gap-1.5 bg-white p-2 rounded-2xl shadow-sm border border-[#E5E0D8]">
         <button onClick={() => setTab('beit-midrash')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors flex-1 justify-center min-w-0 ${tab === 'beit-midrash' ? 'bg-[#8C2B2B] text-white' : 'text-[#8C7A6B] hover:bg-[#F0EBE1]'}`}>
-          <Bell size={16} /> <span className="truncate">בית מדרש</span>
+          className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-bold transition-colors ${tab === 'beit-midrash' ? 'bg-[#8C2B2B] text-white' : 'text-[#8C7A6B] hover:bg-[#F0EBE1]'} lg:flex-1`}>
+          <Bell size={16} /> <span>בית מדרש</span>
           {unansweredComments.length > 0 && (
-            <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${tab === 'beit-midrash' ? 'bg-white text-[#8C2B2B]' : 'bg-[#8C2B2B] text-white'}`}>{unansweredComments.length}</span>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${tab === 'beit-midrash' ? 'bg-white text-[#8C2B2B]' : 'bg-[#8C2B2B] text-white'}`}>{unansweredComments.length}</span>
           )}
         </button>
         <button onClick={() => setTab('editor')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors flex-1 justify-center min-w-0 ${tab === 'editor' ? 'bg-[#8C2B2B] text-white' : 'text-[#8C7A6B] hover:bg-[#F0EBE1]'}`}>
-          <MessageSquare size={16} /> <span className="truncate">עורכים</span>
+          className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-bold transition-colors ${tab === 'editor' ? 'bg-[#8C2B2B] text-white' : 'text-[#8C7A6B] hover:bg-[#F0EBE1]'} lg:flex-1`}>
+          <MessageSquare size={16} /> <span>עורכים</span>
           {questions.length > 0 && (
-            <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${tab === 'editor' ? 'bg-white text-[#8C2B2B]' : 'bg-[#8C2B2B] text-white'}`}>{questions.length}</span>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${tab === 'editor' ? 'bg-white text-[#8C2B2B]' : 'bg-[#8C2B2B] text-white'}`}>{questions.length}</span>
           )}
         </button>
         {isAdmin && (
           <button onClick={() => setTab('contact')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors flex-1 justify-center min-w-0 ${tab === 'contact' ? 'bg-[#8C2B2B] text-white' : 'text-[#8C7A6B] hover:bg-[#F0EBE1]'}`}>
-            <Mail size={16} /> <span className="truncate">צור קשר</span>
+            className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-bold transition-colors ${tab === 'contact' ? 'bg-[#8C2B2B] text-white' : 'text-[#8C7A6B] hover:bg-[#F0EBE1]'} lg:flex-1`}>
+            <Mail size={16} /> <span>צור קשר</span>
             {contactMessages.length > 0 && (
-              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${tab === 'contact' ? 'bg-white text-[#8C2B2B]' : 'bg-[#8C2B2B] text-white'}`}>{contactMessages.length}</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${tab === 'contact' ? 'bg-white text-[#8C2B2B]' : 'bg-[#8C2B2B] text-white'}`}>{contactMessages.length}</span>
             )}
           </button>
         )}
         {isAdmin && (
           <button onClick={() => { setTab('history'); loadHistory(); }}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors flex-1 justify-center min-w-0 ${tab === 'history' ? 'bg-[#8C2B2B] text-white' : 'text-[#8C7A6B] hover:bg-[#F0EBE1]'}`}>
-            <History size={16} /> <span className="truncate">היסטוריה</span>
+            className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-bold transition-colors ${tab === 'history' ? 'bg-[#8C2B2B] text-white' : 'text-[#8C7A6B] hover:bg-[#F0EBE1]'} lg:flex-1`}>
+            <History size={16} /> <span>היסטוריה</span>
           </button>
         )}
         {isAdmin && (
           <button onClick={() => { setTab('recordings'); loadRecordings(); }}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors flex-1 justify-center min-w-0 ${tab === 'recordings' ? 'bg-[#8C2B2B] text-white' : 'text-[#8C7A6B] hover:bg-[#F0EBE1]'}`}>
-            <Headphones size={16} /> <span className="truncate">ניהול הקלטות</span>
+            className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-bold transition-colors ${tab === 'recordings' ? 'bg-[#8C2B2B] text-white' : 'text-[#8C7A6B] hover:bg-[#F0EBE1]'} lg:flex-1`}>
+            <Headphones size={16} /> <span>הקלטות</span>
           </button>
         )}
       </div>

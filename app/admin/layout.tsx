@@ -201,47 +201,49 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <AdminContext.Provider value={{ user }}>
       <div className="min-h-screen bg-[#FAF8F5] font-sans" dir="rtl">
         {/* Top bar */}
-        <header className="bg-white border-b border-[#E5E0D8] px-6 py-3 sticky top-0 z-50 shadow-sm relative">
-          <div className="max-w-7xl mx-auto flex justify-between items-center">
-            <div className="flex items-center gap-6">
-              <Link href="/" className="flex items-center gap-2 p-2 rounded-full hover:bg-[#F0EBE1] transition-colors" title="חזרה לאתר">
-                <BookOpen size={28} className="text-[#8C2B2B]" />
-                <span className="text-lg font-serif font-bold text-[#8C2B2B]">ראשי</span>
-              </Link>
-              <h1 className="text-2xl font-serif font-bold text-[#4A3B32]">מערכת ניהול</h1>
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-[#F0EBE1] rounded-full">
-                <span className="text-xs font-bold text-[#8C7A6B]">שלום, {user?.name} ({roleName})</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <nav className="flex bg-white rounded-full p-1 shadow-sm border border-[#E5E0D8]">
-                {navItems.filter(item => user && item.roles.includes(user.role)).map(item => (
-                  <Link key={item.href} href={item.href} title={item.label}
-                    className={`relative flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold transition-colors ${pathname === item.href ? 'bg-[#F0EBE1] text-[#4A3B32]' : 'text-[#8C7A6B] hover:text-[#4A3B32]'}`}>
-                    <item.icon size={18} />
-                    {'badge' in item && item.badge! > 0 && (
-                      <span className="absolute -top-1 -right-1 bg-[#8C2B2B] text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
-                        {item.badge! > 99 ? '99+' : item.badge}
-                      </span>
-                    )}
-                    <span className="hidden md:inline">{item.label}</span>
-                  </Link>
-                ))}
-              </nav>
-              {/* Bell icon */}
+        <header className="bg-white border-b border-[#E5E0D8] px-3 sm:px-6 py-2 sm:py-3 sticky top-0 z-50 shadow-sm relative">
+          <div className="max-w-7xl mx-auto flex justify-between items-center gap-2">
+            {/* Left: logout + bell */}
+            <div className="flex items-center gap-1 sm:gap-3 shrink-0">
+              <button onClick={handleLogout} title="התנתק" className="flex items-center gap-1 text-xs sm:text-sm text-[#8C2B2B] hover:underline font-bold whitespace-nowrap">
+                <LogOut size={16} />
+                <span className="hidden sm:inline">התנתק</span>
+              </button>
               <button onClick={() => setShowAnnouncementsPopup(!showAnnouncementsPopup)}
-                className="relative p-2 rounded-full hover:bg-[#F0EBE1] transition-colors">
-                <Bell size={20} className="text-[#4A3B32]" />
+                className="relative p-1.5 sm:p-2 rounded-full hover:bg-[#F0EBE1] transition-colors">
+                <Bell size={18} className="text-[#4A3B32]" />
                 {unreadAnnouncements.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-[#8C2B2B] text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
+                  <span className="absolute -top-1 -right-1 bg-[#8C2B2B] text-white text-[10px] font-bold w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center">
                     {unreadAnnouncements.length > 9 ? '9+' : unreadAnnouncements.length}
                   </span>
                 )}
               </button>
-              <button onClick={handleLogout} title="התנתק" className="flex items-center gap-1 text-sm text-[#8C2B2B] hover:underline font-bold">
-                <LogOut size={16} />
-                התנתק
-              </button>
+            </div>
+
+            {/* Center: nav */}
+            <nav className="flex bg-white rounded-full p-0.5 sm:p-1 shadow-sm border border-[#E5E0D8] overflow-x-auto">
+              {navItems.filter(item => user && item.roles.includes(user.role)).map(item => (
+                <Link key={item.href} href={item.href} title={item.label}
+                  className={`relative flex items-center gap-1.5 px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-full text-sm font-bold transition-colors whitespace-nowrap ${pathname === item.href ? 'bg-[#F0EBE1] text-[#4A3B32]' : 'text-[#8C7A6B] hover:text-[#4A3B32]'}`}>
+                  <item.icon size={18} />
+                  {'badge' in item && item.badge! > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-[#8C2B2B] text-white text-[10px] font-bold w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center">
+                      {item.badge! > 99 ? '99+' : item.badge}
+                    </span>
+                  )}
+                  <span className="hidden lg:inline">{item.label}</span>
+                </Link>
+              ))}
+            </nav>
+
+            {/* Right: title + home */}
+            <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-[#F0EBE1] rounded-full">
+                <span className="text-xs font-bold text-[#8C7A6B]">{user?.name} ({roleName})</span>
+              </div>
+              <Link href="/" className="flex items-center gap-1 p-1.5 sm:p-2 rounded-full hover:bg-[#F0EBE1] transition-colors" title="חזרה לאתר">
+                <BookOpen size={22} className="text-[#8C2B2B]" />
+              </Link>
             </div>
           </div>
 
@@ -282,7 +284,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </header>
 
         {/* Content */}
-        <main className="max-w-7xl mx-auto p-6">
+        <main className="max-w-7xl mx-auto px-3 py-4 sm:p-6">
           {children}
         </main>
       </div>

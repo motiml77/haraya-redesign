@@ -2,8 +2,8 @@
 
 import React, { useState, useRef, useCallback } from 'react';
 import { Mic, Square, Trash2, Loader2, Pause, Play, Upload } from 'lucide-react';
-import { storage } from '@/lib/firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { storage, auth } from '@/lib/firebase';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 
 interface AudioRecorderProps {
   sectionId: string;
@@ -163,7 +163,7 @@ export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, on
     return `${m}:${sec.toString().padStart(2, '0')}`;
   };
 
-  // Upload handler - defined as regular async function to always have fresh props
+  // Upload handler - robust for mobile
   const handleUpload = async () => {
     const blob = previewBlobRef.current;
     if (!blob) {
@@ -171,14 +171,31 @@ export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, on
       return;
     }
 
+    // Verify Firebase Auth is active (required by storage rules)
+    if (!auth.currentUser) {
+      alert('יש להתחבר מחדש. רענן את הדף.');
+      return;
+    }
+
     setStatus('uploading');
     try {
       const safeName = authorName.replace(/[^a-zA-Z0-9\u0590-\u05FF]/g, '-');
       const ext = audioConfigRef.current.ext || 'webm';
+      const contentType = audioConfigRef.current.mimeType || blob.type || 'audio/webm';
       const filename = `audio-replies/${sectionId}/reply_${commentId}_${safeName}_${Date.now()}.${ext}`;
       const storageRef = ref(storage, filename);
-      await uploadBytes(storageRef, blob);
-      const url = await getDownloadURL(storageRef);
+
+      // Convert blob to Uint8Array for better mobile compatibility
+      const arrayBuffer = await blob.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+
+      // Use resumable upload with explicit content type
+      const uploadTask = uploadBytesResumable(storageRef, bytes, { contentType });
+
+      // Await the upload task (UploadTask is thenable)
+      await uploadTask;
+
+      const url = await getDownloadURL(uploadTask.snapshot.ref);
 
       // Cleanup preview
       if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -189,7 +206,13 @@ export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, on
       setStatus('idle');
     } catch (err: any) {
       console.error('Upload error:', err);
-      alert(`שגיאה בהעלאת ההקלטה: ${err?.message || 'שגיאה לא ידועה'}`);
+      const code = err?.code || '';
+      const msg = err?.message || 'שגיאה לא ידועה';
+      if (code === 'storage/unauthorized') {
+        alert('אין הרשאה להעלות. יש לוודא שאתה מחובר.');
+      } else {
+        alert(`שגיאה בהעלאה: ${msg}`);
+      }
       setStatus('preview');
     }
   };
