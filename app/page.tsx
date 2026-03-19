@@ -1,5 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { BookOpen, Info, Hash, Mail } from 'lucide-react';
 import { adminDb } from '@/lib/firebase-admin';
 import { getCached, setCache } from '@/lib/cache';
@@ -52,45 +53,50 @@ async function getAnnouncements() {
 }
 
 export default async function HomePage() {
-  const booksPromise = getBooks();
-  const announcementsPromise = getAnnouncements();
-
-  // Fetch in parallel
-  const [books, announcements] = await Promise.all([booksPromise, announcementsPromise]);
+  const [books, announcements] = await Promise.all([getBooks(), getAnnouncements()]);
 
   return (
     <div className="min-h-screen bg-[#FAF8F5] font-sans" dir="rtl">
       <header className="bg-white border-b border-[#E5E0D8] px-4 sm:px-6">
-        {/* Row 1: Logo + Auth */}
-        <div className="flex justify-between items-center py-3 border-b border-[#F0EBE1]">
+        {/* Row 1: Nav buttons + Auth */}
+        <div className="flex justify-between items-center py-3">
           <div className="flex items-center gap-2">
-            <BookOpen size={28} className="text-[#8C2B2B]" />
-            <span className="text-lg font-serif font-bold text-[#8C2B2B]">ראשי</span>
+            <Link href="/topics"
+              className="flex items-center gap-1 text-xs text-[#8C7A6B] hover:text-[#8C2B2B] transition-colors px-3 py-1.5 rounded-full border border-[#E5E0D8] hover:border-[#8C2B2B] bg-[#FAF8F5]">
+              <Hash size={14} />
+              נושאים
+            </Link>
+            <Link href="/contact"
+              className="flex items-center gap-1 text-xs text-[#8C7A6B] hover:text-[#8C2B2B] transition-colors px-3 py-1.5 rounded-full border border-[#E5E0D8] hover:border-[#8C2B2B] bg-[#FAF8F5]">
+              <Mail size={14} />
+              צור קשר
+            </Link>
+            <Link href="/about"
+              className="flex items-center gap-1 text-xs text-[#8C7A6B] hover:text-[#8C2B2B] transition-colors px-3 py-1.5 rounded-full border border-[#E5E0D8] hover:border-[#8C2B2B] bg-[#FAF8F5]">
+              <Info size={14} />
+              אודות
+            </Link>
           </div>
           <PageHeaderAuth />
         </div>
-        {/* Row 2: Navigation buttons */}
-        <div className="flex items-center justify-center gap-2 py-3">
-          <Link href="/topics"
-            className="flex items-center gap-0.5 text-xs text-[#8C7A6B] hover:text-[#8C2B2B] transition-colors px-3 py-1.5 rounded-full border border-[#E5E0D8] hover:border-[#8C2B2B] bg-[#FAF8F5]">
-            <Hash size={14} />
-            נושאים
-          </Link>
-          <Link href="/contact"
-            className="flex items-center gap-1.5 text-xs text-[#8C7A6B] hover:text-[#8C2B2B] transition-colors px-3 py-1.5 rounded-full border border-[#E5E0D8] hover:border-[#8C2B2B] bg-[#FAF8F5]">
-            <Mail size={14} />
-            צור קשר
-          </Link>
-          <Link href="/about"
-            className="flex items-center gap-1.5 text-xs text-[#8C7A6B] hover:text-[#8C2B2B] transition-colors px-3 py-1.5 rounded-full border border-[#E5E0D8] hover:border-[#8C2B2B] bg-[#FAF8F5]">
-            <Info size={14} />
-            אודות
-          </Link>
-        </div>
-        {/* Title */}
+
+        {/* Title + Image */}
         <div className="max-w-4xl mx-auto text-center py-8">
           <h1 className="text-3xl sm:text-4xl font-serif font-bold text-[#4A3B32]">שיעורים בכתבי הרב קוק</h1>
           <p className="text-[#8C7A6B] mt-3 text-base sm:text-lg">ביאורים והרחבות על כתבי מרן הרב אברהם יצחק הכהן קוק זצ״ל</p>
+
+          <div className="mt-6 flex justify-center">
+            <div className="w-48 h-48 sm:w-56 sm:h-56 rounded-2xl overflow-hidden shadow-md border border-[#E5E0D8] bg-[#F5F0EB]">
+              <Image
+                src="/rav-kook.webp"
+                alt="הרב אברהם יצחק הכהן קוק זצ״ל"
+                width={394}
+                height={500}
+                className="w-full h-full object-cover"
+                priority
+              />
+            </div>
+          </div>
         </div>
       </header>
 
