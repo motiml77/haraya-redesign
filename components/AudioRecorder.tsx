@@ -3,7 +3,6 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { Mic, Square, Trash2, Loader2, Pause, Play, Upload } from 'lucide-react';
 import { storage, auth } from '@/lib/firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 interface AudioRecorderProps {
   sectionId: string;
@@ -23,7 +22,7 @@ function getAudioConfig(): { mimeType: string; ext: string } {
   if (MediaRecorder.isTypeSupported('audio/webm')) return { mimeType: 'audio/webm', ext: 'webm' };
   if (MediaRecorder.isTypeSupported('audio/mp4')) return { mimeType: 'audio/mp4', ext: 'm4a' };
   if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) return { mimeType: 'audio/ogg;codecs=opus', ext: 'ogg' };
-  return { mimeType: '', ext: 'webm' }; // fallback - let browser decide
+  return { mimeType: '', ext: 'webm' };
 }
 
 export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, onClear, audioUrl }: AudioRecorderProps) {
@@ -87,7 +86,6 @@ export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, on
         secondsRef.current += 1;
         setSeconds(secondsRef.current);
         if (secondsRef.current >= MAX_SECONDS) {
-          // Auto-stop at 5 minutes
           if (timerRef.current) {
             clearInterval(timerRef.current);
             timerRef.current = null;
@@ -163,7 +161,7 @@ export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, on
     return `${m}:${sec.toString().padStart(2, '0')}`;
   };
 
-  // Upload handler - robust for mobile
+  // Upload via REST API directly (Firebase SDK hangs on mobile)
   const handleUpload = async () => {
     const blob = previewBlobRef.current;
     if (!blob) {
@@ -171,86 +169,54 @@ export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, on
       return;
     }
 
-    // Verify Firebase Auth is active (required by storage rules)
     if (!auth.currentUser) {
       alert('יש להתחבר מחדש. רענן את הדף.');
       return;
     }
 
     setStatus('uploading');
+
     try {
+      const token = await auth.currentUser.getIdToken();
+      const bucket = storage.app.options.storageBucket;
       const safeName = authorName.replace(/[^a-zA-Z0-9\u0590-\u05FF]/g, '-');
       const ext = audioConfigRef.current.ext || 'webm';
       const contentType = audioConfigRef.current.mimeType || blob.type || 'audio/webm';
-      const filename = `audio-replies/${sectionId}/reply_${commentId}_${safeName}_${Date.now()}.${ext}`;
-      const storageRef = ref(storage, filename);
+      const path = `audio-replies/${sectionId}/reply_${commentId}_${safeName}_${Date.now()}.${ext}`;
 
-      // Upload blob directly - do NOT convert to Uint8Array (known to hang on mobile)
-      // uploadBytes returns a real Promise (unlike uploadBytesResumable which is thenable but unreliable)
-      const snapshot = await uploadBytes(storageRef, blob, { contentType });
-      const url = await getDownloadURL(snapshot.ref);
+      const res = await fetch(
+        `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?uploadType=media`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': contentType,
+          },
+          body: blob,
+        }
+      );
 
-      // Cleanup preview
+      if (!res.ok) {
+        throw new Error(`Upload failed: ${res.status}`);
+      }
+
+      const data = await res.json();
+      const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(data.name)}?alt=media&token=${data.downloadTokens}`;
+
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);
       previewBlobRef.current = null;
 
-      onRecorded(url);
+      onRecorded(downloadUrl);
       setStatus('idle');
     } catch (err: any) {
       console.error('Upload error:', err);
-      const code = err?.code || '';
-      const msg = err?.message || 'שגיאה לא ידועה';
-
-      // Fallback: try direct REST API upload if SDK fails
-      if (code !== 'storage/unauthorized') {
-        try {
-          const token = await auth.currentUser!.getIdToken();
-          const bucket = storage.app.options.storageBucket;
-          const safeName = authorName.replace(/[^a-zA-Z0-9\u0590-\u05FF]/g, '-');
-          const ext = audioConfigRef.current.ext || 'webm';
-          const contentType = audioConfigRef.current.mimeType || blob.type || 'audio/webm';
-          const path = `audio-replies/${sectionId}/reply_${commentId}_${safeName}_${Date.now()}.${ext}`;
-
-          const res = await fetch(
-            `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?uploadType=media`,
-            {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': contentType,
-              },
-              body: blob,
-            }
-          );
-
-          if (res.ok) {
-            const data = await res.json();
-            const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(data.name)}?alt=media&token=${data.downloadTokens}`;
-
-            if (previewUrl) URL.revokeObjectURL(previewUrl);
-            setPreviewUrl(null);
-            previewBlobRef.current = null;
-
-            onRecorded(downloadUrl);
-            setStatus('idle');
-            return;
-          }
-        } catch (fallbackErr) {
-          console.error('Fallback upload also failed:', fallbackErr);
-        }
-      }
-
-      if (code === 'storage/unauthorized') {
-        alert('אין הרשאה להעלות. יש לוודא שאתה מחובר.');
-      } else {
-        alert(`שגיאה בהעלאה: ${msg}`);
-      }
+      alert(`שגיאה בהעלאה: ${err?.message || 'שגיאה לא ידועה'}`);
       setStatus('preview');
     }
   };
 
-  // Show playback preview if already uploaded & saved
+  // Show playback if already uploaded & saved
   if (audioUrl) {
     return (
       <div className="flex items-center gap-2 p-2 bg-[#F0EBE1] rounded-lg">
@@ -271,7 +237,6 @@ export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, on
     );
   }
 
-  // Preview: let user listen before uploading
   if (status === 'preview' && previewUrl) {
     return (
       <div className="space-y-2">

@@ -9,5 +9,9 @@ export interface AdminUser {
   name: string;
 }
 
-export const AdminContext = createContext<{ user: AdminUser | null }>({ user: null });
+export const AdminContext = createContext<{
+  user: AdminUser | null;
+  questionsBadge: number;
+  setQuestionsBadge: (n: number | ((prev: number) => number)) => void;
+}>({ user: null, questionsBadge: 0, setQuestionsBadge: () => {} });
 export const useAdminUser = () => useContext(AdminContext);

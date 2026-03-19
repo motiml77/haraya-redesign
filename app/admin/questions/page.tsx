@@ -8,11 +8,11 @@ import { authFetch } from '@/lib/auth-fetch';
 import { useAdminUser } from '../admin-context';
 import { AudioRecorder } from '@/components/AudioRecorder';
 import { AudioPlayer } from '@/components/AudioPlayer';
-import { storage } from '@/lib/firebase';
-import { ref, listAll, deleteObject, getDownloadURL, getMetadata } from 'firebase/storage';
+import { storage, auth } from '@/lib/firebase';
+import { ref, deleteObject } from 'firebase/storage';
 
 export default function AdminQuestionsPage() {
-  const { user } = useAdminUser();
+  const { user, questionsBadge, setQuestionsBadge } = useAdminUser();
   const [questions, setQuestions] = useState<any[]>([]);
   const [unansweredComments, setUnansweredComments] = useState<any[]>([]);
   const [contactMessages, setContactMessages] = useState<any[]>([]);
@@ -30,7 +30,7 @@ export default function AdminQuestionsPage() {
   const [historyLoading, setHistoryLoading] = useState(false);
 
   // Recording management state
-  const [recordings, setRecordings] = useState<{ name: string; fullPath: string; url: string; size: number; timeCreated: string; sectionId: string; details: string }[]>([]);
+  const [recordings, setRecordings] = useState<{ name: string; fullPath: string; url: string; size: number; timeCreated: string; sectionId: string; sectionTitle: string; bookTitle: string; authorName: string }[]>([]);
   const [recordingsLoading, setRecordingsLoading] = useState(false);
   const [recordingsLoaded, setRecordingsLoaded] = useState(false);
   const [deletingPath, setDeletingPath] = useState<string | null>(null);
@@ -114,6 +114,7 @@ export default function AdminQuestionsPage() {
       setUnansweredComments(unansweredComments.filter(c => !(c.sectionId === sectionId && c.id === commentId)));
       setExpandedId(null);
       setHistoryLoaded(false);
+      setQuestionsBadge((prev: number) => Math.max(0, prev - 1));
     } catch { alert('שגיאה בשליחת התשובה'); }
   };
 
@@ -143,6 +144,7 @@ export default function AdminQuestionsPage() {
       setReplyAudio({ ...replyAudio, [key]: '' });
       refreshData();
       setHistoryLoaded(false);
+      setQuestionsBadge((prev: number) => Math.max(0, prev - 1));
     } catch { alert('שגיאה בשליחת התשובה'); }
   };
 
@@ -160,6 +162,7 @@ export default function AdminQuestionsPage() {
       setReplyText({ ...replyText, [key]: '' });
       refreshContact();
       setHistoryLoaded(false);
+      setQuestionsBadge((prev: number) => Math.max(0, prev - 1));
     } catch { alert('שגיאה בשליחת התשובה'); }
   };
 
@@ -179,6 +182,7 @@ export default function AdminQuestionsPage() {
       await authFetch(`/api/sections/${sectionId}`, { method: 'PUT', body: JSON.stringify({ questionsForRabbi: updatedQuestions }) });
       setQuestions(questions.filter(q => !(q.sectionId === sectionId && q.id === questionId)));
       setHistoryLoaded(false);
+      setQuestionsBadge((prev: number) => Math.max(0, prev - 1));
     } catch { alert('שגיאה בעדכון סטטוס'); }
   };
 
@@ -198,6 +202,7 @@ export default function AdminQuestionsPage() {
       await authFetch(`/api/sections/${sectionId}`, { method: 'PUT', body: JSON.stringify({ comments: updatedComments }) });
       setUnansweredComments(unansweredComments.filter(c => !(c.sectionId === sectionId && c.id === commentId)));
       setHistoryLoaded(false);
+      setQuestionsBadge((prev: number) => Math.max(0, prev - 1));
     } catch { alert('שגיאה בעדכון סטטוס'); }
   };
 
@@ -210,43 +215,69 @@ export default function AdminQuestionsPage() {
       });
       setContactMessages(contactMessages.filter(m => m.id !== messageId));
       setHistoryLoaded(false);
+      setQuestionsBadge((prev: number) => Math.max(0, prev - 1));
     } catch { alert('שגיאה בעדכון סטטוס'); }
   };
 
-  // Load all recordings from Firebase Storage
+  // Load all recordings from Firebase Storage via REST API
   const loadRecordings = useCallback(async () => {
     if (recordingsLoaded) return;
     setRecordingsLoading(true);
     try {
-      const rootRef = ref(storage, 'audio-replies');
-      const rootResult = await listAll(rootRef);
+      const bucket = storage.app.options.storageBucket;
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) { setRecordingsLoading(false); return; }
 
-      const allFiles: typeof recordings = [];
-      for (const folderRef of rootResult.prefixes) {
-        const sectionId = folderRef.name;
-        const folderResult = await listAll(folderRef);
-        for (const itemRef of folderResult.items) {
-          try {
-            const [url, metadata] = await Promise.all([
-              getDownloadURL(itemRef),
-              getMetadata(itemRef),
-            ]);
-            // Parse filename: reply_{commentId}_{authorName}_{timestamp}.webm
-            const parts = itemRef.name.replace('.webm', '').split('_');
-            const commentId = parts[1] || '?';
-            const authorName = parts[2] || '?';
-            allFiles.push({
-              name: itemRef.name,
-              fullPath: itemRef.fullPath,
-              url,
-              size: metadata.size,
-              timeCreated: metadata.timeCreated,
-              sectionId,
-              details: `סקשן: ${sectionId} | תגובה: ${commentId} | מחבר: ${authorName}`,
-            });
-          } catch {}
-        }
-      }
+      // Single REST call to list all objects under audio-replies/
+      const listRes = await fetch(
+        `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?prefix=audio-replies%2F&maxResults=500`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      if (!listRes.ok) throw new Error('Failed to list recordings');
+      const listData = await listRes.json();
+      const items: any[] = listData.items || [];
+
+      // Collect unique sectionIds and fetch titles in parallel
+      const sectionIds = [...new Set(items.map((item: any) => {
+        const parts = item.name.split('/');
+        return parts.length >= 2 ? parts[1] : '';
+      }).filter(Boolean))];
+
+      const sectionMap: Record<string, { sectionTitle: string; bookTitle: string }> = {};
+      const sectionFetches = sectionIds.map(async (sid) => {
+        try {
+          const res = await fetch(`/api/sections/${sid}`);
+          if (res.ok) {
+            const data = await res.json();
+            sectionMap[sid] = { sectionTitle: data.title || sid, bookTitle: data.bookTitle || '' };
+          }
+        } catch {}
+      });
+      await Promise.all(sectionFetches);
+
+      const allFiles: typeof recordings = items.map((item: any) => {
+        const pathParts = item.name.split('/');
+        const sectionId = pathParts.length >= 2 ? pathParts[1] : '';
+        const fileName = pathParts[pathParts.length - 1] || '';
+        // Parse: reply_{commentId}_{authorName}_{timestamp}.ext
+        const nameParts = fileName.replace(/\.[^.]+$/, '').split('_');
+        const authorName = nameParts[2] || '?';
+        const info = sectionMap[sectionId];
+        const downloadToken = item.downloadTokens || '';
+        const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(item.name)}?alt=media&token=${downloadToken}`;
+
+        return {
+          name: fileName,
+          fullPath: item.name,
+          url,
+          size: parseInt(item.size || '0', 10),
+          timeCreated: item.timeCreated || '',
+          sectionId,
+          sectionTitle: info?.sectionTitle || sectionId,
+          bookTitle: info?.bookTitle || '',
+          authorName: decodeURIComponent(authorName).replace(/-/g, ' '),
+        };
+      });
 
       allFiles.sort((a, b) => new Date(b.timeCreated).getTime() - new Date(a.timeCreated).getTime());
       setRecordings(allFiles);
@@ -561,10 +592,12 @@ export default function AdminQuestionsPage() {
                 <div key={rec.fullPath} className="border border-[#E5E0D8] rounded-xl p-4 bg-[#FAF8F5]">
                   <div className="flex items-start gap-3">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-[#4A3B32] truncate">{rec.name}</p>
-                      <p className="text-xs text-[#8C7A6B] mt-1">{rec.details}</p>
-                      <p className="text-xs text-[#8C7A6B]">
-                        {new Date(rec.timeCreated).toLocaleDateString('he-IL')} &bull; {(rec.size / 1024).toFixed(0)} KB
+                      <p className="text-sm font-bold text-[#4A3B32]">
+                        {rec.bookTitle && <span className="text-[#8C2B2B]">{rec.bookTitle} &gt; </span>}
+                        {rec.sectionTitle}
+                      </p>
+                      <p className="text-xs text-[#8C7A6B] mt-1">
+                        מחבר: {rec.authorName} &bull; {new Date(rec.timeCreated).toLocaleDateString('he-IL')} &bull; {(rec.size / 1024).toFixed(0)} KB
                       </p>
                       <div className="mt-2">
                         <AudioPlayer src={rec.url} />

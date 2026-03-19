@@ -198,7 +198,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   ];
 
   return (
-    <AdminContext.Provider value={{ user }}>
+    <AdminContext.Provider value={{ user, questionsBadge, setQuestionsBadge }}>
       <div className="min-h-screen bg-[#FAF8F5] font-sans" dir="rtl">
         {/* Top bar */}
         <header className="bg-white border-b border-[#E5E0D8] px-3 sm:px-6 py-2 sm:py-3 sticky top-0 z-50 shadow-sm relative">
