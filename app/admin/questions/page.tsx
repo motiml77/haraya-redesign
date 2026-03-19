@@ -587,47 +587,43 @@ export default function AdminQuestionsPage() {
           ) : recordings.length === 0 ? (
             <p className="text-[#8C7A6B] text-center py-8">אין הקלטות.</p>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {recordings.map((rec) => (
-                <div key={rec.fullPath} className="border border-[#E5E0D8] rounded-xl p-4 bg-[#FAF8F5]">
-                  <div className="flex items-start gap-3">
+                <div key={rec.fullPath} className="border border-[#E5E0D8] rounded-lg px-3 py-2 bg-[#FAF8F5]">
+                  <div className="flex items-center gap-2">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-[#4A3B32]">
-                        {rec.bookTitle && <span className="text-[#8C2B2B]">{rec.bookTitle} &gt; </span>}
-                        {rec.sectionTitle}
-                      </p>
-                      <p className="text-xs text-[#8C7A6B] mt-1">
-                        מחבר: {rec.authorName} &bull; {new Date(rec.timeCreated).toLocaleDateString('he-IL')} &bull; {(rec.size / 1024).toFixed(0)} KB
-                      </p>
-                      <div className="mt-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-xs font-bold text-[#4A3B32] truncate">
+                          {rec.bookTitle && <span className="text-[#8C2B2B]">{rec.bookTitle} &gt; </span>}
+                          {rec.sectionTitle}
+                        </p>
+                        <span className="text-[10px] text-[#8C7A6B]">
+                          {rec.authorName} &bull; {new Date(rec.timeCreated).toLocaleDateString('he-IL')}
+                        </span>
+                      </div>
+                      <div className="mt-1">
                         <AudioPlayer src={rec.url} />
                       </div>
                     </div>
                     <div className="shrink-0">
                       {confirmDelete === rec.fullPath ? (
-                        <div className="flex flex-col items-center gap-1.5 bg-red-50 p-2 rounded-lg border border-red-200">
-                          <div className="flex items-center gap-1 text-xs text-red-700">
-                            <AlertTriangle size={12} />
-                            <span>מחיקה לצמיתות!</span>
-                          </div>
-                          <div className="flex gap-1.5">
-                            <button
-                              onClick={() => deleteRecording(rec.fullPath)}
-                              disabled={deletingPath === rec.fullPath}
-                              className="px-2.5 py-1 text-xs font-bold bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50">
-                              {deletingPath === rec.fullPath ? <Loader2 size={12} className="animate-spin" /> : 'מחק'}
-                            </button>
-                            <button
-                              onClick={() => setConfirmDelete(null)}
-                              className="px-2.5 py-1 text-xs text-[#8C7A6B] border border-[#E5E0D8] rounded hover:bg-white transition-colors">
-                              ביטול
-                            </button>
-                          </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => deleteRecording(rec.fullPath)}
+                            disabled={deletingPath === rec.fullPath}
+                            className="px-2 py-0.5 text-[10px] font-bold bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50">
+                            {deletingPath === rec.fullPath ? <Loader2 size={10} className="animate-spin" /> : 'מחק'}
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete(null)}
+                            className="px-2 py-0.5 text-[10px] text-[#8C7A6B] border border-[#E5E0D8] rounded hover:bg-white transition-colors">
+                            ביטול
+                          </button>
                         </div>
                       ) : (
                         <button onClick={() => setConfirmDelete(rec.fullPath)}
-                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="מחק הקלטה">
-                          <Trash2 size={18} />
+                          className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="מחק הקלטה">
+                          <Trash2 size={14} />
                         </button>
                       )}
                     </div>
