@@ -3,7 +3,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { Mic, Square, Trash2, Loader2, Pause, Play, Upload } from 'lucide-react';
 import { storage, auth } from '@/lib/firebase';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 interface AudioRecorderProps {
   sectionId: string;
@@ -185,17 +185,10 @@ export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, on
       const filename = `audio-replies/${sectionId}/reply_${commentId}_${safeName}_${Date.now()}.${ext}`;
       const storageRef = ref(storage, filename);
 
-      // Convert blob to Uint8Array for better mobile compatibility
-      const arrayBuffer = await blob.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
-
-      // Use resumable upload with explicit content type
-      const uploadTask = uploadBytesResumable(storageRef, bytes, { contentType });
-
-      // Await the upload task (UploadTask is thenable)
-      await uploadTask;
-
-      const url = await getDownloadURL(uploadTask.snapshot.ref);
+      // Upload blob directly - do NOT convert to Uint8Array (known to hang on mobile)
+      // uploadBytes returns a real Promise (unlike uploadBytesResumable which is thenable but unreliable)
+      const snapshot = await uploadBytes(storageRef, blob, { contentType });
+      const url = await getDownloadURL(snapshot.ref);
 
       // Cleanup preview
       if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -208,6 +201,46 @@ export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, on
       console.error('Upload error:', err);
       const code = err?.code || '';
       const msg = err?.message || 'שגיאה לא ידועה';
+
+      // Fallback: try direct REST API upload if SDK fails
+      if (code !== 'storage/unauthorized') {
+        try {
+          const token = await auth.currentUser!.getIdToken();
+          const bucket = storage.app.options.storageBucket;
+          const safeName = authorName.replace(/[^a-zA-Z0-9\u0590-\u05FF]/g, '-');
+          const ext = audioConfigRef.current.ext || 'webm';
+          const contentType = audioConfigRef.current.mimeType || blob.type || 'audio/webm';
+          const path = `audio-replies/${sectionId}/reply_${commentId}_${safeName}_${Date.now()}.${ext}`;
+
+          const res = await fetch(
+            `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?uploadType=media`,
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': contentType,
+              },
+              body: blob,
+            }
+          );
+
+          if (res.ok) {
+            const data = await res.json();
+            const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(data.name)}?alt=media&token=${data.downloadTokens}`;
+
+            if (previewUrl) URL.revokeObjectURL(previewUrl);
+            setPreviewUrl(null);
+            previewBlobRef.current = null;
+
+            onRecorded(downloadUrl);
+            setStatus('idle');
+            return;
+          }
+        } catch (fallbackErr) {
+          console.error('Fallback upload also failed:', fallbackErr);
+        }
+      }
+
       if (code === 'storage/unauthorized') {
         alert('אין הרשאה להעלות. יש לוודא שאתה מחובר.');
       } else {
