@@ -16,6 +16,16 @@ interface AudioRecorderProps {
 
 const MAX_SECONDS = 300; // 5 minutes
 
+// Detect best supported audio format
+function getAudioConfig(): { mimeType: string; ext: string } {
+  if (typeof MediaRecorder === 'undefined') return { mimeType: '', ext: 'webm' };
+  if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) return { mimeType: 'audio/webm;codecs=opus', ext: 'webm' };
+  if (MediaRecorder.isTypeSupported('audio/webm')) return { mimeType: 'audio/webm', ext: 'webm' };
+  if (MediaRecorder.isTypeSupported('audio/mp4')) return { mimeType: 'audio/mp4', ext: 'm4a' };
+  if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) return { mimeType: 'audio/ogg;codecs=opus', ext: 'ogg' };
+  return { mimeType: '', ext: 'webm' }; // fallback - let browser decide
+}
+
 export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, onClear, audioUrl }: AudioRecorderProps) {
   const [status, setStatus] = useState<'idle' | 'recording' | 'paused' | 'preview' | 'uploading'>('idle');
   const [seconds, setSeconds] = useState(0);
@@ -26,17 +36,24 @@ export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, on
   const streamRef = useRef<MediaStream | null>(null);
   const previewBlobRef = useRef<Blob | null>(null);
   const secondsRef = useRef(0);
+  const audioConfigRef = useRef<{ mimeType: string; ext: string }>({ mimeType: '', ext: 'webm' });
 
   const startRecording = useCallback(async () => {
+    if (typeof MediaRecorder === 'undefined') {
+      alert('הדפדפן אינו תומך בהקלטה. נסה דפדפן אחר.');
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-          ? 'audio/webm;codecs=opus'
-          : 'audio/webm',
-      });
+      const config = getAudioConfig();
+      audioConfigRef.current = config;
+
+      const recorderOptions: MediaRecorderOptions = {};
+      if (config.mimeType) recorderOptions.mimeType = config.mimeType;
+
+      const mediaRecorder = new MediaRecorder(stream, recorderOptions);
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
 
@@ -48,7 +65,8 @@ export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, on
         stream.getTracks().forEach(t => t.stop());
         streamRef.current = null;
 
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const blobType = config.mimeType || mediaRecorder.mimeType || 'audio/webm';
+        const blob = new Blob(chunksRef.current, { type: blobType });
         if (blob.size === 0) {
           setStatus('idle');
           return;
@@ -156,7 +174,8 @@ export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, on
     setStatus('uploading');
     try {
       const safeName = authorName.replace(/[^a-zA-Z0-9\u0590-\u05FF]/g, '-');
-      const filename = `audio-replies/${sectionId}/reply_${commentId}_${safeName}_${Date.now()}.webm`;
+      const ext = audioConfigRef.current.ext || 'webm';
+      const filename = `audio-replies/${sectionId}/reply_${commentId}_${safeName}_${Date.now()}.${ext}`;
       const storageRef = ref(storage, filename);
       await uploadBytes(storageRef, blob);
       const url = await getDownloadURL(storageRef);
