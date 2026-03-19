@@ -1,11 +1,15 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { MessageSquare, Bell, ExternalLink, ChevronDown, CheckCircle, Mail, History } from 'lucide-react';
+import { MessageSquare, Bell, ExternalLink, ChevronDown, CheckCircle, Mail, History, Headphones, Trash2, AlertTriangle, Loader2 } from 'lucide-react';
 import { BookLoader } from '@/components/BookLoader';
 import { authFetch } from '@/lib/auth-fetch';
 import { useAdminUser } from '../admin-context';
+import { AudioRecorder } from '@/components/AudioRecorder';
+import { AudioPlayer } from '@/components/AudioPlayer';
+import { storage } from '@/lib/firebase';
+import { ref, listAll, deleteObject, getDownloadURL, getMetadata } from 'firebase/storage';
 
 export default function AdminQuestionsPage() {
   const { user } = useAdminUser();
@@ -13,8 +17,9 @@ export default function AdminQuestionsPage() {
   const [unansweredComments, setUnansweredComments] = useState<any[]>([]);
   const [contactMessages, setContactMessages] = useState<any[]>([]);
   const [replyText, setReplyText] = useState<{ [key: string]: string }>({});
+  const [replyAudio, setReplyAudio] = useState<{ [key: string]: string }>({});
   const [isLoading, setIsLoading] = useState(true);
-  const [tab, setTab] = useState<'beit-midrash' | 'editor' | 'contact' | 'history'>('beit-midrash');
+  const [tab, setTab] = useState<'beit-midrash' | 'editor' | 'contact' | 'history' | 'recordings'>('beit-midrash');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // History state
@@ -23,6 +28,16 @@ export default function AdminQuestionsPage() {
   const [historyContact, setHistoryContact] = useState<any[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Recording management state
+  const [recordings, setRecordings] = useState<{ name: string; fullPath: string; url: string; size: number; timeCreated: string; sectionId: string; details: string }[]>([]);
+  const [recordingsLoading, setRecordingsLoading] = useState(false);
+  const [recordingsLoaded, setRecordingsLoaded] = useState(false);
+  const [deletingPath, setDeletingPath] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  const isAdmin = user?.role === 'admin';
+  const isRabbi = user?.role === 'rabbi';
 
   const refreshData = () => {
     authFetch('/api/questions')
@@ -76,21 +91,26 @@ export default function AdminQuestionsPage() {
   const handleReplySubmit = async (sectionId: string, commentId: number | string) => {
     const key = `${sectionId}-${commentId}`;
     const text = replyText[key];
-    if (!text) return;
+    const audio = replyAudio[key];
+    if (!text && !audio) return;
 
     try {
       const sectionRes = await fetch(`/api/sections/${sectionId}`);
       const sectionData = await sectionRes.json();
 
+      const reply: any = { id: Date.now(), author: user?.name || 'הרב המשיב', date: new Date().toISOString().split('T')[0], text: text || '' };
+      if (audio) reply.audioUrl = audio;
+
       const updatedComments = (sectionData.comments || []).map((c: any) => {
         if (c.id === commentId) {
-          return { ...c, replies: [...(c.replies || []), { id: Date.now(), author: user?.name || 'הרב המשיב', date: new Date().toISOString().split('T')[0], text }] };
+          return { ...c, replies: [...(c.replies || []), reply] };
         }
         return c;
       });
 
       await authFetch(`/api/sections/${sectionId}`, { method: 'PUT', body: JSON.stringify({ comments: updatedComments }) });
       setReplyText({ ...replyText, [key]: '' });
+      setReplyAudio({ ...replyAudio, [key]: '' });
       setUnansweredComments(unansweredComments.filter(c => !(c.sectionId === sectionId && c.id === commentId)));
       setExpandedId(null);
       setHistoryLoaded(false);
@@ -101,21 +121,26 @@ export default function AdminQuestionsPage() {
   const handleEditorQuestionReply = async (sectionId: string, questionId: number | string) => {
     const key = `editor-${sectionId}-${questionId}`;
     const text = replyText[key];
-    if (!text) return;
+    const audio = replyAudio[key];
+    if (!text && !audio) return;
 
     try {
       const sectionRes = await fetch(`/api/sections/${sectionId}`);
       const sectionData = await sectionRes.json();
 
+      const reply: any = { id: Date.now(), author: user?.name || 'הרב המשיב', date: new Date().toISOString().split('T')[0], text: text || '' };
+      if (audio) reply.audioUrl = audio;
+
       const updatedQuestions = (sectionData.questionsForRabbi || []).map((q: any) => {
         if (q.id === questionId) {
-          return { ...q, replies: [...(q.replies || []), { id: Date.now(), author: user?.name || 'הרב המשיב', date: new Date().toISOString().split('T')[0], text }] };
+          return { ...q, replies: [...(q.replies || []), reply] };
         }
         return q;
       });
 
       await authFetch(`/api/sections/${sectionId}`, { method: 'PUT', body: JSON.stringify({ questionsForRabbi: updatedQuestions }) });
       setReplyText({ ...replyText, [key]: '' });
+      setReplyAudio({ ...replyAudio, [key]: '' });
       refreshData();
       setHistoryLoaded(false);
     } catch { alert('שגיאה בשליחת התשובה'); }
@@ -188,6 +213,64 @@ export default function AdminQuestionsPage() {
     } catch { alert('שגיאה בעדכון סטטוס'); }
   };
 
+  // Load all recordings from Firebase Storage
+  const loadRecordings = useCallback(async () => {
+    if (recordingsLoaded) return;
+    setRecordingsLoading(true);
+    try {
+      const rootRef = ref(storage, 'audio-replies');
+      const rootResult = await listAll(rootRef);
+
+      const allFiles: typeof recordings = [];
+      for (const folderRef of rootResult.prefixes) {
+        const sectionId = folderRef.name;
+        const folderResult = await listAll(folderRef);
+        for (const itemRef of folderResult.items) {
+          try {
+            const [url, metadata] = await Promise.all([
+              getDownloadURL(itemRef),
+              getMetadata(itemRef),
+            ]);
+            // Parse filename: reply_{commentId}_{authorName}_{timestamp}.webm
+            const parts = itemRef.name.replace('.webm', '').split('_');
+            const commentId = parts[1] || '?';
+            const authorName = parts[2] || '?';
+            allFiles.push({
+              name: itemRef.name,
+              fullPath: itemRef.fullPath,
+              url,
+              size: metadata.size,
+              timeCreated: metadata.timeCreated,
+              sectionId,
+              details: `סקשן: ${sectionId} | תגובה: ${commentId} | מחבר: ${authorName}`,
+            });
+          } catch {}
+        }
+      }
+
+      allFiles.sort((a, b) => new Date(b.timeCreated).getTime() - new Date(a.timeCreated).getTime());
+      setRecordings(allFiles);
+      setRecordingsLoaded(true);
+    } catch (err) {
+      console.error('Error loading recordings:', err);
+    }
+    setRecordingsLoading(false);
+  }, [recordingsLoaded]);
+
+  const deleteRecording = useCallback(async (fullPath: string) => {
+    setDeletingPath(fullPath);
+    try {
+      const fileRef = ref(storage, fullPath);
+      await deleteObject(fileRef);
+      setRecordings(prev => prev.filter(r => r.fullPath !== fullPath));
+      setConfirmDelete(null);
+    } catch (err) {
+      console.error('Delete error:', err);
+      alert('שגיאה במחיקת ההקלטה');
+    }
+    setDeletingPath(null);
+  }, []);
+
   if (isLoading) return <BookLoader />;
 
   const sectionLink = (item: any) => {
@@ -216,17 +299,27 @@ export default function AdminQuestionsPage() {
             <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${tab === 'editor' ? 'bg-white text-[#8C2B2B]' : 'bg-[#8C2B2B] text-white'}`}>{questions.length}</span>
           )}
         </button>
-        <button onClick={() => setTab('contact')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors flex-1 justify-center min-w-0 ${tab === 'contact' ? 'bg-[#8C2B2B] text-white' : 'text-[#8C7A6B] hover:bg-[#F0EBE1]'}`}>
-          <Mail size={16} /> <span className="truncate">צור קשר</span>
-          {contactMessages.length > 0 && (
-            <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${tab === 'contact' ? 'bg-white text-[#8C2B2B]' : 'bg-[#8C2B2B] text-white'}`}>{contactMessages.length}</span>
-          )}
-        </button>
-        <button onClick={() => { setTab('history'); loadHistory(); }}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors flex-1 justify-center min-w-0 ${tab === 'history' ? 'bg-[#8C2B2B] text-white' : 'text-[#8C7A6B] hover:bg-[#F0EBE1]'}`}>
-          <History size={16} /> <span className="truncate">היסטוריה</span>
-        </button>
+        {isAdmin && (
+          <button onClick={() => setTab('contact')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors flex-1 justify-center min-w-0 ${tab === 'contact' ? 'bg-[#8C2B2B] text-white' : 'text-[#8C7A6B] hover:bg-[#F0EBE1]'}`}>
+            <Mail size={16} /> <span className="truncate">צור קשר</span>
+            {contactMessages.length > 0 && (
+              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${tab === 'contact' ? 'bg-white text-[#8C2B2B]' : 'bg-[#8C2B2B] text-white'}`}>{contactMessages.length}</span>
+            )}
+          </button>
+        )}
+        {isAdmin && (
+          <button onClick={() => { setTab('history'); loadHistory(); }}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors flex-1 justify-center min-w-0 ${tab === 'history' ? 'bg-[#8C2B2B] text-white' : 'text-[#8C7A6B] hover:bg-[#F0EBE1]'}`}>
+            <History size={16} /> <span className="truncate">היסטוריה</span>
+          </button>
+        )}
+        {isAdmin && (
+          <button onClick={() => { setTab('recordings'); loadRecordings(); }}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors flex-1 justify-center min-w-0 ${tab === 'recordings' ? 'bg-[#8C2B2B] text-white' : 'text-[#8C7A6B] hover:bg-[#F0EBE1]'}`}>
+            <Headphones size={16} /> <span className="truncate">ניהול הקלטות</span>
+          </button>
+        )}
       </div>
 
       {/* Beit Midrash tab */}
@@ -270,6 +363,16 @@ export default function AdminQuestionsPage() {
                         <div className="pt-3 border-t border-[#E5E0D8]">
                           <textarea value={replyText[key] || ''} onChange={(e) => setReplyText({ ...replyText, [key]: e.target.value })}
                             className="w-full p-3 rounded-xl border border-[#E5E0D8] bg-white focus:ring-2 focus:ring-[#8C2B2B] outline-none resize-none mb-3 text-sm" rows={2} placeholder="הכנס תשובה כאן..." />
+                          <div className="mb-3">
+                            <AudioRecorder
+                              sectionId={comment.sectionId}
+                              commentId={comment.id}
+                              authorName={user?.name || 'rabbi'}
+                              audioUrl={replyAudio[key] || null}
+                              onRecorded={(url) => setReplyAudio({ ...replyAudio, [key]: url })}
+                              onClear={() => setReplyAudio({ ...replyAudio, [key]: '' })}
+                            />
+                          </div>
                           <div className="flex justify-end">
                             <button onClick={() => handleReplySubmit(comment.sectionId, comment.id)}
                               className="px-4 py-2 bg-[#8C2B2B] text-white rounded-lg hover:bg-[#7A2525] transition-colors text-sm font-bold">שלח תשובה</button>
@@ -327,7 +430,8 @@ export default function AdminQuestionsPage() {
                                   <span className="font-bold text-[#8C2B2B]">{reply.author}</span>
                                   <span className="text-xs text-[#8C7A6B]">{reply.date}</span>
                                 </div>
-                                <p className="text-[#4A3B32]">{reply.text}</p>
+                                {reply.text && <p className="text-[#4A3B32]">{reply.text}</p>}
+                                {reply.audioUrl && <div className="mt-1"><AudioPlayer src={reply.audioUrl} /></div>}
                               </div>
                             ))}
                           </div>
@@ -346,6 +450,16 @@ export default function AdminQuestionsPage() {
                         <div className="pt-3 border-t border-[#E5E0D8]">
                           <textarea value={replyText[replyKey] || ''} onChange={(e) => setReplyText({ ...replyText, [replyKey]: e.target.value })}
                             className="w-full p-3 rounded-xl border border-[#E5E0D8] bg-white focus:ring-2 focus:ring-[#8C2B2B] outline-none resize-none mb-3 text-sm" rows={2} placeholder="הכנס תשובה כאן..." />
+                          <div className="mb-3">
+                            <AudioRecorder
+                              sectionId={q.sectionId}
+                              commentId={q.id}
+                              authorName={user?.name || 'rabbi'}
+                              audioUrl={replyAudio[replyKey] || null}
+                              onRecorded={(url) => setReplyAudio({ ...replyAudio, [replyKey]: url })}
+                              onClear={() => setReplyAudio({ ...replyAudio, [replyKey]: '' })}
+                            />
+                          </div>
                           <div className="flex justify-end">
                             <button onClick={() => handleEditorQuestionReply(q.sectionId, q.id)}
                               className="px-4 py-2 bg-[#8C2B2B] text-white rounded-lg hover:bg-[#7A2525] transition-colors text-sm font-bold">שלח תשובה</button>
@@ -400,7 +514,8 @@ export default function AdminQuestionsPage() {
                                   <span className="font-bold text-[#8C2B2B]">{reply.author}</span>
                                   <span className="text-xs text-[#8C7A6B]">{reply.date}</span>
                                 </div>
-                                <p className="text-[#4A3B32]">{reply.text}</p>
+                                {reply.text && <p className="text-[#4A3B32]">{reply.text}</p>}
+                                {reply.audioUrl && <div className="mt-1"><AudioPlayer src={reply.audioUrl} /></div>}
                               </div>
                             ))}
                           </div>
@@ -424,6 +539,68 @@ export default function AdminQuestionsPage() {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Recordings Management tab - admin only */}
+      {tab === 'recordings' && isAdmin && (
+        <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-[#E5E0D8]">
+          <h2 className="text-xl font-bold text-[#4A3B32] mb-2 flex items-center gap-2">
+            <Headphones size={24} className="text-[#8C2B2B]" /> ניהול הקלטות ({recordings.length})
+          </h2>
+          <p className="text-sm text-[#8C7A6B] mb-4">כל ההקלטות שהועלו לפיירבייס סטורג&apos;</p>
+          {recordingsLoading ? (
+            <div className="flex justify-center py-12"><BookLoader /></div>
+          ) : recordings.length === 0 ? (
+            <p className="text-[#8C7A6B] text-center py-8">אין הקלטות.</p>
+          ) : (
+            <div className="space-y-2">
+              {recordings.map((rec) => (
+                <div key={rec.fullPath} className="border border-[#E5E0D8] rounded-xl p-4 bg-[#FAF8F5]">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-[#4A3B32] truncate">{rec.name}</p>
+                      <p className="text-xs text-[#8C7A6B] mt-1">{rec.details}</p>
+                      <p className="text-xs text-[#8C7A6B]">
+                        {new Date(rec.timeCreated).toLocaleDateString('he-IL')} &bull; {(rec.size / 1024).toFixed(0)} KB
+                      </p>
+                      <div className="mt-2">
+                        <AudioPlayer src={rec.url} />
+                      </div>
+                    </div>
+                    <div className="shrink-0">
+                      {confirmDelete === rec.fullPath ? (
+                        <div className="flex flex-col items-center gap-1.5 bg-red-50 p-2 rounded-lg border border-red-200">
+                          <div className="flex items-center gap-1 text-xs text-red-700">
+                            <AlertTriangle size={12} />
+                            <span>מחיקה לצמיתות!</span>
+                          </div>
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={() => deleteRecording(rec.fullPath)}
+                              disabled={deletingPath === rec.fullPath}
+                              className="px-2.5 py-1 text-xs font-bold bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50">
+                              {deletingPath === rec.fullPath ? <Loader2 size={12} className="animate-spin" /> : 'מחק'}
+                            </button>
+                            <button
+                              onClick={() => setConfirmDelete(null)}
+                              className="px-2.5 py-1 text-xs text-[#8C7A6B] border border-[#E5E0D8] rounded hover:bg-white transition-colors">
+                              ביטול
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button onClick={() => setConfirmDelete(rec.fullPath)}
+                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="מחק הקלטה">
+                          <Trash2 size={18} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -468,7 +645,8 @@ export default function AdminQuestionsPage() {
                                         <span className="font-bold text-[#8C2B2B]">{reply.author}</span>
                                         <span className="text-xs text-[#8C7A6B]">{reply.date}</span>
                                       </div>
-                                      <p className="text-[#4A3B32]">{reply.text}</p>
+                                      {reply.text && <p className="text-[#4A3B32]">{reply.text}</p>}
+                                {reply.audioUrl && <div className="mt-1"><AudioPlayer src={reply.audioUrl} /></div>}
                                     </div>
                                   ))}
                                 </div>
@@ -528,7 +706,8 @@ export default function AdminQuestionsPage() {
                                         <span className="font-bold text-[#8C2B2B]">{reply.author}</span>
                                         <span className="text-xs text-[#8C7A6B]">{reply.date}</span>
                                       </div>
-                                      <p className="text-[#4A3B32]">{reply.text}</p>
+                                      {reply.text && <p className="text-[#4A3B32]">{reply.text}</p>}
+                                {reply.audioUrl && <div className="mt-1"><AudioPlayer src={reply.audioUrl} /></div>}
                                     </div>
                                   ))}
                                 </div>
@@ -586,7 +765,8 @@ export default function AdminQuestionsPage() {
                                         <span className="font-bold text-[#8C2B2B]">{reply.author}</span>
                                         <span className="text-xs text-[#8C7A6B]">{reply.date}</span>
                                       </div>
-                                      <p className="text-[#4A3B32]">{reply.text}</p>
+                                      {reply.text && <p className="text-[#4A3B32]">{reply.text}</p>}
+                                {reply.audioUrl && <div className="mt-1"><AudioPlayer src={reply.audioUrl} /></div>}
                                     </div>
                                   ))}
                                 </div>

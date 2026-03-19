@@ -6,6 +6,7 @@ import { Share2, MessageCircle, Columns, Menu, Bookmark, BookOpen, ChevronDown, 
 import { MarkdownRenderer, SimpleMarkdown } from '@/components/MarkdownRenderer';
 import { Breadcrumb } from '@/components/Breadcrumb';
 import { InlineEditor } from '@/components/InlineEditor';
+import { AudioPlayer } from '@/components/AudioPlayer';
 import { useEditAuth } from '@/hooks/use-edit-auth';
 import { authFetch } from '@/lib/auth-fetch';
 import { ContentBlock } from '@/lib/types';
@@ -619,9 +620,16 @@ export function SectionViewer({
                           <span className="font-bold text-[#8C2B2B]">{reply.author}</span>
                           <span className="text-xs text-[#8C7A6B]">{reply.date}</span>
                         </div>
-                        <div className="text-[#4A3B32]">
-                          <SimpleMarkdown>{reply.text}</SimpleMarkdown>
-                        </div>
+                        {reply.text && (
+                          <div className="text-[#4A3B32]">
+                            <SimpleMarkdown>{reply.text}</SimpleMarkdown>
+                          </div>
+                        )}
+                        {reply.audioUrl && (
+                          <div className="mt-2">
+                            <AudioPlayer src={reply.audioUrl} />
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

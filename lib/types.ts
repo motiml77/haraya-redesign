@@ -59,6 +59,7 @@ export interface Reply {
   author: string;
   date: string;
   text: string;
+  audioUrl?: string;
 }
 
 export interface QuestionForRabbi {
