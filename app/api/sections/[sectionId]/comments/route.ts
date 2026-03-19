@@ -11,6 +11,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ sec
     if (!author || !text) {
       return NextResponse.json({ error: 'שם ותגובה הם חובה' }, { status: 400 });
     }
+    if (author.length > 100) {
+      return NextResponse.json({ error: 'שם מחבר ארוך מדי (מקסימום 100 תווים)' }, { status: 400 });
+    }
+    if (text.length > 5000) {
+      return NextResponse.json({ error: 'תגובה ארוכה מדי (מקסימום 5000 תווים)' }, { status: 400 });
+    }
 
     const doc = await adminDb.collection('sections').doc(sectionId).get();
     if (!doc.exists) {

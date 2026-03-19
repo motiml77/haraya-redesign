@@ -48,6 +48,12 @@ export async function POST(request: Request) {
     if (!title || !content || !type) {
       return NextResponse.json({ error: 'כל השדות הם חובה' }, { status: 400 });
     }
+    if (title.length > 200) {
+      return NextResponse.json({ error: 'כותרת ארוכה מדי (מקסימום 200 תווים)' }, { status: 400 });
+    }
+    if (content.length > 5000) {
+      return NextResponse.json({ error: 'תוכן ארוך מדי (מקסימום 5000 תווים)' }, { status: 400 });
+    }
     if (!['editors', 'all'].includes(type)) {
       return NextResponse.json({ error: 'סוג הודעה לא תקין' }, { status: 400 });
     }

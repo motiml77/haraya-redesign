@@ -32,6 +32,10 @@ export async function PUT(request: Request) {
   try {
     const { title, content, imageUrl } = await request.json();
 
+    if (imageUrl && !imageUrl.startsWith('https://')) {
+      return NextResponse.json({ error: 'כתובת תמונה חייבת להתחיל ב-https://' }, { status: 400 });
+    }
+
     await adminDb.collection('about').doc('main').set({
       title: title || '',
       content: content || '',

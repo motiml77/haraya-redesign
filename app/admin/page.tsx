@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Users, Megaphone, Send, Loader2 } from 'lucide-react';
+import { Users, Megaphone, Send, Loader2, Trash2, Key, Check, X } from 'lucide-react';
 import { useAdminUser } from './admin-context';
 import { BookLoader } from '@/components/BookLoader';
 import { SimpleMarkdown } from '@/components/MarkdownRenderer';
@@ -80,6 +80,62 @@ export default function AdminDashboard() {
       }
     } catch { alert('שגיאה בשליחת הודעה'); }
     setIsSendingAnnouncement(false);
+  };
+
+  // User management actions
+  const [editingRole, setEditingRole] = useState<string | null>(null);
+  const [resetPasswordId, setResetPasswordId] = useState<string | null>(null);
+  const [resetPasswordValue, setResetPasswordValue] = useState('');
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  const handleChangeRole = async (userId: string, newRole: string) => {
+    setActionLoading(userId);
+    try {
+      const res = await authFetch(`/api/users/${userId}`, { method: 'PUT', body: JSON.stringify({ role: newRole }) });
+      if (res.ok) {
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
+        setEditingRole(null);
+      } else {
+        const data = await res.json();
+        alert(data.error || 'שגיאה בעדכון תפקיד');
+      }
+    } catch { alert('שגיאה בעדכון תפקיד'); }
+    setActionLoading(null);
+  };
+
+  const handleResetPassword = async (userId: string) => {
+    if (!resetPasswordValue || resetPasswordValue.length < 6) {
+      alert('סיסמה חייבת להיות לפחות 6 תווים');
+      return;
+    }
+    setActionLoading(userId);
+    try {
+      const res = await authFetch(`/api/users/${userId}`, { method: 'PUT', body: JSON.stringify({ password: resetPasswordValue }) });
+      if (res.ok) {
+        setResetPasswordId(null);
+        setResetPasswordValue('');
+        alert('הסיסמה אופסה בהצלחה');
+      } else {
+        const data = await res.json();
+        alert(data.error || 'שגיאה באיפוס סיסמה');
+      }
+    } catch { alert('שגיאה באיפוס סיסמה'); }
+    setActionLoading(null);
+  };
+
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    if (!confirm(`האם למחוק את המשתמש "${userName}"? פעולה זו בלתי הפיכה.`)) return;
+    setActionLoading(userId);
+    try {
+      const res = await authFetch(`/api/users/${userId}`, { method: 'DELETE' });
+      if (res.ok) {
+        setUsers(prev => prev.filter(u => u.id !== userId));
+      } else {
+        const data = await res.json();
+        alert(data.error || 'שגיאה במחיקת משתמש');
+      }
+    } catch { alert('שגיאה במחיקת משתמש'); }
+    setActionLoading(null);
   };
 
   const handleAddUser = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -236,20 +292,73 @@ export default function AdminDashboard() {
                       <th className="py-3 px-4 font-bold">שם</th>
                       <th className="py-3 px-4 font-bold">אימייל</th>
                       <th className="py-3 px-4 font-bold">תפקיד</th>
+                      <th className="py-3 px-4 font-bold">פעולות</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {users.map(u => (
-                      <tr key={u.id} className="border-b border-[#F0EBE1] hover:bg-[#FAF8F5]">
-                        <td className="py-3 px-4 font-bold text-[#4A3B32]">{u.name}</td>
-                        <td className="py-3 px-4 text-[#8C7A6B]">{u.email}</td>
-                        <td className="py-3 px-4">
-                          <span className={`px-2 py-1 rounded-full text-xs font-bold ${u.role === 'admin' ? 'bg-red-100 text-red-800' : u.role === 'rabbi' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
-                            {u.role === 'admin' ? 'מנהל' : u.role === 'rabbi' ? 'רב' : 'עורך'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {users.map(u => {
+                      const isMe = u.id === user?.id;
+                      const isLoading = actionLoading === u.id;
+                      return (
+                        <tr key={u.id} className={`border-b border-[#F0EBE1] hover:bg-[#FAF8F5] ${isMe ? 'bg-[#FAF8F5]' : ''}`}>
+                          <td className="py-3 px-4 font-bold text-[#4A3B32]">
+                            {u.name}
+                            {isMe && <span className="text-xs text-[#8C7A6B] mr-1">(אתה)</span>}
+                          </td>
+                          <td className="py-3 px-4 text-[#8C7A6B]">{u.email}</td>
+                          <td className="py-3 px-4">
+                            {editingRole === u.id ? (
+                              <div className="flex items-center gap-1">
+                                <select defaultValue={u.role} onChange={(e) => handleChangeRole(u.id, e.target.value)} disabled={isLoading}
+                                  className="p-1 rounded-lg border border-[#E5E0D8] bg-[#FAF8F5] text-xs font-bold outline-none">
+                                  <option value="editor">עורך</option>
+                                  <option value="rabbi">רב</option>
+                                  <option value="admin">מנהל</option>
+                                </select>
+                                <button onClick={() => setEditingRole(null)} className="p-0.5 text-[#8C7A6B] hover:text-red-500">
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            ) : (
+                              <button onClick={() => !isMe && setEditingRole(u.id)} disabled={isMe}
+                                className={`px-2 py-1 rounded-full text-xs font-bold ${u.role === 'admin' ? 'bg-red-100 text-red-800' : u.role === 'rabbi' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'} ${!isMe ? 'hover:opacity-70 cursor-pointer' : 'cursor-default'}`}
+                                title={isMe ? '' : 'לחץ לשינוי תפקיד'}>
+                                {u.role === 'admin' ? 'מנהל' : u.role === 'rabbi' ? 'רב' : 'עורך'}
+                              </button>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            {isLoading ? (
+                              <Loader2 size={16} className="animate-spin text-[#8C7A6B]" />
+                            ) : (
+                              <div className="flex items-center gap-1">
+                                {resetPasswordId === u.id ? (
+                                  <div className="flex items-center gap-1">
+                                    <input type="password" value={resetPasswordValue} onChange={(e) => setResetPasswordValue(e.target.value)}
+                                      placeholder="סיסמה חדשה" className="p-1 w-28 rounded-lg border border-[#E5E0D8] bg-[#FAF8F5] text-xs outline-none" />
+                                    <button onClick={() => handleResetPassword(u.id)} className="p-1 text-green-600 hover:bg-green-50 rounded" title="אשר">
+                                      <Check size={14} />
+                                    </button>
+                                    <button onClick={() => { setResetPasswordId(null); setResetPasswordValue(''); }} className="p-1 text-[#8C7A6B] hover:text-red-500 rounded" title="ביטול">
+                                      <X size={14} />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button onClick={() => setResetPasswordId(u.id)} className="p-1.5 text-[#8C7A6B] hover:text-[#8C2B2B] hover:bg-[#F0EBE1] rounded-lg transition-colors" title="אפס סיסמה">
+                                    <Key size={15} />
+                                  </button>
+                                )}
+                                {!isMe && resetPasswordId !== u.id && (
+                                  <button onClick={() => handleDeleteUser(u.id, u.name)} className="p-1.5 text-[#8C7A6B] hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="מחק משתמש">
+                                    <Trash2 size={15} />
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

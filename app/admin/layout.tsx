@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { authFetch } from '@/lib/auth-fetch';
-import { LayoutDashboard, BookOpen, MessageSquare, LogOut, Loader2, Info, Hash, Bell, X } from 'lucide-react';
+import { LayoutDashboard, BookOpen, MessageSquare, LogOut, Loader2, Info, Hash, Bell, X, Key } from 'lucide-react';
 import { BookLoader } from '@/components/BookLoader';
 import { SimpleMarkdown } from '@/components/MarkdownRenderer';
 import { AdminContext, type AdminUser } from './admin-context';
@@ -25,6 +25,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   // Announcements
   const [unreadAnnouncements, setUnreadAnnouncements] = useState<any[]>([]);
   const [showAnnouncementsPopup, setShowAnnouncementsPopup] = useState(false);
+
+  // Password change
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -144,6 +153,43 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     setIsLoggingIn(false);
   };
 
+  const handleChangePassword = async () => {
+    setPasswordError('');
+    setPasswordSuccess(false);
+    if (!oldPassword || !newPassword || !confirmPassword) {
+      setPasswordError('נא למלא את כל השדות');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordError('סיסמה חדשה חייבת להיות לפחות 6 תווים');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('הסיסמאות החדשות אינן תואמות');
+      return;
+    }
+    setIsChangingPassword(true);
+    try {
+      const res = await authFetch('/api/users/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ oldPassword, newPassword }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPasswordSuccess(true);
+        setOldPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+        setTimeout(() => { setShowPasswordModal(false); setPasswordSuccess(false); }, 2000);
+      } else {
+        setPasswordError(data.error || 'שגיאה בשינוי סיסמה');
+      }
+    } catch {
+      setPasswordError('שגיאה בתקשורת');
+    }
+    setIsChangingPassword(false);
+  };
+
   const handleLogout = async () => {
     await signOut(auth);
     setIsAuthenticated(false);
@@ -203,11 +249,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         {/* Top bar */}
         <header className="bg-white border-b border-[#E5E0D8] px-3 sm:px-6 py-2 sm:py-3 sticky top-0 z-50 shadow-sm relative">
           <div className="max-w-7xl mx-auto flex justify-between items-center gap-2">
-            {/* Left: logout + bell */}
+            {/* Left: logout + password + bell */}
             <div className="flex items-center gap-1 sm:gap-3 shrink-0">
               <button onClick={handleLogout} title="התנתק" className="flex items-center gap-1 text-xs sm:text-sm text-[#8C2B2B] hover:underline font-bold whitespace-nowrap">
                 <LogOut size={16} />
                 <span className="hidden sm:inline">התנתק</span>
+              </button>
+              <button onClick={() => { setShowPasswordModal(true); setPasswordError(''); setPasswordSuccess(false); }} title="שנה סיסמה"
+                className="p-1.5 sm:p-2 rounded-full hover:bg-[#F0EBE1] transition-colors">
+                <Key size={18} className="text-[#4A3B32]" />
               </button>
               <button onClick={() => setShowAnnouncementsPopup(!showAnnouncementsPopup)}
                 className="relative p-1.5 sm:p-2 rounded-full hover:bg-[#F0EBE1] transition-colors">
@@ -282,6 +332,43 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </div>
           )}
         </header>
+
+        {/* Password Change Modal */}
+        {showPasswordModal && (
+          <div className="fixed inset-0 bg-black/40 z-[200] flex items-center justify-center p-4" onClick={() => setShowPasswordModal(false)}>
+            <div className="bg-white rounded-2xl shadow-xl border border-[#E5E0D8] w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="font-bold text-lg text-[#4A3B32] flex items-center gap-2"><Key size={20} className="text-[#8C2B2B]" /> שינוי סיסמה</h3>
+                <button onClick={() => setShowPasswordModal(false)} className="p-1 text-[#8C7A6B] hover:text-[#8C2B2B]"><X size={18} /></button>
+              </div>
+              {passwordError && <div className="bg-red-50 text-red-600 p-2.5 rounded-xl mb-3 text-sm font-bold">{passwordError}</div>}
+              {passwordSuccess && <div className="bg-green-50 text-green-700 p-2.5 rounded-xl mb-3 text-sm font-bold">הסיסמה שונתה בהצלחה!</div>}
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-bold text-[#8C7A6B] mb-1">סיסמה נוכחית</label>
+                  <input type="password" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none" placeholder="••••••••" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-[#8C7A6B] mb-1">סיסמה חדשה</label>
+                  <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none" placeholder="••••••••" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-[#8C7A6B] mb-1">אימות סיסמה חדשה</label>
+                  <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none" placeholder="••••••••"
+                    onKeyDown={(e) => e.key === 'Enter' && handleChangePassword()} />
+                </div>
+                <button onClick={handleChangePassword} disabled={isChangingPassword}
+                  className="w-full bg-[#8C2B2B] text-white py-2.5 rounded-xl hover:bg-[#7A2525] transition-colors font-bold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                  {isChangingPassword && <Loader2 size={16} className="animate-spin" />}
+                  {isChangingPassword ? 'מעדכן...' : 'שנה סיסמה'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Content */}
         <main className="max-w-7xl mx-auto px-3 py-4 sm:p-6">

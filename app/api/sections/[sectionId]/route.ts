@@ -34,7 +34,14 @@ export async function PUT(request: Request, { params }: { params: Promise<{ sect
   if (!hasRole(currentUser, ['admin', 'editor', 'rabbi'])) return forbidden();
 
   try {
-    const data = await request.json();
+    const body = await request.json();
+
+    // Whitelist allowed fields
+    const allowedFields = ['title', 'tags', 'originalText', 'contentBlocks', 'bookId', 'parentSectionId', 'orderIndex', 'introduction'];
+    const data: Record<string, any> = {};
+    for (const key of allowedFields) {
+      if (key in body) data[key] = body[key];
+    }
 
     // Ensure tags is array
     if (data.tags && typeof data.tags === 'string') {

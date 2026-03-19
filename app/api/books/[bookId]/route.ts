@@ -44,7 +44,15 @@ export async function PUT(request: Request, { params }: { params: Promise<{ book
   if (!hasRole(currentUser, ['admin'])) return forbidden();
 
   try {
-    const data = await request.json();
+    const body = await request.json();
+
+    // Whitelist allowed fields
+    const allowedFields = ['title', 'description', 'orderIndex', 'imageUrl'];
+    const data: Record<string, any> = {};
+    for (const key of allowedFields) {
+      if (key in body) data[key] = body[key];
+    }
+
     await adminDb.collection('books').doc(bookId).update({
       ...data,
       updatedAt: new Date().toISOString(),
