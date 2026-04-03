@@ -37,7 +37,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ sect
     const body = await request.json();
 
     // Whitelist allowed fields
-    const allowedFields = ['title', 'tags', 'originalText', 'contentBlocks', 'bookId', 'parentSectionId', 'orderIndex', 'introduction', 'comments', 'questionsForRabbi'];
+    const allowedFields = ['title', 'tags', 'originalText', 'contentBlocks', 'bookId', 'parentSectionId', 'orderIndex', 'introduction', 'comments', 'questionsForRabbi', 'youtubeVideos'];
     const data: Record<string, any> = {};
     for (const key of allowedFields) {
       if (key in body) data[key] = body[key];

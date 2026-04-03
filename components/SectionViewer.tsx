@@ -9,7 +9,8 @@ import { InlineEditor } from '@/components/InlineEditor';
 import { AudioPlayer } from '@/components/AudioPlayer';
 import { useEditAuth } from '@/hooks/use-edit-auth';
 import { authFetch } from '@/lib/auth-fetch';
-import { ContentBlock } from '@/lib/types';
+import { ContentBlock, YouTubeVideo } from '@/lib/types';
+import { YouTubePlaylist } from '@/components/YouTubePlaylist';
 
 export function SectionViewer({
   initialSection,
@@ -542,6 +543,16 @@ export function SectionViewer({
               ))}
             </div>
           )}
+        </div>
+
+        {/* YouTube Playlist */}
+        <div className="mt-8">
+          <YouTubePlaylist
+            sectionId={sectionId}
+            videos={section.youtubeVideos || []}
+            canEdit={canEdit}
+            onUpdate={(updated: YouTubeVideo[]) => setSection({ ...section, youtubeVideos: updated })}
+          />
         </div>
 
         {/* Comments */}

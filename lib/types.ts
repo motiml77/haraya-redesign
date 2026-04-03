@@ -21,6 +21,7 @@ export interface Section {
   commentary?: Commentary[];   // Legacy - use contentBlocks instead
   comments?: Comment[];
   questionsForRabbi?: QuestionForRabbi[];
+  youtubeVideos?: YouTubeVideo[];
   isEdited?: boolean;
   tags?: string[];
 
@@ -35,6 +36,13 @@ export interface ContentBlock {
   id: string;
   sourceText: string;
   commentaryText: string;
+}
+
+export interface YouTubeVideo {
+  id: string;
+  videoId: string;
+  title: string;
+  addedAt: number;
 }
 
 export interface Commentary {
