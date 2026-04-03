@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import Image from 'next/image';
-import { ChevronDown, ChevronUp, Plus, Trash2, Play, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Plus, Play, X, Loader2 } from 'lucide-react';
 import { YouTubeVideo } from '@/lib/types';
 import { authFetch } from '@/lib/auth-fetch';
 
@@ -22,6 +22,19 @@ const extractVideoId = (url: string): string | null => {
 
 const getThumbnail = (videoId: string) => `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
 
+async function fetchYouTubeTitle(videoId: string): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
+    );
+    if (res.ok) {
+      const data = await res.json();
+      return data.title || null;
+    }
+  } catch { }
+  return null;
+}
+
 interface YouTubePlaylistProps {
   sectionId: string;
   videos: YouTubeVideo[];
@@ -40,19 +53,38 @@ export function YouTubePlaylist({ sectionId, videos, canEdit, onUpdate }: YouTub
   // Hide entirely if no videos and not editor
   if (videos.length === 0 && !canEdit) return null;
 
-  const saveVideos = async (updated: YouTubeVideo[]) => {
+  const saveVideos = async (updated: YouTubeVideo[]): Promise<boolean> => {
     setIsSaving(true);
+    setError('');
     try {
       const res = await authFetch(`/api/sections/${sectionId}`, {
         method: 'PUT',
         body: JSON.stringify({ youtubeVideos: updated }),
       });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error('YouTube save failed:', res.status, text);
+        setError(`שגיאה בשמירה (${res.status})`);
+        setIsSaving(false);
+        return false;
+      }
       const data = await res.json();
       if (data.success) {
         onUpdate(updated);
+        setIsSaving(false);
+        return true;
+      } else {
+        console.error('YouTube save error:', data.error);
+        setError(data.error || 'שגיאה בשמירה');
+        setIsSaving(false);
+        return false;
       }
-    } catch { }
-    setIsSaving(false);
+    } catch (err) {
+      console.error('YouTube save exception:', err);
+      setError('שגיאה בשמירה — בדוק שאתה מחובר');
+      setIsSaving(false);
+      return false;
+    }
   };
 
   const addVideo = async () => {
@@ -66,18 +98,31 @@ export function YouTubePlaylist({ sectionId, videos, canEdit, onUpdate }: YouTub
       setError('הסרטון כבר קיים ברשימה');
       return;
     }
-    const title = newTitle.trim() || `שיעור ${videos.length + 1}`;
+
+    setIsSaving(true);
+
+    // If user didn't provide a title, fetch from YouTube
+    let title = newTitle.trim();
+    if (!title) {
+      const ytTitle = await fetchYouTubeTitle(vid);
+      title = ytTitle || `שיעור ${videos.length + 1}`;
+    }
+
     const updated = [...videos, { id: `yt_${Date.now()}`, videoId: vid, title, addedAt: Date.now() }];
-    await saveVideos(updated);
-    if (!activeVideoId) setActiveVideoId(vid);
-    setNewUrl('');
-    setNewTitle('');
+    const success = await saveVideos(updated);
+    if (success) {
+      if (!activeVideoId) setActiveVideoId(vid);
+      setNewUrl('');
+      setNewTitle('');
+    }
   };
 
   const removeVideo = async (videoId: string) => {
     const updated = videos.filter(v => v.videoId !== videoId);
-    await saveVideos(updated);
-    if (activeVideoId === videoId) setActiveVideoId(updated[0]?.videoId || null);
+    const success = await saveVideos(updated);
+    if (success && activeVideoId === videoId) {
+      setActiveVideoId(updated[0]?.videoId || null);
+    }
   };
 
   const moveVideo = async (index: number, dir: number) => {
@@ -127,7 +172,7 @@ export function YouTubePlaylist({ sectionId, videos, canEdit, onUpdate }: YouTub
                 <input
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="שם השיעור (אופציונלי)"
+                  placeholder="שם השיעור (אופציונלי — ייקח מיוטיוב)"
                   className="flex-1 min-w-0 p-2.5 rounded-xl border border-[#E5E0D8] bg-white focus:ring-2 focus:ring-[#8C2B2B] outline-none text-sm"
                 />
                 <button
@@ -135,7 +180,8 @@ export function YouTubePlaylist({ sectionId, videos, canEdit, onUpdate }: YouTub
                   disabled={isSaving}
                   className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#8C2B2B] text-white rounded-xl text-sm font-bold hover:bg-[#7A2525] disabled:opacity-50 transition-colors whitespace-nowrap"
                 >
-                  <Plus size={16} /> הוסף
+                  {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+                  {isSaving ? 'שומר...' : 'הוסף'}
                 </button>
               </div>
               {error && <div className="text-red-500 text-xs mt-2">{error}</div>}
