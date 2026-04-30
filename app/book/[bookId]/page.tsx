@@ -52,7 +52,7 @@ export default async function BookPage({ params }: { params: Promise<{ bookId: s
       <div className="bg-[#1F1A14] text-[#F1E6D2] px-6 py-3 flex justify-between items-center">
         <div className="flex items-center gap-4 text-xs tracking-[0.2em] font-bold">
           <span className="text-[#E5C547]">●</span>
-          <Link href="/" className="hover:text-[#E5C547] transition-colors">הראי״ה · ספרייה חיה</Link>
+          <Link href="/" className="hover:text-[#E5C547] transition-colors">הראי״ה · בית מדרש חי</Link>
         </div>
         <PageHeaderAuth />
       </div>
@@ -80,7 +80,7 @@ export default async function BookPage({ params }: { params: Promise<{ bookId: s
 
       <footer className="bg-[#1F1A14] text-[#F1E6D2] mt-20 px-6 py-8">
         <div className="max-w-4xl mx-auto flex justify-between items-center">
-          <div className="font-serif text-sm text-[#F1E6D2]/60 italic">הראי״ה · ספרייה חיה</div>
+          <div className="font-serif text-sm text-[#F1E6D2]/60 italic">הראי״ה · בית מדרש חי</div>
           <Link href="/" className="text-xs text-[#E5C547] hover:underline tracking-wider">חזרה לדף הראשי ←</Link>
         </div>
       </footer>

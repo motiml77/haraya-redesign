@@ -61,7 +61,7 @@ export default async function HomePage() {
       <div className="bg-[#1F1A14] text-[#F1E6D2] px-6 py-3 flex justify-between items-center">
         <div className="flex items-center gap-4 text-xs tracking-[0.2em] font-bold">
           <span className="text-[#E5C547]">●</span>
-          <span>הראי״ה · ספרייה חיה</span>
+          <span>הראי״ה · בית מדרש חי</span>
         </div>
         <div className="flex items-center gap-2">
           <Link href="/topics"
@@ -169,7 +169,7 @@ export default async function HomePage() {
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row justify-between items-start gap-6">
           <div>
             <div className="text-xs tracking-[0.3em] font-bold text-[#E5C547]">● הראי״ה</div>
-            <div className="font-serif text-2xl font-semibold mt-1">ספרייה חיה</div>
+            <div className="font-serif text-2xl font-semibold mt-1">בית מדרש חי</div>
             <div className="font-serif italic text-sm text-[#F1E6D2]/60 mt-2">
               ביאורים והרחבות על כתבי מרן הרב קוק זצ״ל
             </div>
