@@ -22,8 +22,8 @@ export function PageHeaderAuth() {
 
   return (
     <Link href="/admin"
-      className="flex items-center gap-1.5 text-xs text-[#8C7A6B] hover:text-[#8C2B2B] transition-colors px-3 py-1.5 rounded-full border border-[#E5E0D8] hover:border-[#8C2B2B] bg-[#FAF8F5]">
-      {userName ? <User size={14} /> : <LogIn size={14} />}
+      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-[#E5C547] text-[#1F1A14] font-bold hover:bg-[#F1E6D2] transition-colors">
+      {userName ? <User size={13} /> : <LogIn size={13} />}
       {userName || 'כניסת מנהלים'}
     </Link>
   );

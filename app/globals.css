@@ -1,5 +1,32 @@
 @import "tailwindcss";
 
+/* ============================================
+   Manuscript theme — design tokens
+   Saffron + cream + Frank Ruhl Libre + Assistant
+   ============================================ */
+:root {
+  /* Backgrounds */
+  --color-bg: #F1E6D2;          /* page cream */
+  --color-bg-2: #E8DCC4;         /* card / sidebar */
+  --color-bg-deep: #1F1A14;      /* dark chrome / footer */
+
+  /* Text */
+  --color-ink: #1F1A14;          /* primary text */
+  --color-muted: #6B5D4F;        /* secondary text */
+  --color-on-deep: #F1E6D2;      /* text on dark bg */
+
+  /* Accents */
+  --color-warm: #B14F1C;         /* saffron — primary accent */
+  --color-warm-deep: #8A3D14;    /* hover */
+  --color-gold: #E5C547;         /* highlights */
+  --color-green: #3F5C3F;        /* success / rabbi answers */
+  --color-rose: #B85450;         /* alert / pending */
+
+  /* Borders */
+  --color-divider: #D6C8A8;
+  --color-divider-soft: #E2D5B8;
+}
+
 /* Split panel: full width on mobile, custom width on desktop */
 .split-panel {
   width: 100%;
@@ -17,4 +44,32 @@ h4 .citation-font {
   color: inherit !important;
   border-bottom: none !important;
   font-family: inherit !important;
+}
+
+/* Manuscript flourishes: drop cap utility */
+.drop-cap::first-letter {
+  font-family: var(--font-serif), serif;
+  font-size: 4.5em;
+  font-weight: 600;
+  float: right;
+  line-height: 0.85;
+  margin-left: 0.12em;
+  margin-top: 0.05em;
+  color: var(--color-warm);
+}
+
+/* Manuscript highlight (yellow underline marker) */
+.ms-highlight {
+  background: var(--color-gold);
+  padding: 0 4px;
+}
+
+/* Decorative giant letter (used as background ornament) */
+.ms-ornament {
+  position: absolute;
+  font-family: var(--font-serif), serif;
+  font-weight: 700;
+  line-height: 0.7;
+  pointer-events: none;
+  user-select: none;
 }

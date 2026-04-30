@@ -56,70 +56,131 @@ export default async function HomePage() {
   const [books, announcements] = await Promise.all([getBooks(), getAnnouncements()]);
 
   return (
-    <div className="min-h-screen bg-[#FAF8F5] font-sans" dir="rtl">
-      <header className="bg-white border-b border-[#E5E0D8] px-4 sm:px-6">
-        {/* Row 1: Nav buttons + Auth */}
-        <div className="flex justify-between items-center py-3">
-          <div className="flex items-center gap-2">
-            <Link href="/topics"
-              className="flex items-center gap-1 text-xs text-[#8C7A6B] hover:text-[#8C2B2B] transition-colors px-3 py-1.5 rounded-full border border-[#E5E0D8] hover:border-[#8C2B2B] bg-[#FAF8F5]">
-              <Hash size={14} />
-              נושאים
-            </Link>
-            <Link href="/contact"
-              className="flex items-center gap-1 text-xs text-[#8C7A6B] hover:text-[#8C2B2B] transition-colors px-3 py-1.5 rounded-full border border-[#E5E0D8] hover:border-[#8C2B2B] bg-[#FAF8F5]">
-              <Mail size={14} />
-              צור קשר
-            </Link>
-            <Link href="/about"
-              className="flex items-center gap-1 text-xs text-[#8C7A6B] hover:text-[#8C2B2B] transition-colors px-3 py-1.5 rounded-full border border-[#E5E0D8] hover:border-[#8C2B2B] bg-[#FAF8F5]">
-              <Info size={14} />
-              אודות
-            </Link>
-          </div>
+    <div className="min-h-screen bg-[#F1E6D2] font-sans" dir="rtl">
+      {/* Top bar — dark chrome */}
+      <div className="bg-[#1F1A14] text-[#F1E6D2] px-6 py-3 flex justify-between items-center">
+        <div className="flex items-center gap-4 text-xs tracking-[0.2em] font-bold">
+          <span className="text-[#E5C547]">●</span>
+          <span>הראי״ה · ספרייה חיה</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link href="/topics"
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-[#6B5D4F] hover:border-[#E5C547] hover:text-[#E5C547] transition-colors">
+            <Hash size={13} />
+            נושאים
+          </Link>
+          <Link href="/contact"
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-[#6B5D4F] hover:border-[#E5C547] hover:text-[#E5C547] transition-colors">
+            <Mail size={13} />
+            צור קשר
+          </Link>
+          <Link href="/about"
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-[#6B5D4F] hover:border-[#E5C547] hover:text-[#E5C547] transition-colors">
+            <Info size={13} />
+            אודות
+          </Link>
           <PageHeaderAuth />
         </div>
+      </div>
 
-        {/* Title + Image */}
-        <div className="max-w-4xl mx-auto text-center py-8">
-          <h1 className="text-3xl sm:text-4xl font-serif font-bold text-[#4A3B32]">שיעורים בכתבי הרב קוק</h1>
-          <p className="text-[#8C7A6B] mt-3 text-base sm:text-lg">ביאורים והרחבות על כתבי מרן הרב אברהם יצחק הכהן קוק זצ״ל</p>
+      {/* Hero — manuscript style */}
+      <header className="relative overflow-hidden bg-[#B14F1C] text-[#F1E6D2] px-6 sm:px-12 py-16 sm:py-24">
+        {/* Giant decorative letter */}
+        <div
+          aria-hidden="true"
+          className="ms-ornament absolute top-[-80px] right-[-40px] text-[420px] sm:text-[560px] opacity-[0.18]"
+          style={{ fontFamily: 'var(--font-serif)' }}
+        >
+          ה
+        </div>
 
-          <div className="mt-6 flex justify-center">
-            <div className="w-48 h-48 sm:w-56 sm:h-56 rounded-2xl overflow-hidden shadow-md border border-[#E5E0D8] bg-[#F5F0EB]">
-              <Image
-                src="/rav-kook.webp"
-                alt="הרב אברהם יצחק הכהן קוק זצ״ל"
-                width={394}
-                height={500}
-                className="w-full h-full object-cover"
-                priority
-              />
-            </div>
+        <div className="relative max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-[1fr_auto] gap-10 items-center">
+          <div>
+            <div className="text-xs tracking-[0.3em] font-bold text-[#E5C547] mb-4">● בית מדרש פתוח</div>
+            <h1 className="font-serif text-5xl sm:text-7xl font-semibold leading-[0.95] tracking-tight">
+              שיעורים בכתבי
+              <br />
+              <span className="italic">הרב קוק.</span>
+            </h1>
+            <p className="font-serif italic text-lg sm:text-xl mt-6 text-[#F1E6D2]/85 max-w-xl leading-relaxed">
+              ביאורים והרחבות על כתבי מרן הרב אברהם יצחק הכהן קוק זצ״ל
+            </p>
+          </div>
+
+          <div className="w-44 h-56 sm:w-52 sm:h-64 overflow-hidden border-[6px] border-[#F1E6D2] shadow-[0_20px_60px_rgba(0,0,0,0.3)] rotate-[-2deg] bg-[#F1E6D2]">
+            <Image
+              src="/rav-kook.webp"
+              alt="הרב אברהם יצחק הכהן קוק זצ״ל"
+              width={394}
+              height={500}
+              className="w-full h-full object-cover"
+              priority
+            />
           </div>
         </div>
       </header>
 
       <AnnouncementsBanner initialAnnouncements={announcements} />
 
-      <main className="max-w-4xl mx-auto px-6 py-10">
+      <main className="max-w-5xl mx-auto px-6 py-16">
+        {/* Section header */}
+        <div className="mb-10">
+          <div className="text-xs tracking-[0.3em] font-bold text-[#B14F1C] mb-2">● הספרייה</div>
+          <h2 className="font-serif text-4xl sm:text-5xl font-semibold text-[#1F1A14] tracking-tight">
+            ספרים <span className="italic text-[#B14F1C]">לעיון.</span>
+          </h2>
+        </div>
+
         {books.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {books.filter((book: any) => !book.isHidden).map((book: any) => (
               <Link key={book.id} href={`/book/${book.id}`}
-                className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E0D8] hover:border-[#8C2B2B] hover:shadow-md transition-all group">
-                <div className="flex items-center gap-3 mb-3">
-                  <BookOpen size={24} className="text-[#8C2B2B]" />
-                  <h2 className="text-xl font-serif font-bold text-[#4A3B32] group-hover:text-[#8C2B2B] transition-colors">{book.title}</h2>
+                className="group relative bg-[#E8DCC4] p-7 border border-[#D6C8A8] hover:border-[#B14F1C] hover:bg-[#F1E6D2] transition-all overflow-hidden">
+                <div
+                  aria-hidden="true"
+                  className="absolute -bottom-6 -left-2 font-serif font-bold text-[120px] leading-[0.7] text-[#B14F1C]/[0.08] group-hover:text-[#B14F1C]/[0.18] transition-colors pointer-events-none select-none"
+                >
+                  {book.title?.[0] || 'א'}
                 </div>
-                {book.description && <p className="text-sm text-[#8C7A6B] leading-relaxed">{book.description}</p>}
+                <div className="relative">
+                  <BookOpen size={20} className="text-[#B14F1C] mb-3" />
+                  <h3 className="font-serif text-2xl font-semibold text-[#1F1A14] leading-tight group-hover:text-[#B14F1C] transition-colors">
+                    {book.title}
+                  </h3>
+                  {book.description && (
+                    <p className="font-serif italic text-sm text-[#6B5D4F] leading-relaxed mt-3">
+                      {book.description}
+                    </p>
+                  )}
+                  <div className="mt-5 pt-4 border-t border-dashed border-[#D6C8A8] text-xs text-[#B14F1C] font-bold tracking-wider">
+                    קרא ←
+                  </div>
+                </div>
               </Link>
             ))}
           </div>
         ) : (
-          <p className="text-center text-[#8C7A6B] py-12 text-lg">אין ספרים עדיין.</p>
+          <p className="text-center text-[#6B5D4F] py-12 text-lg font-serif italic">אין ספרים עדיין.</p>
         )}
       </main>
+
+      {/* Footer */}
+      <footer className="bg-[#1F1A14] text-[#F1E6D2] mt-20 px-6 py-12">
+        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row justify-between items-start gap-6">
+          <div>
+            <div className="text-xs tracking-[0.3em] font-bold text-[#E5C547]">● הראי״ה</div>
+            <div className="font-serif text-2xl font-semibold mt-1">ספרייה חיה</div>
+            <div className="font-serif italic text-sm text-[#F1E6D2]/60 mt-2">
+              ביאורים והרחבות על כתבי מרן הרב קוק זצ״ל
+            </div>
+          </div>
+          <div className="flex gap-6 text-sm">
+            <Link href="/about" className="hover:text-[#E5C547] transition-colors">אודות</Link>
+            <Link href="/contact" className="hover:text-[#E5C547] transition-colors">צור קשר</Link>
+            <Link href="/topics" className="hover:text-[#E5C547] transition-colors">נושאים</Link>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

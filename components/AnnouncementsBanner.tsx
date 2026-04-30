@@ -42,7 +42,7 @@ export function AnnouncementsBanner({ initialAnnouncements }: { initialAnnouncem
       readIds.push(id);
       localStorage.setItem('readAnnouncements', JSON.stringify(readIds));
     } catch {}
-    
+
     const remaining = announcements.filter(a => a.id !== id);
     setAnnouncements(remaining);
     if (remaining.length === 0) setShow(false);
@@ -51,18 +51,27 @@ export function AnnouncementsBanner({ initialAnnouncements }: { initialAnnouncem
   if (!show || announcements.length === 0) return null;
 
   return (
-    <div className="max-w-4xl mx-auto px-6 pt-6">
-      <div className="space-y-3">
+    <div className="bg-[#B14F1C] text-[#F1E6D2]">
+      <div className="max-w-5xl mx-auto px-6 py-4 space-y-3">
         {announcements.map(a => (
-          <div key={a.id} className="bg-white p-4 rounded-2xl shadow-sm border border-[#E5E0D8] relative">
-            <button onClick={() => dismissAnnouncement(a.id)} className="absolute top-3 left-3 text-[#8C7A6B] hover:text-[#8C2B2B] p-1 transition-colors">
+          <div key={a.id} className="relative flex items-start gap-4 border-r-4 border-[#E5C547] pr-4 pl-10">
+            <span className="text-[#E5C547] mt-1.5 text-xs">●</span>
+            <div className="flex-1">
+              <h3 className="font-serif text-xl font-semibold leading-tight">{a.title}</h3>
+              <div className="font-serif text-sm leading-relaxed mt-1 text-[#F1E6D2]/90">
+                <SimpleMarkdown>{a.content}</SimpleMarkdown>
+              </div>
+              <span className="text-[11px] text-[#F1E6D2]/60 mt-1.5 block font-sans italic">
+                {new Date(a.createdAt).toLocaleDateString('he-IL')}
+              </span>
+            </div>
+            <button
+              onClick={() => dismissAnnouncement(a.id)}
+              className="absolute top-0 left-0 text-[#F1E6D2]/70 hover:text-[#E5C547] p-1 transition-colors"
+              aria-label="סגור הודעה"
+            >
               <X size={16} />
             </button>
-            <h3 className="font-bold text-[#4A3B32] mb-2">{a.title}</h3>
-            <div className="text-sm text-[#4A3B32] leading-relaxed">
-              <SimpleMarkdown>{a.content}</SimpleMarkdown>
-            </div>
-            <span className="text-xs text-[#8C7A6B] mt-2 block">{new Date(a.createdAt).toLocaleDateString('he-IL')}</span>
           </div>
         ))}
       </div>

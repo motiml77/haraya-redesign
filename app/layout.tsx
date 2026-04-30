@@ -49,7 +49,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
           }}
         />
       </head>
-      <body className="font-sans bg-[#FAF8F5] text-[#2C2A29] antialiased" suppressHydrationWarning><NavigationProgress />{children}</body>
+      <body className="font-sans bg-[#F1E6D2] text-[#1F1A14] antialiased" suppressHydrationWarning><NavigationProgress />{children}</body>
     </html>
   );
 }

@@ -24,17 +24,14 @@ export default function AdminDashboard() {
   const [isSendingAnnouncement, setIsSendingAnnouncement] = useState(false);
   const [recentAnnouncements, setRecentAnnouncements] = useState<any[]>([]);
 
-  // Load all dashboard data in parallel when user is available
   useEffect(() => {
     if (!user) return;
-
     const fetches: Promise<void>[] = [
       fetch('/api/analytics')
         .then(res => res.json())
         .then(data => setVisitorsCount(data.visitors || 0))
         .catch(console.error),
     ];
-
     if (user.role === 'admin') {
       setIsLoadingUsers(true);
       fetches.push(
@@ -44,7 +41,6 @@ export default function AdminDashboard() {
         .finally(() => setIsLoadingUsers(false))
       );
     }
-
     if (user.role === 'admin' || user.role === 'rabbi') {
       fetches.push(
         authFetch('/api/announcements')
@@ -53,7 +49,6 @@ export default function AdminDashboard() {
           .catch(() => {})
       );
     }
-
     Promise.all(fetches).finally(() => setIsLoading(false));
   }, [user]);
 
@@ -82,7 +77,6 @@ export default function AdminDashboard() {
     setIsSendingAnnouncement(false);
   };
 
-  // User management actions
   const [editingRole, setEditingRole] = useState<string | null>(null);
   const [resetPasswordId, setResetPasswordId] = useState<string | null>(null);
   const [resetPasswordValue, setResetPasswordValue] = useState('');
@@ -164,78 +158,84 @@ export default function AdminDashboard() {
 
   if (user?.role === 'editor') {
     return (
-      <div className="text-center py-20">
-        <p className="text-[#8C7A6B] mb-4">עורכים מנותבים לדף הספרים</p>
-        <Link href="/admin/books" className="text-[#8C2B2B] font-bold hover:underline">עבור לספרים ותוכן</Link>
+      <div className="text-center py-20 font-serif">
+        <p className="text-[#6B5D4F] mb-4 italic">עורכים מנותבים לדף הספרים</p>
+        <Link href="/admin/books" className="text-[#B14F1C] font-bold hover:underline tracking-wider">עבור לספרים ותוכן ←</Link>
       </div>
     );
   }
 
+  const inputClass = "w-full p-2.5 border border-[#D6C8A8] bg-[#F1E6D2] focus:bg-white focus:border-[#B14F1C] focus:outline-none font-serif text-sm text-[#1F1A14]";
+  const labelClass = "block text-xs font-bold text-[#1F1A14] mb-1.5 tracking-wider uppercase";
+  const cardClass = "bg-[#E8DCC4] p-6 sm:p-8 border border-[#D6C8A8]";
+  const sectionHeader = (label: string, title: string, Icon: any) => (
+    <div className="mb-6 pb-4 border-b border-[#D6C8A8]">
+      <div className="text-xs tracking-[0.25em] font-bold text-[#B14F1C] mb-2">● {label}</div>
+      <h2 className="font-serif text-2xl text-[#1F1A14] flex items-center gap-2"><Icon size={20} className="text-[#B14F1C]" />{title}</h2>
+    </div>
+  );
+
   return (
     <div className="space-y-6">
       {/* Stats */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E0D8] flex items-center gap-4 max-w-sm">
-        <div className="bg-[#F0EBE1] p-4 rounded-full text-[#8C2B2B]"><Users size={32} /></div>
+      <div className={`${cardClass} flex items-center gap-5 max-w-sm`}>
+        <div className="bg-[#1F1A14] text-[#B14F1C] w-16 h-16 flex items-center justify-center"><Users size={28} /></div>
         <div>
-          <p className="text-sm font-bold text-[#8C7A6B]">מבקרים ייחודיים</p>
-          <p className="text-3xl font-bold text-[#4A3B32]">{visitorsCount}</p>
+          <p className="text-xs font-bold text-[#6B5D4F] tracking-wider uppercase mb-1">מבקרים ייחודיים</p>
+          <p className="text-4xl font-serif font-semibold text-[#1F1A14]">{visitorsCount}</p>
         </div>
       </div>
 
       {/* Announcements - admin/rabbi */}
       {(user?.role === 'admin' || user?.role === 'rabbi') && (
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E0D8]">
-          <h2 className="text-xl font-bold text-[#4A3B32] mb-6 flex items-center gap-2">
-            <Megaphone size={24} className="text-[#8C2B2B]" />
-            שליחת הודעה
-          </h2>
+        <div className={cardClass}>
+          {sectionHeader('שליחת הודעה', 'הודעה למשתמשים', Megaphone)}
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-bold text-[#8C7A6B] mb-1">כותרת</label>
+              <label className={labelClass}>כותרת</label>
               <input type="text" value={announcementTitle} onChange={(e) => setAnnouncementTitle(e.target.value)}
-                className="w-full p-2.5 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none" placeholder="כותרת ההודעה..." />
+                className={inputClass} placeholder="כותרת ההודעה..." />
             </div>
             <div>
-              <label className="block text-sm font-bold text-[#8C7A6B] mb-1">תוכן (תומך Markdown וקישורים)</label>
+              <label className={labelClass}>תוכן <span className="text-[10px] text-[#6B5D4F] font-normal normal-case">(תומך Markdown וקישורים)</span></label>
               <textarea value={announcementContent} onChange={(e) => setAnnouncementContent(e.target.value)}
-                className="w-full p-3 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none resize-none" rows={4} placeholder="תוכן ההודעה..." />
+                className={`${inputClass} resize-none leading-relaxed`} rows={4} placeholder="תוכן ההודעה..." />
             </div>
-            {/* Preview */}
             {announcementContent.trim() && (
-              <div className="p-3 bg-[#FAF8F5] rounded-xl border border-[#E5E0D8]">
-                <span className="text-xs font-bold text-[#8C7A6B] block mb-2">תצוגה מקדימה:</span>
-                <div className="text-sm text-[#4A3B32]"><SimpleMarkdown>{announcementContent}</SimpleMarkdown></div>
+              <div className="p-4 bg-[#F1E6D2] border-r-4 border-[#B14F1C]">
+                <span className="text-xs font-bold text-[#6B5D4F] tracking-wider uppercase block mb-2">תצוגה מקדימה</span>
+                <div className="text-sm text-[#1F1A14] font-serif"><SimpleMarkdown>{announcementContent}</SimpleMarkdown></div>
               </div>
             )}
-            <div className="flex items-center gap-4">
-              <label className="block text-sm font-bold text-[#8C7A6B]">יעד:</label>
+            <div className="flex items-center gap-4 flex-wrap">
+              <label className={labelClass + " mb-0"}>יעד:</label>
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="radio" name="announcementType" value="editors" checked={announcementType === 'editors'} onChange={() => setAnnouncementType('editors')} className="accent-[#8C2B2B]" />
-                <span className="text-sm font-bold text-[#4A3B32]">עורכים בלבד</span>
+                <input type="radio" name="announcementType" value="editors" checked={announcementType === 'editors'} onChange={() => setAnnouncementType('editors')} className="accent-[#B14F1C]" />
+                <span className="text-sm font-bold text-[#1F1A14] font-serif">עורכים בלבד</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="radio" name="announcementType" value="all" checked={announcementType === 'all'} onChange={() => setAnnouncementType('all')} className="accent-[#8C2B2B]" />
-                <span className="text-sm font-bold text-[#4A3B32]">כל המשתמשים</span>
+                <input type="radio" name="announcementType" value="all" checked={announcementType === 'all'} onChange={() => setAnnouncementType('all')} className="accent-[#B14F1C]" />
+                <span className="text-sm font-bold text-[#1F1A14] font-serif">כל המשתמשים</span>
               </label>
             </div>
             <button onClick={sendAnnouncement} disabled={isSendingAnnouncement}
-              className="px-6 py-2.5 bg-[#8C2B2B] text-white rounded-xl hover:bg-[#7A2525] transition-colors font-bold flex items-center gap-2 disabled:opacity-50">
-              {isSendingAnnouncement ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+              className="px-6 py-3 bg-[#1F1A14] text-[#F1E6D2] hover:bg-[#B14F1C] transition-colors font-bold flex items-center gap-2 disabled:opacity-50 tracking-wider text-sm">
+              {isSendingAnnouncement ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
               {isSendingAnnouncement ? 'שולח...' : 'שלח הודעה'}
             </button>
           </div>
 
           {recentAnnouncements.length > 0 && (
-            <div className="mt-6 pt-4 border-t border-[#E5E0D8]">
-              <h3 className="text-sm font-bold text-[#8C7A6B] mb-3">הודעות אחרונות</h3>
+            <div className="mt-6 pt-5 border-t border-[#D6C8A8]">
+              <h3 className="text-xs font-bold text-[#6B5D4F] mb-3 tracking-wider uppercase">הודעות אחרונות</h3>
               <div className="space-y-2">
                 {recentAnnouncements.map((a: any) => (
-                  <div key={a.id} className="flex items-center justify-between p-3 bg-[#FAF8F5] rounded-xl text-sm">
+                  <div key={a.id} className="flex items-center justify-between p-3 bg-[#F1E6D2] border-r-2 border-[#D6C8A8] text-sm">
                     <div>
-                      <span className="font-bold text-[#4A3B32]">{a.title}</span>
-                      <span className="text-xs text-[#8C7A6B] mr-2">({a.type === 'editors' ? 'עורכים' : 'כולם'})</span>
+                      <span className="font-bold text-[#1F1A14] font-serif">{a.title}</span>
+                      <span className="text-xs text-[#6B5D4F] mr-2">({a.type === 'editors' ? 'עורכים' : 'כולם'})</span>
                     </div>
-                    <span className="text-xs text-[#8C7A6B]">{new Date(a.createdAt).toLocaleDateString('he-IL')}</span>
+                    <span className="text-xs text-[#6B5D4F]">{new Date(a.createdAt).toLocaleDateString('he-IL')}</span>
                   </div>
                 ))}
               </div>
@@ -247,109 +247,103 @@ export default function AdminDashboard() {
       {/* Users Management - admin only */}
       {user?.role === 'admin' && (
         <>
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E0D8]">
-            <h2 className="text-xl font-bold text-[#4A3B32] mb-6 flex items-center gap-2">
-              <Users size={24} className="text-[#8C2B2B]" />
-              הוספת משתמש חדש
-            </h2>
+          <div className={cardClass}>
+            {sectionHeader('הוספת משתמש', 'משתמש חדש', Users)}
             <form onSubmit={handleAddUser} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
               <div>
-                <label className="block text-sm font-bold text-[#8C7A6B] mb-1">שם מלא</label>
-                <input type="text" name="name" required className="w-full p-2.5 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none" />
+                <label className={labelClass}>שם מלא</label>
+                <input type="text" name="name" required className={inputClass} />
               </div>
               <div>
-                <label className="block text-sm font-bold text-[#8C7A6B] mb-1">אימייל</label>
-                <input type="email" name="email" required className="w-full p-2.5 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none" />
+                <label className={labelClass}>אימייל</label>
+                <input type="email" name="email" required className={inputClass} dir="ltr" />
               </div>
               <div>
-                <label className="block text-sm font-bold text-[#8C7A6B] mb-1">סיסמה</label>
-                <input type="password" name="password" required minLength={6} className="w-full p-2.5 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none" />
+                <label className={labelClass}>סיסמה</label>
+                <input type="password" name="password" required minLength={6} className={inputClass} />
               </div>
               <div>
-                <label className="block text-sm font-bold text-[#8C7A6B] mb-1">תפקיד</label>
-                <select name="role" required className="w-full p-2.5 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none">
+                <label className={labelClass}>תפקיד</label>
+                <select name="role" required className={inputClass}>
                   <option value="editor">עורך</option>
                   <option value="rabbi">רב</option>
                   <option value="admin">מנהל</option>
                 </select>
               </div>
-              <button type="submit" className="w-full bg-[#4A3B32] text-white py-2.5 rounded-xl hover:bg-[#3A2B22] transition-colors font-bold">הוסף משתמש</button>
+              <button type="submit" className="w-full bg-[#1F1A14] text-[#F1E6D2] hover:bg-[#B14F1C] py-2.5 transition-colors font-bold tracking-wider text-sm">הוסף משתמש</button>
             </form>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E0D8]">
-            <h2 className="text-xl font-bold text-[#4A3B32] mb-6 flex items-center gap-2">
-              <Users size={24} className="text-[#8C2B2B]" />
-              רשימת משתמשים
-            </h2>
+          <div className={cardClass}>
+            {sectionHeader('רשימת משתמשים', 'כל המשתמשים', Users)}
             {isLoadingUsers ? (
-              <div className="py-6 text-center text-[#8C7A6B]">טוען...</div>
+              <div className="py-6 text-center text-[#6B5D4F] font-serif italic">טוען...</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-right">
                   <thead>
-                    <tr className="border-b border-[#E5E0D8] text-[#8C7A6B]">
-                      <th className="py-3 px-4 font-bold">שם</th>
-                      <th className="py-3 px-4 font-bold">אימייל</th>
-                      <th className="py-3 px-4 font-bold">תפקיד</th>
-                      <th className="py-3 px-4 font-bold">פעולות</th>
+                    <tr className="border-b-2 border-[#D6C8A8] text-[#6B5D4F]">
+                      <th className="py-3 px-4 font-bold text-xs tracking-wider uppercase">שם</th>
+                      <th className="py-3 px-4 font-bold text-xs tracking-wider uppercase">אימייל</th>
+                      <th className="py-3 px-4 font-bold text-xs tracking-wider uppercase">תפקיד</th>
+                      <th className="py-3 px-4 font-bold text-xs tracking-wider uppercase">פעולות</th>
                     </tr>
                   </thead>
                   <tbody>
                     {users.map(u => {
                       const isMe = u.id === user?.id;
-                      const isLoading = actionLoading === u.id;
+                      const isLoadingRow = actionLoading === u.id;
                       return (
-                        <tr key={u.id} className={`border-b border-[#F0EBE1] hover:bg-[#FAF8F5] ${isMe ? 'bg-[#FAF8F5]' : ''}`}>
-                          <td className="py-3 px-4 font-bold text-[#4A3B32]">
+                        <tr key={u.id} className={`border-b border-[#D6C8A8] hover:bg-[#F1E6D2] ${isMe ? 'bg-[#F1E6D2]' : ''}`}>
+                          <td className="py-3 px-4 font-bold text-[#1F1A14] font-serif">
                             {u.name}
-                            {isMe && <span className="text-xs text-[#8C7A6B] mr-1">(אתה)</span>}
+                            {isMe && <span className="text-xs text-[#6B5D4F] mr-1 font-normal italic">(אתה)</span>}
                           </td>
-                          <td className="py-3 px-4 text-[#8C7A6B]">{u.email}</td>
+                          <td className="py-3 px-4 text-[#6B5D4F] font-serif text-sm" dir="ltr">{u.email}</td>
                           <td className="py-3 px-4">
                             {editingRole === u.id ? (
                               <div className="flex items-center gap-1">
-                                <select defaultValue={u.role} onChange={(e) => handleChangeRole(u.id, e.target.value)} disabled={isLoading}
-                                  className="p-1 rounded-lg border border-[#E5E0D8] bg-[#FAF8F5] text-xs font-bold outline-none">
+                                <select defaultValue={u.role} onChange={(e) => handleChangeRole(u.id, e.target.value)} disabled={isLoadingRow}
+                                  className="p-1 border border-[#D6C8A8] bg-[#F1E6D2] text-xs font-bold outline-none">
                                   <option value="editor">עורך</option>
                                   <option value="rabbi">רב</option>
                                   <option value="admin">מנהל</option>
                                 </select>
-                                <button onClick={() => setEditingRole(null)} className="p-0.5 text-[#8C7A6B] hover:text-red-500">
+                                <button onClick={() => setEditingRole(null)} className="p-0.5 text-[#6B5D4F] hover:text-[#B14F1C]">
                                   <X size={14} />
                                 </button>
                               </div>
                             ) : (
                               <button onClick={() => !isMe && setEditingRole(u.id)} disabled={isMe}
-                                className={`px-2 py-1 rounded-full text-xs font-bold ${u.role === 'admin' ? 'bg-red-100 text-red-800' : u.role === 'rabbi' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'} ${!isMe ? 'hover:opacity-70 cursor-pointer' : 'cursor-default'}`}
+                                className={`px-2.5 py-1 text-xs font-bold tracking-wider uppercase border ${u.role === 'admin' ? 'border-[#B14F1C] text-[#B14F1C] bg-[#F1E6D2]' : u.role === 'rabbi' ? 'border-[#1F1A14] text-[#1F1A14] bg-[#F1E6D2]' : 'border-[#6B5D4F] text-[#6B5D4F] bg-[#F1E6D2]'} ${!isMe ? 'hover:bg-[#1F1A14] hover:text-[#F1E6D2] cursor-pointer transition-colors' : 'cursor-default'}`}
                                 title={isMe ? '' : 'לחץ לשינוי תפקיד'}>
                                 {u.role === 'admin' ? 'מנהל' : u.role === 'rabbi' ? 'רב' : 'עורך'}
                               </button>
                             )}
                           </td>
                           <td className="py-3 px-4">
-                            {isLoading ? (
-                              <Loader2 size={16} className="animate-spin text-[#8C7A6B]" />
+                            {isLoadingRow ? (
+                              <Loader2 size={16} className="animate-spin text-[#6B5D4F]" />
                             ) : (
                               <div className="flex items-center gap-1">
                                 {resetPasswordId === u.id ? (
                                   <div className="flex items-center gap-1">
                                     <input type="password" value={resetPasswordValue} onChange={(e) => setResetPasswordValue(e.target.value)}
-                                      placeholder="סיסמה חדשה" className="p-1 w-28 rounded-lg border border-[#E5E0D8] bg-[#FAF8F5] text-xs outline-none" />
-                                    <button onClick={() => handleResetPassword(u.id)} className="p-1 text-green-600 hover:bg-green-50 rounded" title="אשר">
+                                      placeholder="סיסמה חדשה" className="p-1 w-28 border border-[#D6C8A8] bg-[#F1E6D2] text-xs outline-none focus:border-[#B14F1C]" />
+                                    <button onClick={() => handleResetPassword(u.id)} className="p-1 text-green-700 hover:bg-[#F1E6D2]" title="אשר">
                                       <Check size={14} />
                                     </button>
-                                    <button onClick={() => { setResetPasswordId(null); setResetPasswordValue(''); }} className="p-1 text-[#8C7A6B] hover:text-red-500 rounded" title="ביטול">
+                                    <button onClick={() => { setResetPasswordId(null); setResetPasswordValue(''); }} className="p-1 text-[#6B5D4F] hover:text-[#B14F1C]" title="ביטול">
                                       <X size={14} />
                                     </button>
                                   </div>
                                 ) : (
-                                  <button onClick={() => setResetPasswordId(u.id)} className="p-1.5 text-[#8C7A6B] hover:text-[#8C2B2B] hover:bg-[#F0EBE1] rounded-lg transition-colors" title="אפס סיסמה">
+                                  <button onClick={() => setResetPasswordId(u.id)} className="p-1.5 text-[#6B5D4F] hover:text-[#B14F1C] hover:bg-[#F1E6D2] transition-colors" title="אפס סיסמה">
                                     <Key size={15} />
                                   </button>
                                 )}
                                 {!isMe && resetPasswordId !== u.id && (
-                                  <button onClick={() => handleDeleteUser(u.id, u.name)} className="p-1.5 text-[#8C7A6B] hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="מחק משתמש">
+                                  <button onClick={() => handleDeleteUser(u.id, u.name)} className="p-1.5 text-[#6B5D4F] hover:text-[#B14F1C] hover:bg-[#F1E6D2] transition-colors" title="מחק משתמש">
                                     <Trash2 size={15} />
                                   </button>
                                 )}

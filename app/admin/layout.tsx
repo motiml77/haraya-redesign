@@ -200,7 +200,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#FAF8F5] flex items-center justify-center" dir="rtl">
+      <div className="min-h-screen bg-[#F1E6D2] flex items-center justify-center" dir="rtl">
         <BookLoader />
       </div>
     );
@@ -208,30 +208,42 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-[#FAF8F5] font-sans flex items-center justify-center p-6" dir="rtl">
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-[#E5E0D8] w-full max-w-md">
-          <h1 className="text-2xl font-serif font-bold text-[#4A3B32] mb-6 text-center">התחברות למערכת</h1>
-          {loginError && <div className="bg-red-50 text-red-600 p-3 rounded-xl mb-4 text-sm font-bold">{loginError}</div>}
+      <div className="min-h-screen bg-[#F1E6D2] font-sans flex items-center justify-center p-6 relative overflow-hidden" dir="rtl">
+        <div
+          aria-hidden="true"
+          className="absolute -top-20 -left-20 text-[500px] text-[#B14F1C]/[0.06] leading-none select-none"
+          style={{ fontFamily: 'var(--font-serif)' }}
+        >
+          ה
+        </div>
+        <div className="bg-[#E8DCC4] border border-[#D6C8A8] w-full max-w-md p-8 sm:p-10 relative">
+          <div className="text-xs tracking-[0.3em] font-bold text-[#B14F1C] mb-3 text-center">● מערכת ניהול</div>
+          <h1 className="text-3xl sm:text-4xl font-serif font-semibold text-[#1F1A14] mb-8 text-center leading-tight">
+            התחברות<span className="text-[#B14F1C]">.</span>
+          </h1>
+          {loginError && (
+            <div className="border-r-4 border-[#B14F1C] bg-[#F1E6D2] px-4 py-2.5 mb-4 text-sm font-bold text-[#B14F1C]">{loginError}</div>
+          )}
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-bold text-[#8C7A6B] mb-1">אימייל</label>
+              <label className="block text-xs font-bold text-[#1F1A14] mb-1.5 tracking-wider uppercase">אימייל</label>
               <input type="email" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)}
-                className="w-full p-3 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none" placeholder="email@example.com" />
+                className="w-full p-3 border border-[#D6C8A8] bg-[#F1E6D2] focus:bg-white focus:border-[#B14F1C] focus:outline-none text-sm font-serif text-[#1F1A14]" placeholder="email@example.com" dir="ltr" />
             </div>
             <div>
-              <label className="block text-sm font-bold text-[#8C7A6B] mb-1">סיסמה</label>
+              <label className="block text-xs font-bold text-[#1F1A14] mb-1.5 tracking-wider uppercase">סיסמה</label>
               <input type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)}
-                className="w-full p-3 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none" placeholder="••••••••"
+                className="w-full p-3 border border-[#D6C8A8] bg-[#F1E6D2] focus:bg-white focus:border-[#B14F1C] focus:outline-none text-sm font-serif text-[#1F1A14]" placeholder="••••••••"
                 onKeyDown={(e) => e.key === 'Enter' && handleLogin()} />
             </div>
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)}
-                className="w-4 h-4 rounded border-[#E5E0D8] text-[#8C2B2B] focus:ring-[#8C2B2B] cursor-pointer accent-[#8C2B2B]" />
-              <span className="text-sm text-[#8C7A6B]">זכור אותי</span>
+                className="w-4 h-4 border-[#D6C8A8] text-[#B14F1C] focus:ring-[#B14F1C] cursor-pointer accent-[#B14F1C]" />
+              <span className="text-sm text-[#6B5D4F] font-serif">זכור אותי</span>
             </label>
             <button onClick={handleLogin} disabled={isLoggingIn}
-              className="w-full bg-[#8C2B2B] text-white py-3 rounded-xl hover:bg-[#7A2525] transition-colors font-bold mt-4 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
-              {isLoggingIn && <Loader2 size={18} className="animate-spin" />}
+              className="w-full bg-[#1F1A14] text-[#F1E6D2] hover:bg-[#B14F1C] py-3.5 transition-colors font-bold mt-4 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed tracking-wider text-sm">
+              {isLoggingIn && <Loader2 size={16} className="animate-spin" />}
               {isLoggingIn ? 'מתחבר...' : 'התחבר'}
             </button>
           </div>
@@ -252,25 +264,38 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <AdminContext.Provider value={{ user, questionsBadge, setQuestionsBadge }}>
-      <div className="min-h-screen bg-[#FAF8F5] font-sans" dir="rtl">
-        {/* Top bar */}
-        <header className="bg-white border-b border-[#E5E0D8] px-3 sm:px-6 py-2 sm:py-3 sticky top-0 z-50 shadow-sm relative">
+      <div className="min-h-screen bg-[#F1E6D2] font-sans" dir="rtl">
+        {/* Top dark strip — matches public site */}
+        <div className="bg-[#1F1A14] text-[#F1E6D2] px-3 sm:px-6 py-2 flex justify-between items-center text-xs">
+          <div className="flex items-center gap-3">
+            <span className="font-serif text-sm">הראי״ה · <span className="text-[#B14F1C]">ניהול</span></span>
+            <span className="hidden sm:inline opacity-60">/</span>
+            <span className="hidden sm:inline opacity-80">{user?.name} · {roleName}</span>
+          </div>
+          <Link href="/" className="flex items-center gap-1.5 opacity-80 hover:opacity-100 hover:text-[#B14F1C] transition-colors">
+            <BookOpen size={14} />
+            <span>חזרה לאתר</span>
+          </Link>
+        </div>
+
+        {/* Main top bar */}
+        <header className="bg-[#E8DCC4] border-b-2 border-[#D6C8A8] px-3 sm:px-6 py-3 sticky top-0 z-50 relative">
           <div className="max-w-7xl mx-auto flex justify-between items-center gap-2">
             {/* Left: logout + password + bell */}
-            <div className="flex items-center gap-1 sm:gap-3 shrink-0">
-              <button onClick={handleLogout} title="התנתק" className="flex items-center gap-1 text-xs sm:text-sm text-[#8C2B2B] hover:underline font-bold whitespace-nowrap">
-                <LogOut size={16} />
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+              <button onClick={handleLogout} title="התנתק" className="flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm text-[#B14F1C] hover:bg-[#F1E6D2] font-bold whitespace-nowrap tracking-wider transition-colors">
+                <LogOut size={14} />
                 <span className="hidden sm:inline">התנתק</span>
               </button>
               <button onClick={() => { setShowPasswordModal(true); setPasswordError(''); setPasswordSuccess(false); }} title="שנה סיסמה"
-                className="p-1.5 sm:p-2 rounded-full hover:bg-[#F0EBE1] transition-colors">
-                <Key size={18} className="text-[#4A3B32]" />
+                className="p-2 hover:bg-[#F1E6D2] transition-colors">
+                <Key size={16} className="text-[#1F1A14]" />
               </button>
               <button onClick={() => setShowAnnouncementsPopup(!showAnnouncementsPopup)}
-                className="relative p-1.5 sm:p-2 rounded-full hover:bg-[#F0EBE1] transition-colors">
-                <Bell size={18} className="text-[#4A3B32]" />
+                className="relative p-2 hover:bg-[#F1E6D2] transition-colors">
+                <Bell size={16} className="text-[#1F1A14]" />
                 {unreadAnnouncements.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-[#8C2B2B] text-white text-[10px] font-bold w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center">
+                  <span className="absolute top-0.5 right-0.5 bg-[#B14F1C] text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
                     {unreadAnnouncements.length > 9 ? '9+' : unreadAnnouncements.length}
                   </span>
                 )}
@@ -278,13 +303,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </div>
 
             {/* Center: nav */}
-            <nav className="flex bg-white rounded-full p-0.5 sm:p-1 shadow-sm border border-[#E5E0D8] overflow-x-auto">
+            <nav className="flex bg-[#F1E6D2] border border-[#D6C8A8] overflow-x-auto">
               {navItems.filter(item => user && item.roles.includes(user.role)).map(item => (
                 <Link key={item.href} href={item.href} title={item.label}
-                  className={`relative flex items-center gap-1.5 px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-full text-sm font-bold transition-colors whitespace-nowrap ${pathname === item.href ? 'bg-[#F0EBE1] text-[#4A3B32]' : 'text-[#8C7A6B] hover:text-[#4A3B32]'}`}>
-                  <item.icon size={18} />
+                  className={`relative flex items-center gap-1.5 px-3 sm:px-4 py-2 text-xs sm:text-sm font-bold transition-colors whitespace-nowrap tracking-wider ${pathname === item.href ? 'bg-[#1F1A14] text-[#F1E6D2]' : 'text-[#6B5D4F] hover:text-[#1F1A14] hover:bg-[#E8DCC4]'}`}>
+                  <item.icon size={16} />
                   {'badge' in item && item.badge! > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-[#8C2B2B] text-white text-[10px] font-bold w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center">
+                    <span className="absolute -top-1 -right-1 bg-[#B14F1C] text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
                       {item.badge! > 99 ? '99+' : item.badge}
                     </span>
                   )}
@@ -293,44 +318,41 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               ))}
             </nav>
 
-            {/* Right: title + home */}
-            <div className="flex items-center gap-2 sm:gap-4 shrink-0">
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-[#F0EBE1] rounded-full">
-                <span className="text-xs font-bold text-[#8C7A6B]">{user?.name} ({roleName})</span>
-              </div>
-              <Link href="/" className="flex items-center gap-1 p-1.5 sm:p-2 rounded-full hover:bg-[#F0EBE1] transition-colors" title="חזרה לאתר">
-                <BookOpen size={22} className="text-[#8C2B2B]" />
+            {/* Right: home */}
+            <div className="flex items-center gap-2 shrink-0">
+              <Link href="/" className="flex items-center gap-1 p-2 hover:bg-[#F1E6D2] transition-colors" title="חזרה לאתר">
+                <BookOpen size={20} className="text-[#B14F1C]" />
               </Link>
             </div>
           </div>
 
           {/* Announcements popup */}
           {showAnnouncementsPopup && (
-            <div className="absolute left-6 top-16 w-96 max-h-[28rem] overflow-y-auto bg-white rounded-2xl shadow-xl border border-[#E5E0D8] z-[100] p-4">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold text-[#4A3B32] flex items-center gap-2"><Bell size={18} className="text-[#8C2B2B]" /> הודעות</h3>
+            <div className="absolute left-6 top-16 w-96 max-h-[28rem] overflow-y-auto bg-[#E8DCC4] shadow-2xl border-2 border-[#D6C8A8] z-[100] p-4">
+              <div className="flex justify-between items-center mb-4 pb-3 border-b border-[#D6C8A8]">
+                <h3 className="font-serif text-lg text-[#1F1A14] flex items-center gap-2"><Bell size={16} className="text-[#B14F1C]" /> הודעות</h3>
                 {unreadAnnouncements.length > 0 && (
-                  <button onClick={dismissAllAnnouncements} className="text-xs text-[#8C2B2B] hover:underline font-bold">סמן הכל כנקרא</button>
+                  <button onClick={dismissAllAnnouncements} className="text-xs text-[#B14F1C] hover:underline font-bold tracking-wider">סמן הכל כנקרא</button>
                 )}
               </div>
               {unreadAnnouncements.length === 0 ? (
-                <p className="text-center text-sm text-[#8C7A6B] py-6">אין הודעות חדשות</p>
+                <p className="text-center text-sm text-[#6B5D4F] py-6 font-serif italic">אין הודעות חדשות</p>
               ) : (
                 <div className="space-y-3">
                   {unreadAnnouncements.map((a: any) => (
-                    <div key={a.id} className="p-3 bg-[#FAF8F5] rounded-xl border border-[#E5E0D8]">
+                    <div key={a.id} className="p-3 bg-[#F1E6D2] border-r-4 border-[#B14F1C]">
                       <div className="flex justify-between items-center mb-2">
-                        <span className="font-bold text-sm text-[#4A3B32]">{a.title}</span>
-                        <button onClick={() => markAnnouncementRead(a.id)} className="text-[#8C7A6B] hover:text-[#8C2B2B] p-0.5">
+                        <span className="font-bold text-sm text-[#1F1A14] font-serif">{a.title}</span>
+                        <button onClick={() => markAnnouncementRead(a.id)} className="text-[#6B5D4F] hover:text-[#B14F1C] p-0.5">
                           <X size={14} />
                         </button>
                       </div>
-                      <div className="text-sm text-[#4A3B32] leading-relaxed">
+                      <div className="text-sm text-[#1F1A14] leading-relaxed font-serif">
                         <SimpleMarkdown>{a.content}</SimpleMarkdown>
                       </div>
-                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-[#E5E0D8]">
-                        <span className="text-xs text-[#8C7A6B]">{a.createdBy}</span>
-                        <span className="text-xs text-[#8C7A6B]">{new Date(a.createdAt).toLocaleDateString('he-IL')}</span>
+                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-[#D6C8A8]">
+                        <span className="text-xs text-[#6B5D4F]">{a.createdBy}</span>
+                        <span className="text-xs text-[#6B5D4F]">{new Date(a.createdAt).toLocaleDateString('he-IL')}</span>
                       </div>
                     </div>
                   ))}
@@ -342,33 +364,33 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
         {/* Password Change Modal */}
         {showPasswordModal && (
-          <div className="fixed inset-0 bg-black/40 z-[200] flex items-center justify-center p-4" onClick={() => setShowPasswordModal(false)}>
-            <div className="bg-white rounded-2xl shadow-xl border border-[#E5E0D8] w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold text-lg text-[#4A3B32] flex items-center gap-2"><Key size={20} className="text-[#8C2B2B]" /> שינוי סיסמה</h3>
-                <button onClick={() => setShowPasswordModal(false)} className="p-1 text-[#8C7A6B] hover:text-[#8C2B2B]"><X size={18} /></button>
+          <div className="fixed inset-0 bg-[#1F1A14]/70 z-[200] flex items-center justify-center p-4" onClick={() => setShowPasswordModal(false)}>
+            <div className="bg-[#E8DCC4] border-2 border-[#D6C8A8] w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+              <div className="flex justify-between items-center mb-5 pb-3 border-b border-[#D6C8A8]">
+                <h3 className="font-serif text-xl text-[#1F1A14] flex items-center gap-2"><Key size={18} className="text-[#B14F1C]" /> שינוי סיסמה</h3>
+                <button onClick={() => setShowPasswordModal(false)} className="p-1 text-[#6B5D4F] hover:text-[#B14F1C]"><X size={18} /></button>
               </div>
-              {passwordError && <div className="bg-red-50 text-red-600 p-2.5 rounded-xl mb-3 text-sm font-bold">{passwordError}</div>}
-              {passwordSuccess && <div className="bg-green-50 text-green-700 p-2.5 rounded-xl mb-3 text-sm font-bold">הסיסמה שונתה בהצלחה!</div>}
+              {passwordError && <div className="border-r-4 border-[#B14F1C] bg-[#F1E6D2] px-3 py-2 mb-3 text-sm font-bold text-[#B14F1C]">{passwordError}</div>}
+              {passwordSuccess && <div className="border-r-4 border-green-700 bg-[#F1E6D2] px-3 py-2 mb-3 text-sm font-bold text-green-800">הסיסמה שונתה בהצלחה!</div>}
               <div className="space-y-3">
                 <div>
-                  <label className="block text-sm font-bold text-[#8C7A6B] mb-1">סיסמה נוכחית</label>
+                  <label className="block text-xs font-bold text-[#1F1A14] mb-1.5 tracking-wider uppercase">סיסמה נוכחית</label>
                   <input type="password" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)}
-                    className="w-full p-2.5 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none" placeholder="••••••••" />
+                    className="w-full p-2.5 border border-[#D6C8A8] bg-[#F1E6D2] focus:bg-white focus:border-[#B14F1C] focus:outline-none font-serif text-sm" placeholder="••••••••" />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-[#8C7A6B] mb-1">סיסמה חדשה</label>
+                  <label className="block text-xs font-bold text-[#1F1A14] mb-1.5 tracking-wider uppercase">סיסמה חדשה</label>
                   <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
-                    className="w-full p-2.5 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none" placeholder="••••••••" />
+                    className="w-full p-2.5 border border-[#D6C8A8] bg-[#F1E6D2] focus:bg-white focus:border-[#B14F1C] focus:outline-none font-serif text-sm" placeholder="••••••••" />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-[#8C7A6B] mb-1">אימות סיסמה חדשה</label>
+                  <label className="block text-xs font-bold text-[#1F1A14] mb-1.5 tracking-wider uppercase">אימות סיסמה חדשה</label>
                   <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="w-full p-2.5 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none" placeholder="••••••••"
+                    className="w-full p-2.5 border border-[#D6C8A8] bg-[#F1E6D2] focus:bg-white focus:border-[#B14F1C] focus:outline-none font-serif text-sm" placeholder="••••••••"
                     onKeyDown={(e) => e.key === 'Enter' && handleChangePassword()} />
                 </div>
                 <button onClick={handleChangePassword} disabled={isChangingPassword}
-                  className="w-full bg-[#8C2B2B] text-white py-2.5 rounded-xl hover:bg-[#7A2525] transition-colors font-bold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                  className="w-full bg-[#1F1A14] text-[#F1E6D2] hover:bg-[#B14F1C] py-3 transition-colors font-bold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed tracking-wider text-sm">
                   {isChangingPassword && <Loader2 size={16} className="animate-spin" />}
                   {isChangingPassword ? 'מעדכן...' : 'שנה סיסמה'}
                 </button>

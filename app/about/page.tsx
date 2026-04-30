@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { BookOpen, Loader2 } from 'lucide-react';
 import { MarkdownRenderer } from '@/components/MarkdownRenderer';
 import { Breadcrumb } from '@/components/Breadcrumb';
+import { PageHeaderAuth } from '@/components/PageHeaderAuth';
 import { getCachedData, setCachedData } from '@/lib/cached-fetch';
 
 export default function AboutPage() {
@@ -29,34 +30,47 @@ export default function AboutPage() {
       .catch(() => setIsLoading(false));
   }, []);
 
-  if (isLoading) return <div className="min-h-screen bg-[#FAF8F5] flex items-center justify-center gap-3 text-[#8C7A6B] font-serif text-xl"><Loader2 size={24} className="animate-spin text-[#8C2B2B]" />טוען...</div>;
+  if (isLoading) return <div className="min-h-screen bg-[#F1E6D2] flex items-center justify-center gap-3 text-[#6B5D4F] font-serif text-xl"><Loader2 size={24} className="animate-spin text-[#B14F1C]" />טוען...</div>;
 
   const hasContent = about && (about.title || about.content);
 
   return (
-    <div className="min-h-screen bg-[#FAF8F5] font-sans" dir="rtl">
-      <header className="bg-white border-b border-[#E5E0D8] py-6 px-6">
-        <div className="max-w-4xl mx-auto flex items-start gap-4">
-          <Link href="/" className="p-2 rounded-full hover:bg-[#F0EBE1] transition-colors mt-1 shrink-0" title="חזרה לדף הראשי">
-            <BookOpen size={28} className="text-[#8C2B2B]" />
+    <div className="min-h-screen bg-[#F1E6D2] font-sans" dir="rtl">
+      {/* Top dark strip */}
+      <div className="bg-[#1F1A14] text-[#F1E6D2] px-6 py-3 flex justify-between items-center">
+        <Breadcrumb items={[
+          { label: 'הראי״ה · ספרייה', href: '/' },
+          { label: 'אודות' },
+        ]} />
+        <PageHeaderAuth />
+      </div>
+
+      {/* Hero */}
+      <header className="relative overflow-hidden bg-[#E8DCC4] px-6 sm:px-12 py-14 border-b-2 border-[#D6C8A8]">
+        <div
+          aria-hidden="true"
+          className="ms-ornament absolute -top-12 -left-6 text-[280px] sm:text-[400px] text-[#B14F1C]/[0.08]"
+          style={{ fontFamily: 'var(--font-serif)' }}
+        >
+          א
+        </div>
+        <div className="relative max-w-4xl mx-auto">
+          <Link href="/" className="inline-flex items-center gap-2 text-xs text-[#6B5D4F] hover:text-[#B14F1C] mb-4 font-bold tracking-[0.2em]">
+            <BookOpen size={14} className="text-[#B14F1C]" />
+            ← חזרה לספרייה
           </Link>
-          <div>
-            <Breadcrumb items={[
-              { label: 'ספרים', href: '/' },
-              { label: 'אודות' },
-            ]} />
-            <h1 className="text-3xl font-serif font-bold text-[#4A3B32] mt-4">
-              {about?.title || 'אודות'}
-            </h1>
-          </div>
+          <div className="text-xs tracking-[0.3em] font-bold text-[#B14F1C] mb-3">● אודות</div>
+          <h1 className="font-serif text-5xl sm:text-7xl font-semibold text-[#1F1A14] leading-[0.95] tracking-tight">
+            {about?.title ? <>{about.title}<span className="text-[#B14F1C]">.</span></> : <>על <span className="italic text-[#B14F1C]">הספרייה.</span></>}
+          </h1>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-6 py-8">
+      <main className="max-w-3xl mx-auto px-6 py-14">
         {hasContent ? (
-          <div className="bg-white p-6 sm:p-10 rounded-2xl shadow-sm border border-[#E5E0D8]">
+          <div className="bg-[#E8DCC4] p-8 sm:p-12 border border-[#D6C8A8] relative">
             {about.imageUrl && (
-              <div className="mb-8 rounded-xl overflow-hidden">
+              <div className="mb-8 overflow-hidden border-[5px] border-[#F1E6D2]">
                 <img
                   src={about.imageUrl}
                   alt={about.title || 'אודות'}
@@ -64,12 +78,12 @@ export default function AboutPage() {
                 />
               </div>
             )}
-            <div className="prose prose-lg max-w-none font-serif leading-loose text-[#2C2A29]">
+            <div className="prose prose-lg max-w-none font-serif leading-loose text-[#1F1A14] prose-headings:text-[#B14F1C] prose-headings:font-semibold prose-a:text-[#B14F1C] prose-strong:text-[#1F1A14] prose-em:text-[#6B5D4F]">
               <MarkdownRenderer>{about.content}</MarkdownRenderer>
             </div>
           </div>
         ) : (
-          <p className="text-center text-[#8C7A6B] py-12 text-lg">אין מידע עדיין.</p>
+          <p className="text-center text-[#6B5D4F] py-12 text-lg font-serif italic">אין מידע עדיין.</p>
         )}
       </main>
     </div>
