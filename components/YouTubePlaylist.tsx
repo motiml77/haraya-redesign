@@ -136,49 +136,49 @@ export function YouTubePlaylist({ sectionId, videos, canEdit, onUpdate }: YouTub
   const activeIndex = videos.findIndex(v => v.videoId === activeVideoId);
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-[#E5E0D8] overflow-hidden">
+    <div className="bg-[#E8DCC4] border border-[#D6C8A8] overflow-hidden">
       {/* Header — always visible */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between px-5 py-4 hover:bg-[#FAF8F5] transition-colors"
+        className="w-full flex items-center justify-between px-5 py-4 hover:bg-[#F1E6D2] transition-colors"
       >
         <div className="flex items-center gap-3">
           <Image src="/youtube-icon.svg" alt="YouTube" width={28} height={20} className="shrink-0" />
-          <span className="text-lg font-bold text-[#4A3B32]">שיעורים בנושא</span>
+          <span className="text-lg font-bold text-[#1F1A14]">שיעורים בנושא</span>
           {videos.length > 0 && (
-            <span className="bg-[#F0EBE1] text-[#8C7A6B] text-xs font-bold px-2.5 py-0.5 rounded-full">
+            <span className="bg-[#E8DCC4] text-[#6B5D4F] text-xs font-bold px-2.5 py-0.5 rounded-full">
               {videos.length}
             </span>
           )}
         </div>
-        {isOpen ? <ChevronUp size={20} className="text-[#8C7A6B]" /> : <ChevronDown size={20} className="text-[#8C7A6B]" />}
+        {isOpen ? <ChevronUp size={20} className="text-[#6B5D4F]" /> : <ChevronDown size={20} className="text-[#6B5D4F]" />}
       </button>
 
       {/* Content — collapsible */}
       {isOpen && (
-        <div className="border-t border-[#E5E0D8]">
+        <div className="border-t border-[#D6C8A8]">
           {/* Admin: Add video form */}
           {canEdit && (
-            <div className="bg-[#FAF8F5] px-5 py-4 border-b border-[#E5E0D8]">
-              <div className="text-sm font-bold text-[#8C7A6B] mb-3">הוספת שיעור</div>
+            <div className="bg-[#F1E6D2] px-5 py-4 border-b border-[#D6C8A8]">
+              <div className="text-sm font-bold text-[#6B5D4F] mb-3">הוספת שיעור</div>
               <div className="flex flex-col sm:flex-row gap-2">
                 <input
                   value={newUrl}
                   onChange={(e) => { setNewUrl(e.target.value); setError(''); }}
                   placeholder="הדבק קישור YouTube..."
-                  className="flex-[2] min-w-0 p-2.5 rounded-xl border border-[#E5E0D8] bg-white focus:ring-2 focus:ring-[#8C2B2B] outline-none text-sm"
+                  className="flex-[2] min-w-0 p-2.5 border border-[#D6C8A8] bg-[#E8DCC4] focus:border-[#B14F1C] outline-none text-sm"
                   dir="ltr"
                 />
                 <input
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   placeholder="שם השיעור (אופציונלי — ייקח מיוטיוב)"
-                  className="flex-1 min-w-0 p-2.5 rounded-xl border border-[#E5E0D8] bg-white focus:ring-2 focus:ring-[#8C2B2B] outline-none text-sm"
+                  className="flex-1 min-w-0 p-2.5 border border-[#D6C8A8] bg-[#E8DCC4] focus:border-[#B14F1C] outline-none text-sm"
                 />
                 <button
                   onClick={addVideo}
                   disabled={isSaving}
-                  className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#8C2B2B] text-white rounded-xl text-sm font-bold hover:bg-[#7A2525] disabled:opacity-50 transition-colors whitespace-nowrap"
+                  className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#B14F1C] text-white text-sm font-bold hover:bg-[#7A2525] disabled:opacity-50 transition-colors whitespace-nowrap"
                 >
                   {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
                   {isSaving ? 'שומר...' : 'הוסף'}
@@ -194,7 +194,7 @@ export function YouTubePlaylist({ sectionId, videos, canEdit, onUpdate }: YouTub
               <div className="lg:flex-[3] min-w-0 p-4">
                 {activeVideoId ? (
                   <>
-                    <div className="relative w-full pb-[56.25%] rounded-xl overflow-hidden bg-black">
+                    <div className="relative w-full pb-[56.25%] overflow-hidden bg-black">
                       <iframe
                         key={activeVideoId}
                         src={`https://www.youtube.com/embed/${activeVideoId}?rel=0`}
@@ -204,25 +204,25 @@ export function YouTubePlaylist({ sectionId, videos, canEdit, onUpdate }: YouTub
                       />
                     </div>
                     <div className="mt-3 px-1">
-                      <h4 className="text-base font-bold text-[#4A3B32]">
+                      <h4 className="text-base font-bold text-[#1F1A14]">
                         {videos.find(v => v.videoId === activeVideoId)?.title}
                       </h4>
-                      <div className="text-xs text-[#8C7A6B] mt-1">
+                      <div className="text-xs text-[#6B5D4F] mt-1">
                         שיעור {activeIndex + 1} מתוך {videos.length}
                       </div>
                     </div>
                   </>
                 ) : (
-                  <div className="bg-[#FAF8F5] rounded-xl p-8 text-center text-[#8C7A6B] text-sm">
+                  <div className="bg-[#F1E6D2] p-8 text-center text-[#6B5D4F] text-sm">
                     בחר שיעור מהרשימה
                   </div>
                 )}
               </div>
 
               {/* Playlist sidebar */}
-              <div className="lg:flex-[2] lg:border-r border-t lg:border-t-0 border-[#E5E0D8] max-h-[350px] overflow-y-auto">
-                <div className="sticky top-0 bg-white px-4 py-3 border-b border-[#E5E0D8] z-10">
-                  <div className="text-sm font-bold text-[#4A3B32]">רשימת שיעורים</div>
+              <div className="lg:flex-[2] lg:border-r border-t lg:border-t-0 border-[#D6C8A8] max-h-[350px] overflow-y-auto">
+                <div className="sticky top-0 bg-[#E8DCC4] px-4 py-3 border-b border-[#D6C8A8] z-10">
+                  <div className="text-sm font-bold text-[#1F1A14]">רשימת שיעורים</div>
                 </div>
                 {videos.map((video, i) => {
                   const isActive = video.videoId === activeVideoId;
@@ -230,17 +230,17 @@ export function YouTubePlaylist({ sectionId, videos, canEdit, onUpdate }: YouTub
                     <div
                       key={video.id}
                       onClick={() => setActiveVideoId(video.videoId)}
-                      className={`flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors border-b border-[#F0EBE1] last:border-b-0 ${
-                        isActive ? 'bg-[#F0EBE1] border-r-[3px] border-r-[#8C2B2B]' : 'hover:bg-[#FAF8F5]'
+                      className={`flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors border-b border-[#E8DCC4] last:border-b-0 ${
+                        isActive ? 'bg-[#E8DCC4] border-r-[3px] border-r-[#B14F1C]' : 'hover:bg-[#F1E6D2]'
                       }`}
                     >
                       {/* Index / play icon */}
-                      <div className="w-5 text-center text-xs text-[#8C7A6B] shrink-0">
-                        {isActive ? <Play size={14} className="text-[#8C2B2B]" fill="#8C2B2B" /> : i + 1}
+                      <div className="w-5 text-center text-xs text-[#6B5D4F] shrink-0">
+                        {isActive ? <Play size={14} className="text-[#B14F1C]" fill="#B14F1C" /> : i + 1}
                       </div>
 
                       {/* Thumbnail */}
-                      <div className="w-[70px] h-[39px] rounded-md overflow-hidden shrink-0 bg-black">
+                      <div className="w-[70px] h-[39px] overflow-hidden shrink-0 bg-black">
                         <img
                           src={getThumbnail(video.videoId)}
                           alt=""
@@ -250,7 +250,7 @@ export function YouTubePlaylist({ sectionId, videos, canEdit, onUpdate }: YouTub
 
                       {/* Title */}
                       <div className="flex-1 min-w-0">
-                        <div className={`text-xs leading-snug line-clamp-2 ${isActive ? 'font-bold text-[#4A3B32]' : 'text-[#6B5A4E]'}`}>
+                        <div className={`text-xs leading-snug line-clamp-2 ${isActive ? 'font-bold text-[#1F1A14]' : 'text-[#6B5A4E]'}`}>
                           {video.title}
                         </div>
                       </div>
@@ -261,21 +261,21 @@ export function YouTubePlaylist({ sectionId, videos, canEdit, onUpdate }: YouTub
                           <button
                             onClick={() => moveVideo(i, -1)}
                             disabled={i === 0 || isSaving}
-                            className="text-[#8C7A6B] hover:text-[#8C2B2B] disabled:opacity-30 text-xs p-0.5"
+                            className="text-[#6B5D4F] hover:text-[#B14F1C] disabled:opacity-30 text-xs p-0.5"
                           >
                             ▲
                           </button>
                           <button
                             onClick={() => removeVideo(video.videoId)}
                             disabled={isSaving}
-                            className="text-[#8C7A6B] hover:text-red-600 disabled:opacity-30 p-0.5"
+                            className="text-[#6B5D4F] hover:text-red-600 disabled:opacity-30 p-0.5"
                           >
                             <X size={14} />
                           </button>
                           <button
                             onClick={() => moveVideo(i, 1)}
                             disabled={i === videos.length - 1 || isSaving}
-                            className="text-[#8C7A6B] hover:text-[#8C2B2B] disabled:opacity-30 text-xs p-0.5"
+                            className="text-[#6B5D4F] hover:text-[#B14F1C] disabled:opacity-30 text-xs p-0.5"
                           >
                             ▼
                           </button>
@@ -287,7 +287,7 @@ export function YouTubePlaylist({ sectionId, videos, canEdit, onUpdate }: YouTub
               </div>
             </div>
           ) : (
-            <div className="px-5 py-8 text-center text-[#8C7A6B] text-sm">
+            <div className="px-5 py-8 text-center text-[#6B5D4F] text-sm">
               אין שיעורים עדיין. {canEdit ? 'הוסף שיעור דרך הטופס למעלה.' : ''}
             </div>
           )}

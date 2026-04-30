@@ -69,21 +69,21 @@ export function AudioPlayer({ src }: AudioPlayerProps) {
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div className="flex items-center gap-1.5 px-1.5 py-1 bg-[#F5F0EB] rounded-md" dir="rtl">
+    <div className="flex items-center gap-1.5 px-1.5 py-1 bg-[#E8DCC4]" dir="rtl">
       <button onClick={togglePlay}
-        className="shrink-0 w-6 h-6 flex items-center justify-center bg-[#8C2B2B] text-white rounded-full hover:bg-[#7A2525] transition-colors">
+        className="shrink-0 w-6 h-6 flex items-center justify-center bg-[#B14F1C] text-white rounded-full hover:bg-[#7A2525] transition-colors">
         {isPlaying ? <Pause size={10} /> : <Play size={10} className="mr-[-1px]" />}
       </button>
       <div className="flex-1 flex items-center gap-1.5 min-w-0">
-        <span className="text-[9px] text-[#8C7A6B] font-mono shrink-0">{formatTime(currentTime)}</span>
-        <div className="flex-1 h-1 bg-[#E5E0D8] rounded-full cursor-pointer relative" onClick={handleSeek}>
-          <div className="absolute top-0 right-0 h-full bg-[#8C2B2B] rounded-full transition-all"
+        <span className="text-[9px] text-[#6B5D4F] font-mono shrink-0">{formatTime(currentTime)}</span>
+        <div className="flex-1 h-1 bg-[#D6C8A8] rounded-full cursor-pointer relative" onClick={handleSeek}>
+          <div className="absolute top-0 right-0 h-full bg-[#B14F1C] rounded-full transition-all"
             style={{ width: `${progress}%` }} />
         </div>
-        <span className="text-[9px] text-[#8C7A6B] font-mono shrink-0">{formatTime(duration)}</span>
+        <span className="text-[9px] text-[#6B5D4F] font-mono shrink-0">{formatTime(duration)}</span>
       </div>
       <button onClick={cycleSpeed}
-        className="shrink-0 px-1 py-0 text-[9px] font-bold text-[#8C2B2B] bg-white border border-[#E5E0D8] rounded hover:bg-[#F0EBE1] transition-colors leading-4">
+        className="shrink-0 px-1 py-0 text-[9px] font-bold text-[#B14F1C] bg-[#E8DCC4] border border-[#D6C8A8] hover:bg-[#E8DCC4] transition-colors leading-4">
         {speed}x
       </button>
     </div>

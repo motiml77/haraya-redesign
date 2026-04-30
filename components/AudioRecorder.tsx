@@ -219,9 +219,9 @@ export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, on
   // Show playback if already uploaded & saved
   if (audioUrl) {
     return (
-      <div className="flex items-center gap-2 p-2 bg-[#F0EBE1] rounded-lg">
+      <div className="flex items-center gap-2 p-2 bg-[#E8DCC4]">
         <audio src={audioUrl} controls className="h-8 flex-1" style={{ minWidth: 0 }} />
-        <button onClick={handleClear} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="מחק הקלטה">
+        <button onClick={handleClear} className="p-1.5 text-red-500 hover:bg-red-50 transition-colors" title="מחק הקלטה">
           <Trash2 size={16} />
         </button>
       </div>
@@ -230,7 +230,7 @@ export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, on
 
   if (status === 'uploading') {
     return (
-      <div className="flex items-center gap-2 p-2 bg-[#F0EBE1] rounded-lg text-sm text-[#8C7A6B]">
+      <div className="flex items-center gap-2 p-2 bg-[#E8DCC4] text-sm text-[#6B5D4F]">
         <Loader2 size={16} className="animate-spin" />
         <span>מעלה הקלטה...</span>
       </div>
@@ -240,18 +240,18 @@ export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, on
   if (status === 'preview' && previewUrl) {
     return (
       <div className="space-y-2">
-        <div className="flex items-center gap-2 p-2 bg-[#F0EBE1] rounded-lg">
+        <div className="flex items-center gap-2 p-2 bg-[#E8DCC4]">
           <audio src={previewUrl} controls className="h-8 flex-1" style={{ minWidth: 0 }} />
         </div>
         <div className="flex items-center gap-2">
           <button onClick={handleUpload}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-[#8C2B2B] rounded-lg hover:bg-[#7A2525] transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-[#B14F1C] hover:bg-[#7A2525] transition-colors"
             title="אשר והעלה">
             <Upload size={14} />
             <span>אשר והעלה</span>
           </button>
           <button onClick={discardRecording}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 border border-red-300 rounded-lg hover:bg-red-50 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 border border-red-300 hover:bg-red-50 transition-colors"
             title="מחק והקלט מחדש">
             <Trash2 size={14} />
             <span>מחק</span>
@@ -263,7 +263,7 @@ export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, on
 
   if (status === 'recording' || status === 'paused') {
     return (
-      <div className="flex items-center gap-2 p-2 bg-red-50 rounded-lg border border-red-200">
+      <div className="flex items-center gap-2 p-2 bg-red-50 border border-red-200">
         <div className={`w-2.5 h-2.5 bg-red-500 rounded-full ${status === 'recording' ? 'animate-pulse' : 'opacity-50'}`} />
         <span className="text-sm text-red-700 font-mono">{formatTime(seconds)}</span>
         <span className="text-xs text-red-500">{status === 'recording' ? 'מקליט...' : 'מושהה'}</span>
@@ -271,17 +271,17 @@ export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, on
         <div className="mr-auto flex items-center gap-1.5">
           {status === 'recording' ? (
             <button onClick={pauseRecording}
-              className="p-1.5 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors" title="השהה">
+              className="p-1.5 bg-yellow-500 text-white hover:bg-yellow-600 transition-colors" title="השהה">
               <Pause size={14} />
             </button>
           ) : (
             <button onClick={resumeRecording}
-              className="p-1.5 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors" title="המשך">
+              className="p-1.5 bg-green-500 text-white hover:bg-green-600 transition-colors" title="המשך">
               <Play size={14} />
             </button>
           )}
           <button onClick={stopRecording}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-xs font-bold" title="סיים הקלטה">
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-red-500 text-white hover:bg-red-600 transition-colors text-xs font-bold" title="סיים הקלטה">
             <Square size={12} />
             <span>סיים הקלטה</span>
           </button>
@@ -292,7 +292,7 @@ export function AudioRecorder({ sectionId, commentId, authorName, onRecorded, on
 
   return (
     <button onClick={startRecording}
-      className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#8C2B2B] border border-[#8C2B2B]/30 rounded-lg hover:bg-[#8C2B2B]/5 transition-colors"
+      className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#B14F1C] border border-[#B14F1C]/30 hover:bg-[#B14F1C]/5 transition-colors"
       title="הקלט תשובה קולית">
       <Mic size={14} />
       <span>הקלט תשובה</span>

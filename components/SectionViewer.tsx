@@ -235,15 +235,15 @@ export function SectionViewer({
       .sort((a: any, b: any) => (a.orderIndex || 0) - (b.orderIndex || 0));
 
     return (
-      <div className="min-h-screen bg-[#FAF8F5] font-sans" dir="rtl">
-        <header className="bg-white border-b border-[#E5E0D8] py-6 px-6">
+      <div className="min-h-screen bg-[#F1E6D2] font-sans" dir="rtl">
+        <header className="bg-[#E8DCC4] border-b border-[#D6C8A8] py-6 px-6">
           <div className="max-w-4xl mx-auto flex items-start gap-4">
-            <Link href="/" className="p-2 rounded-full hover:bg-[#F0EBE1] transition-colors mt-1 shrink-0" title="חזרה לדף הראשי">
-              <BookOpen size={28} className="text-[#8C2B2B]" />
+            <Link href="/" className="p-2 rounded-full hover:bg-[#E8DCC4] transition-colors mt-1 shrink-0" title="חזרה לדף הראשי">
+              <BookOpen size={28} className="text-[#B14F1C]" />
             </Link>
             <div className="flex-1">
               <Breadcrumb items={breadcrumbItems} />
-              <h1 className="text-3xl font-serif font-bold text-[#4A3B32] mt-4">{section.title}</h1>
+              <h1 className="text-3xl font-serif font-bold text-[#1F1A14] mt-4">{section.title}</h1>
             </div>
           </div>
         </header>
@@ -253,10 +253,10 @@ export function SectionViewer({
             <div className="space-y-3">
               {children.map((child: any) => (
                 <Link key={child.id} href={`/book/${bookId}/${child.id}`}
-                  className="flex items-center gap-4 bg-white p-5 rounded-2xl shadow-sm border border-[#E5E0D8] hover:border-[#8C2B2B] hover:shadow-md transition-all group">
+                  className="flex items-center gap-4 bg-[#E8DCC4] p-5 border border-[#D6C8A8] hover:border-[#B14F1C] hover: transition-all group">
                   <div className="flex items-center gap-3 flex-1">
-                    <FileText size={20} className="text-[#8C7A6B] group-hover:text-[#8C2B2B] transition-colors" />
-                    <span className="font-bold text-[#4A3B32]">{child.title}</span>
+                    <FileText size={20} className="text-[#6B5D4F] group-hover:text-[#B14F1C] transition-colors" />
+                    <span className="font-bold text-[#1F1A14]">{child.title}</span>
                   </div>
                   {child.hasContent && (
                     <span className={`w-2.5 h-2.5 rounded-full ${child.isEdited ? 'bg-green-500' : 'bg-red-400'}`}
@@ -266,7 +266,7 @@ export function SectionViewer({
               ))}
             </div>
           ) : (
-            <p className="text-center text-[#8C7A6B] py-12">אין תוכן בחלק זה.</p>
+            <p className="text-center text-[#6B5D4F] py-12">אין תוכן בחלק זה.</p>
           )}
         </main>
       </div>
@@ -276,37 +276,37 @@ export function SectionViewer({
   const tagsArray = Array.isArray(section.tags) ? section.tags : (typeof section.tags === 'string' ? section.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []);
 
   return (
-    <div className="min-h-screen flex flex-col font-sans bg-[#FAF8F5]">
+    <div className="min-h-screen flex flex-col font-sans bg-[#F1E6D2]">
       {/* Header */}
-      <header className="bg-white border-b border-[#E5E0D8] py-4 px-6 sticky top-0 z-50 shadow-sm" dir="rtl">
+      <header className="bg-[#E8DCC4] border-b border-[#D6C8A8] py-4 px-6 sticky top-0 z-50" dir="rtl">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-start gap-3">
-            <Link href="/" className="p-2 rounded-full hover:bg-[#F0EBE1] transition-colors mt-0.5 shrink-0" title="חזרה לדף הראשי">
-              <BookOpen size={28} className="text-[#8C2B2B]" />
+            <Link href="/" className="p-2 rounded-full hover:bg-[#E8DCC4] transition-colors mt-0.5 shrink-0" title="חזרה לדף הראשי">
+              <BookOpen size={28} className="text-[#B14F1C]" />
             </Link>
             <div>
               <Breadcrumb items={breadcrumbItems} />
-              <h1 className="text-2xl font-serif font-bold text-[#4A3B32] mt-1">{section.title}</h1>
+              <h1 className="text-2xl font-serif font-bold text-[#1F1A14] mt-1">{section.title}</h1>
             </div>
           </div>
           <div className="flex gap-3 items-center">
             {!authLoading && editUser && (
-              <Link href="/admin" className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-[#F0EBE1] rounded-full hover:bg-[#E5E0D8] transition-colors">
-                <User size={14} className="text-[#8C2B2B]" />
-                <span className="text-xs font-bold text-[#8C7A6B]">{editUser.name}</span>
+              <Link href="/admin" className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-[#E8DCC4] rounded-full hover:bg-[#D6C8A8] transition-colors">
+                <User size={14} className="text-[#B14F1C]" />
+                <span className="text-xs font-bold text-[#6B5D4F]">{editUser.name}</span>
               </Link>
             )}
-            <div className="hidden lg:flex gap-1 bg-[#F0EBE1] p-1 rounded-lg">
-              <button onClick={() => setLayoutMode('split')} className={`p-1.5 rounded-md transition-colors ${layoutMode === 'split' ? 'bg-white shadow-sm text-[#8C2B2B]' : 'text-[#8C7A6B]'}`}><Columns size={18} /></button>
-              <button onClick={() => setLayoutMode('stacked')} className={`p-1.5 rounded-md transition-colors ${layoutMode === 'stacked' ? 'bg-white shadow-sm text-[#8C2B2B]' : 'text-[#8C7A6B]'}`}><Menu size={18} /></button>
+            <div className="hidden lg:flex gap-1 bg-[#E8DCC4] p-1">
+              <button onClick={() => setLayoutMode('split')} className={`p-1.5  transition-colors ${layoutMode === 'split' ? 'bg-[#E8DCC4]  text-[#B14F1C]' : 'text-[#6B5D4F]'}`}><Columns size={18} /></button>
+              <button onClick={() => setLayoutMode('stacked')} className={`p-1.5  transition-colors ${layoutMode === 'stacked' ? 'bg-[#E8DCC4]  text-[#B14F1C]' : 'text-[#6B5D4F]'}`}><Menu size={18} /></button>
             </div>
             <div className="relative">
               <div className="flex items-center">
-                <button onClick={toggleBookmark} className={`p-2 rounded-full hover:bg-[#F0EBE1] transition-colors ${isBookmarked ? 'text-[#C4960C]' : 'text-[#4A3B32]'}`} title={isBookmarked ? 'הסר סימניה' : 'הוסף סימניה'}>
+                <button onClick={toggleBookmark} className={`p-2 rounded-full hover:bg-[#E8DCC4] transition-colors ${isBookmarked ? 'text-[#C4960C]' : 'text-[#1F1A14]'}`} title={isBookmarked ? 'הסר סימניה' : 'הוסף סימניה'}>
                   <Bookmark size={20} fill={isBookmarked ? 'currentColor' : 'none'} />
                 </button>
                 {bookmarks.length > 0 && (
-                  <button onClick={() => setShowBookmarks(!showBookmarks)} className="p-1 rounded-full hover:bg-[#F0EBE1] text-[#8C7A6B] transition-colors" title="הצג סימניות">
+                  <button onClick={() => setShowBookmarks(!showBookmarks)} className="p-1 rounded-full hover:bg-[#E8DCC4] text-[#6B5D4F] transition-colors" title="הצג סימניות">
                     <ChevronDown size={14} />
                   </button>
                 )}
@@ -314,17 +314,17 @@ export function SectionViewer({
               {showBookmarks && bookmarks.length > 0 && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowBookmarks(false)} />
-                  <div className="absolute left-0 top-full mt-2 z-50 bg-white rounded-xl shadow-xl border border-[#E5E0D8] w-72 max-h-80 overflow-y-auto">
-                    <div className="p-3 border-b border-[#E5E0D8] flex justify-between items-center">
-                      <h4 className="text-sm font-bold text-[#4A3B32]">סימניות ({bookmarks.length})</h4>
+                  <div className="absolute left-0 top-full mt-2 z-50 bg-[#E8DCC4] border border-[#D6C8A8] w-72 max-h-80 overflow-y-auto">
+                    <div className="p-3 border-b border-[#D6C8A8] flex justify-between items-center">
+                      <h4 className="text-sm font-bold text-[#1F1A14]">סימניות ({bookmarks.length})</h4>
                     </div>
                     <div className="p-1">
                       {bookmarks.map(bm => (
                         <Link key={bm.sectionId} href={`/book/${bm.bookId}/${bm.sectionId}`}
                           onClick={() => setShowBookmarks(false)}
-                          className={`flex flex-col gap-0.5 px-3 py-2 rounded-lg hover:bg-[#F0EBE1] transition-colors ${bm.sectionId === sectionId ? 'bg-[#F0EBE1]' : ''}`}>
-                          <span className="text-sm font-bold text-[#4A3B32] truncate">{bm.title}</span>
-                          <span className="text-xs text-[#8C7A6B] truncate">{bm.bookTitle}</span>
+                          className={`flex flex-col gap-0.5 px-3 py-2  hover:bg-[#E8DCC4] transition-colors ${bm.sectionId === sectionId ? 'bg-[#E8DCC4]' : ''}`}>
+                          <span className="text-sm font-bold text-[#1F1A14] truncate">{bm.title}</span>
+                          <span className="text-xs text-[#6B5D4F] truncate">{bm.bookTitle}</span>
                         </Link>
                       ))}
                     </div>
@@ -332,7 +332,7 @@ export function SectionViewer({
                 </>
               )}
             </div>
-            <button className="p-2 rounded-full hover:bg-[#F0EBE1] text-[#4A3B32]"><Share2 size={20} /></button>
+            <button className="p-2 rounded-full hover:bg-[#E8DCC4] text-[#1F1A14]"><Share2 size={20} /></button>
           </div>
         </div>
       </header>
@@ -343,8 +343,8 @@ export function SectionViewer({
         {(section.introduction?.trim() || (!authLoading && canEdit)) && (
           <div className="mb-6">
             {section.introduction?.trim() ? (
-              <div className="bg-white px-4 py-3 sm:px-6 sm:py-4 rounded-2xl shadow-sm border border-[#E5E0D8] text-center">
-                <h3 className="text-lg font-bold text-[#8C2B2B] font-serif border-b border-[#F0EBE1] pb-2 mb-3">הקדמה</h3>
+              <div className="bg-[#E8DCC4] px-4 py-3 sm:px-6 sm:py-4 border border-[#D6C8A8] text-center">
+                <h3 className="text-lg font-bold text-[#B14F1C] font-serif border-b border-[#E8DCC4] pb-2 mb-3">הקדמה</h3>
                 <InlineEditor
                   value={section.introduction || ''}
                   onSave={async (newValue) => { await saveSectionField({ introduction: newValue }); }}
@@ -360,7 +360,7 @@ export function SectionViewer({
             ) : canEdit && (
               <button
                 onClick={async () => { await saveSectionField({ introduction: ' ' }); }}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl border border-dashed border-[#E5E0D8] text-[#8C7A6B] hover:text-[#8C2B2B] hover:border-[#8C2B2B] transition-all text-sm font-bold"
+                className="flex items-center gap-2 px-4 py-2 border border-dashed border-[#D6C8A8] text-[#6B5D4F] hover:text-[#B14F1C] hover:border-[#B14F1C] transition-all text-sm font-bold"
               >
                 <Pencil size={14} />
                 הוסף הקדמה
@@ -378,10 +378,10 @@ export function SectionViewer({
                 <div className="flex flex-col lg:flex-row lg:items-stretch lg:gap-0">
                   {/* Source panel (right side in RTL) - determines row height */}
                   <div className="split-panel" style={{ '--split-width': `${splitPercent}%` } as React.CSSProperties}>
-                    <div className="bg-[#EDEAE5] p-6 sm:p-8 rounded-2xl shadow-sm border border-[#D5D0C8]">
+                    <div className="bg-[#F4E3C7] p-6 sm:p-8 border border-[#D6C8A8]">
                       {index === 0 && (
                         <div className="flex justify-between items-start mb-4">
-                          <h2 className="text-xl font-bold text-[#8C2B2B] font-serif flex items-center gap-2">
+                          <h2 className="text-xl font-bold text-[#B14F1C] font-serif flex items-center gap-2">
                             {isBookmarked && <Bookmark size={18} fill="currentColor" className="shrink-0 text-[#C4960C]" />}
                             מקור
                           </h2>
@@ -404,11 +404,11 @@ export function SectionViewer({
                           }
                         />
                       ) : canEdit ? (
-                        <div className="text-center py-8 text-[#8C7A6B] text-sm">טקסט מקור ריק — לחץ לעריכה בעמוד הניהול</div>
+                        <div className="text-center py-8 text-[#6B5D4F] text-sm">טקסט מקור ריק — לחץ לעריכה בעמוד הניהול</div>
                       ) : null}
                       {canEdit && blocks.length > 1 && (
-                        <div className="flex justify-end mt-3 pt-3 border-t border-[#D5D0C8]">
-                          <button onClick={() => handleDeleteBlock(block.id)} className="text-xs text-[#8C7A6B] hover:text-red-600 transition-colors flex items-center gap-1">
+                        <div className="flex justify-end mt-3 pt-3 border-t border-[#D6C8A8]">
+                          <button onClick={() => handleDeleteBlock(block.id)} className="text-xs text-[#6B5D4F] hover:text-red-600 transition-colors flex items-center gap-1">
                             <Trash2 size={12} /> מחק קטע
                           </button>
                         </div>
@@ -424,7 +424,7 @@ export function SectionViewer({
                       onTouchStart={handleDragStart}
                       title="גרור לשינוי גודל"
                     >
-                      <div className="w-1 h-16 rounded-full bg-[#E5E0D8] group-hover:bg-[#8C2B2B] group-active:bg-[#8C2B2B] transition-colors" />
+                      <div className="w-1 h-16 rounded-full bg-[#D6C8A8] group-hover:bg-[#B14F1C] group-active:bg-[#B14F1C] transition-colors" />
                     </div>
                   ) : (
                     <div className="hidden lg:block w-4 shrink-0" />
@@ -432,9 +432,9 @@ export function SectionViewer({
 
                   {/* Commentary panel (left side in RTL) - scrolls within source height */}
                   <div className="flex-1 min-w-0 lg:relative">
-                    <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-[#E5E0D8] lg:absolute lg:inset-0 lg:overflow-y-auto custom-scrollbar">
+                    <div className="bg-[#E8DCC4] p-6 sm:p-8 border border-[#D6C8A8] lg:absolute lg:inset-0 lg:overflow-y-auto custom-scrollbar">
                       {index === 0 && (
-                        <h3 className="text-xl font-bold text-[#8C2B2B] font-serif border-b border-[#F0EBE1] pb-4 mb-6">ביאורים והרחבות</h3>
+                        <h3 className="text-xl font-bold text-[#B14F1C] font-serif border-b border-[#E8DCC4] pb-4 mb-6">ביאורים והרחבות</h3>
                       )}
                       {block.commentaryText ? (
                         <InlineEditor
@@ -443,13 +443,13 @@ export function SectionViewer({
                           canEdit={canEdit}
                           minHeight="120px"
                           renderContent={
-                            <div className="text-base leading-relaxed text-[#4A3B32] text-justify">
+                            <div className="text-base leading-relaxed text-[#1F1A14] text-justify">
                               <SimpleMarkdown>{block.commentaryText}</SimpleMarkdown>
                             </div>
                           }
                         />
                       ) : canEdit ? (
-                        <div className="text-center py-8 text-[#8C7A6B] text-sm">ביאור ריק — לחץ לעריכה בעמוד הניהול</div>
+                        <div className="text-center py-8 text-[#6B5D4F] text-sm">ביאור ריק — לחץ לעריכה בעמוד הניהול</div>
                       ) : null}
                     </div>
                   </div>
@@ -461,10 +461,10 @@ export function SectionViewer({
                 <div className="space-y-4">
                   {/* Source */}
                   {(block.sourceText || canEdit) && (
-                    <div className="bg-[#EDEAE5] p-6 sm:p-8 rounded-2xl shadow-sm border border-[#D5D0C8]">
+                    <div className="bg-[#F4E3C7] p-6 sm:p-8 border border-[#D6C8A8]">
                       {index === 0 && (
                         <div className="flex justify-between items-start mb-4">
-                          <h2 className="text-xl font-bold text-[#8C2B2B] font-serif flex items-center gap-2">
+                          <h2 className="text-xl font-bold text-[#B14F1C] font-serif flex items-center gap-2">
                             {isBookmarked && <Bookmark size={18} fill="currentColor" className="shrink-0 text-[#C4960C]" />}
                             מקור
                           </h2>
@@ -487,11 +487,11 @@ export function SectionViewer({
                           }
                         />
                       ) : canEdit ? (
-                        <div className="text-center py-8 text-[#8C7A6B] text-sm">טקסט מקור ריק</div>
+                        <div className="text-center py-8 text-[#6B5D4F] text-sm">טקסט מקור ריק</div>
                       ) : null}
                       {canEdit && blocks.length > 1 && (
-                        <div className="flex justify-end mt-3 pt-3 border-t border-[#D5D0C8]">
-                          <button onClick={() => handleDeleteBlock(block.id)} className="text-xs text-[#8C7A6B] hover:text-red-600 transition-colors flex items-center gap-1">
+                        <div className="flex justify-end mt-3 pt-3 border-t border-[#D6C8A8]">
+                          <button onClick={() => handleDeleteBlock(block.id)} className="text-xs text-[#6B5D4F] hover:text-red-600 transition-colors flex items-center gap-1">
                             <Trash2 size={12} /> מחק קטע
                           </button>
                         </div>
@@ -501,9 +501,9 @@ export function SectionViewer({
 
                   {/* Commentary */}
                   {(block.commentaryText || canEdit) && (
-                    <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-[#E5E0D8]">
+                    <div className="bg-[#E8DCC4] p-6 sm:p-8 border border-[#D6C8A8]">
                       {index === 0 && (
-                        <h3 className="text-xl font-bold text-[#8C2B2B] font-serif border-b border-[#F0EBE1] pb-4 mb-6">ביאורים והרחבות</h3>
+                        <h3 className="text-xl font-bold text-[#B14F1C] font-serif border-b border-[#E8DCC4] pb-4 mb-6">ביאורים והרחבות</h3>
                       )}
                       {block.commentaryText ? (
                         <InlineEditor
@@ -512,13 +512,13 @@ export function SectionViewer({
                           canEdit={canEdit}
                           minHeight="120px"
                           renderContent={
-                            <div className="text-base leading-relaxed text-[#4A3B32] text-justify">
+                            <div className="text-base leading-relaxed text-[#1F1A14] text-justify">
                               <SimpleMarkdown>{block.commentaryText}</SimpleMarkdown>
                             </div>
                           }
                         />
                       ) : canEdit ? (
-                        <div className="text-center py-8 text-[#8C7A6B] text-sm">ביאור ריק</div>
+                        <div className="text-center py-8 text-[#6B5D4F] text-sm">ביאור ריק</div>
                       ) : null}
                     </div>
                   )}
@@ -530,7 +530,7 @@ export function SectionViewer({
           {/* Add block button (editors only) */}
           {canEdit && (
             <button onClick={handleAddBlock}
-              className="flex items-center gap-2 justify-center w-full py-4 rounded-xl border-2 border-dashed border-[#8C2B2B]/30 text-[#8C2B2B] hover:bg-[#8C2B2B]/5 hover:border-[#8C2B2B] transition-all text-sm font-bold">
+              className="flex items-center gap-2 justify-center w-full py-4 border-2 border-dashed border-[#B14F1C]/30 text-[#B14F1C] hover:bg-[#B14F1C]/5 hover:border-[#B14F1C] transition-all text-sm font-bold">
               <Plus size={18} /> הוסף זוג מקור + ביאור חדש
             </button>
           )}
@@ -539,7 +539,7 @@ export function SectionViewer({
           {tagsArray.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {tagsArray.map((tag: string) => (
-                <span key={tag} className="px-3 py-1 bg-[#F0EBE1] text-[#6B5A4E] text-sm rounded-full">#{tag}</span>
+                <span key={tag} className="px-3 py-1 bg-[#E8DCC4] text-[#6B5A4E] text-sm rounded-full">#{tag}</span>
               ))}
             </div>
           )}
@@ -556,67 +556,67 @@ export function SectionViewer({
         </div>
 
         {/* Comments */}
-        <div className="mt-8 bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-[#E5E0D8]">
-          <h3 className="text-lg font-bold text-[#4A3B32] mb-4 flex items-center gap-2">
-            <MessageCircle size={20} className="text-[#8C2B2B]" />
+        <div className="mt-8 bg-[#E8DCC4] p-4 sm:p-5 border border-[#D6C8A8]">
+          <h3 className="text-lg font-bold text-[#1F1A14] mb-4 flex items-center gap-2">
+            <MessageCircle size={20} className="text-[#B14F1C]" />
             בית מדרש - שאלות ותשובות
           </h3>
           <div className="space-y-4">
             {(section.comments || []).map((comment: any) => (
               <div key={comment.id} className="space-y-3">
-                <div className="bg-[#FAF8F5] p-3 rounded-xl">
+                <div className="bg-[#F1E6D2] p-3">
                   <div className="flex justify-between items-center mb-2">
-                    <span className="font-bold text-[#4A3B32]">{comment.author}</span>
+                    <span className="font-bold text-[#1F1A14]">{comment.author}</span>
                     <div className="flex items-center gap-2">
-                      {comment.editedAt && <span className="text-xs text-[#8C7A6B]">(נערך {comment.editedAt})</span>}
-                      <span className="text-xs text-[#8C7A6B]">{comment.date}</span>
+                      {comment.editedAt && <span className="text-xs text-[#6B5D4F]">(נערך {comment.editedAt})</span>}
+                      <span className="text-xs text-[#6B5D4F]">{comment.date}</span>
                     </div>
                   </div>
                   {editingCommentId === comment.id ? (
                     <div>
                       <textarea value={editCommentText} onChange={(e) => setEditCommentText(e.target.value)}
-                        className="w-full p-3 rounded-xl border border-[#E5E0D8] bg-white focus:ring-2 focus:ring-[#8C2B2B] outline-none resize-none font-serif" rows={3} />
+                        className="w-full p-3 border border-[#D6C8A8] bg-[#E8DCC4] focus:border-[#B14F1C] outline-none resize-none font-serif" rows={3} />
                       <div className="flex gap-2 mt-2">
                         <button onClick={() => saveCommentEdit(comment.id)} disabled={isSavingComment}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#8C2B2B] text-white hover:bg-[#7A2525] disabled:opacity-50">
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-[#B14F1C] text-white hover:bg-[#7A2525] disabled:opacity-50">
                           {isSavingComment ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} שמור
                         </button>
                         <button onClick={() => setEditingCommentId(null)}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#F0EBE1] text-[#4A3B32] hover:bg-[#E5E0D8]">
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-[#E8DCC4] text-[#1F1A14] hover:bg-[#D6C8A8]">
                           <X size={12} /> ביטול
                         </button>
                       </div>
                     </div>
                   ) : (
-                    <p className="text-[#4A3B32]">{comment.text}</p>
+                    <p className="text-[#1F1A14]">{comment.text}</p>
                   )}
                   {canManageComments && editingCommentId !== comment.id && (
                     <div className="flex gap-1 mt-2">
                       <button onClick={() => { setReplyingToId(comment.id); setReplyText(''); }}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#E5E0D8] text-[#8C7A6B] hover:text-[#8C2B2B] hover:border-[#8C2B2B] transition-all text-xs font-bold">
+                        className="flex items-center gap-1 px-2.5 py-1 border border-[#D6C8A8] text-[#6B5D4F] hover:text-[#B14F1C] hover:border-[#B14F1C] transition-all text-xs font-bold">
                         <Reply size={12} /> השב
                       </button>
                       <button onClick={() => { setEditingCommentId(comment.id); setEditCommentText(comment.text); }}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#E5E0D8] text-[#8C7A6B] hover:text-[#8C2B2B] hover:border-[#8C2B2B] transition-all text-xs font-bold">
+                        className="flex items-center gap-1 px-2.5 py-1 border border-[#D6C8A8] text-[#6B5D4F] hover:text-[#B14F1C] hover:border-[#B14F1C] transition-all text-xs font-bold">
                         <Pencil size={12} /> ערוך
                       </button>
                       <button onClick={() => deleteComment(comment.id)} disabled={isSavingComment}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#E5E0D8] text-[#8C7A6B] hover:text-red-600 hover:border-red-400 transition-all text-xs font-bold">
+                        className="flex items-center gap-1 px-2.5 py-1 border border-[#D6C8A8] text-[#6B5D4F] hover:text-red-600 hover:border-red-400 transition-all text-xs font-bold">
                         <Trash2 size={12} /> מחק
                       </button>
                     </div>
                   )}
                   {replyingToId === comment.id && (
-                    <div className="mt-3 pt-3 border-t border-[#E5E0D8]">
+                    <div className="mt-3 pt-3 border-t border-[#D6C8A8]">
                       <textarea value={replyText} onChange={(e) => setReplyText(e.target.value)}
-                        className="w-full p-3 rounded-xl border border-[#E5E0D8] bg-white focus:ring-2 focus:ring-[#8C2B2B] outline-none resize-none" rows={2} placeholder="הכנס תשובה..." />
+                        className="w-full p-3 border border-[#D6C8A8] bg-[#E8DCC4] focus:border-[#B14F1C] outline-none resize-none" rows={2} placeholder="הכנס תשובה..." />
                       <div className="flex gap-2 mt-2">
                         <button onClick={() => submitReply(comment.id)} disabled={isSavingComment}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#8C2B2B] text-white hover:bg-[#7A2525] disabled:opacity-50">
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-[#B14F1C] text-white hover:bg-[#7A2525] disabled:opacity-50">
                           {isSavingComment ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} שלח תשובה
                         </button>
                         <button onClick={() => setReplyingToId(null)}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#F0EBE1] text-[#4A3B32] hover:bg-[#E5E0D8]">
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-[#E8DCC4] text-[#1F1A14] hover:bg-[#D6C8A8]">
                           <X size={12} /> ביטול
                         </button>
                       </div>
@@ -624,15 +624,15 @@ export function SectionViewer({
                   )}
                 </div>
                 {comment.replies?.length > 0 && (
-                  <div className="mr-4 pr-4 border-r-2 border-[#E5E0D8] space-y-3">
+                  <div className="mr-4 pr-4 border-r-2 border-[#D6C8A8] space-y-3">
                     {comment.replies.map((reply: any) => (
-                      <div key={reply.id} className="bg-[#F0EBE1] p-3 rounded-xl">
+                      <div key={reply.id} className="bg-[#E8DCC4] p-3">
                         <div className="flex justify-between items-center mb-2">
-                          <span className="font-bold text-[#8C2B2B]">{reply.author}</span>
-                          <span className="text-xs text-[#8C7A6B]">{reply.date}</span>
+                          <span className="font-bold text-[#B14F1C]">{reply.author}</span>
+                          <span className="text-xs text-[#6B5D4F]">{reply.date}</span>
                         </div>
                         {reply.text && (
-                          <div className="text-[#4A3B32]">
+                          <div className="text-[#1F1A14]">
                             <SimpleMarkdown>{reply.text}</SimpleMarkdown>
                           </div>
                         )}
@@ -646,11 +646,11 @@ export function SectionViewer({
                             {reply.attachments.map((att: any, i: number) => (
                               att.type === 'image' ? (
                                 <a key={i} href={att.url} target="_blank" rel="noopener noreferrer" className="block">
-                                  <img src={att.url} alt={att.name} className="max-w-[200px] max-h-[150px] rounded-lg border border-[#E5E0D8] object-cover hover:opacity-90 transition-opacity" />
+                                  <img src={att.url} alt={att.name} className="max-w-[200px] max-h-[150px] border border-[#D6C8A8] object-cover hover:opacity-90 transition-opacity" />
                                 </a>
                               ) : (
                                 <a key={i} href={att.url} target="_blank" rel="noopener noreferrer"
-                                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-[#E5E0D8] rounded-lg text-xs text-[#4A3B32] hover:bg-[#FAF8F5] transition-colors">
+                                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#E8DCC4] border border-[#D6C8A8] text-xs text-[#1F1A14] hover:bg-[#F1E6D2] transition-colors">
                                   {att.type === 'pdf' ? '📄' : '📝'}
                                   <span className="font-bold max-w-[150px] truncate">{att.name}</span>
                                 </a>
@@ -666,14 +666,14 @@ export function SectionViewer({
             ))}
           </div>
 
-          <div className="mt-5 pt-4 border-t border-[#E5E0D8]">
+          <div className="mt-5 pt-4 border-t border-[#D6C8A8]">
             <input type="text" value={newCommentAuthor} onChange={(e) => setNewCommentAuthor(e.target.value)}
-              className="w-full sm:w-1/3 p-2.5 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none mb-3 text-sm" placeholder="השם שלך" />
+              className="w-full sm:w-1/3 p-2.5 border border-[#D6C8A8] bg-[#F1E6D2] focus:border-[#B14F1C] outline-none mb-3 text-sm" placeholder="השם שלך" />
             <textarea value={newCommentText} onChange={(e) => setNewCommentText(e.target.value)}
-              className="w-full p-3 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none resize-none text-sm" rows={3} placeholder="הוסף שאלה או הערה..." />
+              className="w-full p-3 border border-[#D6C8A8] bg-[#F1E6D2] focus:border-[#B14F1C] outline-none resize-none text-sm" rows={3} placeholder="הוסף שאלה או הערה..." />
             <div className="flex justify-end mt-3">
               <button onClick={submitComment} disabled={isSubmittingComment}
-                className={`px-6 py-2 rounded-full font-medium flex items-center gap-2 ${isSubmittingComment ? 'bg-[#D5D0C8] text-[#8C7A6B] cursor-not-allowed' : 'bg-[#4A3B32] text-white hover:bg-[#3A2B22]'}`}>
+                className={`px-6 py-2 rounded-full font-medium flex items-center gap-2 ${isSubmittingComment ? 'bg-[#D6C8A8] text-[#6B5D4F] cursor-not-allowed' : 'bg-[#1F1A14] text-white hover:bg-[#3A2B22]'}`}>
                 {isSubmittingComment && <Loader2 size={16} className="animate-spin" />}
                 {isSubmittingComment ? 'שולח...' : 'פרסם תגובה'}
               </button>
@@ -684,12 +684,12 @@ export function SectionViewer({
         {/* Navigation */}
         <div className="flex justify-between items-center mt-6">
           {prevSection ? (
-            <Link href={`/book/${bookId}/${prevSection.id}`} className="flex items-center gap-2 text-[#8C2B2B] font-bold hover:underline">
+            <Link href={`/book/${bookId}/${prevSection.id}`} className="flex items-center gap-2 text-[#B14F1C] font-bold hover:underline">
               <ChevronRight size={18} /> {prevSection.title}
             </Link>
           ) : <div />}
           {nextSection ? (
-            <Link href={`/book/${bookId}/${nextSection.id}`} className="flex items-center gap-2 text-[#8C2B2B] font-bold hover:underline">
+            <Link href={`/book/${bookId}/${nextSection.id}`} className="flex items-center gap-2 text-[#B14F1C] font-bold hover:underline">
               {nextSection.title} <ChevronLeft size={18} />
             </Link>
           ) : <div />}

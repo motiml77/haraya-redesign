@@ -44,34 +44,46 @@ export default async function BookPage({ params }: { params: Promise<{ bookId: s
   const { bookId } = await params;
   const book = await getBookWithSections(bookId);
 
-  if (!book) return <div className="min-h-screen bg-[#FAF8F5] flex items-center justify-center text-[#8C2B2B] font-serif text-xl" suppressHydrationWarning>ספר לא נמצא</div>;
+  if (!book) return <div className="min-h-screen bg-[#F1E6D2] flex items-center justify-center text-[#B14F1C] font-serif text-xl" suppressHydrationWarning>ספר לא נמצא</div>;
 
   return (
-    <div className="min-h-screen bg-[#FAF8F5] font-sans" dir="rtl">
-      <header className="bg-white border-b border-[#E5E0D8] py-6 px-6">
-        <div className="max-w-4xl mx-auto flex items-start gap-4">
-          <Link href="/" className="p-2 rounded-full hover:bg-[#F0EBE1] transition-colors mt-1 shrink-0" title="חזרה לדף הראשי">
-            <BookOpen size={28} className="text-[#8C2B2B]" />
-          </Link>
-          <div className="flex-1">
-            <Breadcrumb items={[
-              { label: 'ספרים', href: '/' },
-              { label: book.title },
-            ]} />
-            <h1 className="text-3xl font-serif font-bold text-[#4A3B32] mt-4">{book.title}</h1>
-            {book.description && <p className="text-[#8C7A6B] mt-2">{book.description}</p>}
-          </div>
-          <PageHeaderAuth />
+    <div className="min-h-screen bg-[#F1E6D2] font-sans" dir="rtl">
+      {/* Top bar */}
+      <div className="bg-[#1F1A14] text-[#F1E6D2] px-6 py-3 flex justify-between items-center">
+        <div className="flex items-center gap-4 text-xs tracking-[0.2em] font-bold">
+          <span className="text-[#E5C547]">●</span>
+          <Link href="/" className="hover:text-[#E5C547] transition-colors">הראי״ה · ספרייה חיה</Link>
+        </div>
+        <PageHeaderAuth />
+      </div>
+
+      {/* Book header */}
+      <header className="bg-[#B14F1C] text-[#F1E6D2] px-6 py-10">
+        <div className="max-w-4xl mx-auto">
+          <Breadcrumb items={[{ label: 'ספרים', href: '/' }, { label: book.title }]} />
+          <h1 className="font-serif text-4xl sm:text-5xl font-semibold leading-tight tracking-tight mt-4">
+            {book.title}<span className="text-[#E5C547]">.</span>
+          </h1>
+          {book.description && (
+            <p className="font-serif italic text-lg mt-3 text-[#F1E6D2]/80">{book.description}</p>
+          )}
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-6 py-6 space-y-2">
+      <main className="max-w-4xl mx-auto px-6 py-8 space-y-2">
         {book.sections && book.sections.length > 0 ? (
           <BookSectionsTree sections={book.sections} bookId={bookId} />
         ) : (
-          <p className="text-center text-[#8C7A6B] py-12">אין תוכן בספר זה עדיין.</p>
+          <p className="text-center text-[#6B5D4F] py-12 font-serif italic">אין תוכן בספר זה עדיין.</p>
         )}
       </main>
+
+      <footer className="bg-[#1F1A14] text-[#F1E6D2] mt-20 px-6 py-8">
+        <div className="max-w-4xl mx-auto flex justify-between items-center">
+          <div className="font-serif text-sm text-[#F1E6D2]/60 italic">הראי״ה · ספרייה חיה</div>
+          <Link href="/" className="text-xs text-[#E5C547] hover:underline tracking-wider">חזרה לדף הראשי ←</Link>
+        </div>
+      </footer>
     </div>
   );
 }

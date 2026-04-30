@@ -8,9 +8,9 @@ export function BookLoader({ text = 'טוען...' }: { text?: string }) {
       {/* Elegant loading animation */}
       <div className="relative w-20 h-20">
         {/* Outer ring - slow rotation */}
-        <div className="absolute inset-0 rounded-full border-2 border-[#E5E0D8]" />
+        <div className="absolute inset-0 rounded-full border-2 border-[#D6C8A8]" />
         <div
-          className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#8C2B2B]"
+          className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#B14F1C]"
           style={{ animation: 'loaderSpin 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite' }}
         />
 
@@ -19,7 +19,7 @@ export function BookLoader({ text = 'טוען...' }: { text?: string }) {
           className="absolute inset-0 flex items-center justify-center"
           style={{ animation: 'loaderPulse 2s ease-in-out infinite' }}
         >
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#8C2B2B" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#B14F1C" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
             <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
           </svg>
@@ -28,7 +28,7 @@ export function BookLoader({ text = 'טוען...' }: { text?: string }) {
 
       {/* Text with shimmer effect */}
       <div className="relative overflow-hidden">
-        <span className="font-serif text-lg text-[#8C7A6B] tracking-wide">{text}</span>
+        <span className="font-serif text-lg text-[#6B5D4F] tracking-wide">{text}</span>
         <div
           className="absolute inset-0"
           style={{
@@ -43,7 +43,7 @@ export function BookLoader({ text = 'טוען...' }: { text?: string }) {
         {[0, 1, 2].map(i => (
           <div
             key={i}
-            className="w-1.5 h-1.5 rounded-full bg-[#8C2B2B]"
+            className="w-1.5 h-1.5 rounded-full bg-[#B14F1C]"
             style={{
               animation: 'loaderDot 1.4s ease-in-out infinite',
               animationDelay: `${i * 0.2}s`,

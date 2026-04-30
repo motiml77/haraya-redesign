@@ -55,14 +55,14 @@ export function processFootnotes(text: string): { processedText: string; footnot
 function FootnoteSection({ footnotes }: { footnotes: FootnoteData[] }) {
   if (footnotes.length === 0) return null;
   return (
-    <div className="mt-8 pt-4 border-t border-[#E5E0D8]" dir="rtl">
-      <h4 className="text-sm font-bold text-[#8C7A6B] mb-3">הערות</h4>
-      <ol className="list-none space-y-2 text-sm text-[#4A3B32]">
+    <div className="mt-8 pt-4 border-t border-[#D6C8A8]" dir="rtl">
+      <h4 className="text-sm font-bold text-[#6B5D4F] mb-3">הערות</h4>
+      <ol className="list-none space-y-2 text-sm text-[#1F1A14]">
         {footnotes.map(fn => (
           <li key={fn.id} id={fn.id} className="flex gap-2 leading-relaxed">
-            <span className="font-bold text-[#8C2B2B] shrink-0">{fn.num}.</span>
+            <span className="font-bold text-[#B14F1C] shrink-0">{fn.num}.</span>
             <span className="flex-1">{fn.text}
-              <a href={`#fnref-${fn.num}`} className="text-[#8C7A6B] hover:text-[#8C2B2B] mr-1 no-underline" title="חזרה לטקסט">↩</a>
+              <a href={`#fnref-${fn.num}`} className="text-[#6B5D4F] hover:text-[#B14F1C] mr-1 no-underline" title="חזרה לטקסט">↩</a>
             </span>
           </li>
         ))}
@@ -164,11 +164,11 @@ export const processTooltipMarkdown = (text: string) => {
 // --- Tooltip Component ---
 function TooltipSpan({ explanation, children }: { explanation: string; children: React.ReactNode }) {
   return (
-    <span className="relative group inline-block cursor-help border-b-2 border-dotted border-[#8C2B2B] text-[#8C2B2B] font-bold mx-1">
+    <span className="relative group inline-block cursor-help border-b-2 border-dotted border-[#B14F1C] text-[#B14F1C] font-bold mx-1">
       {children}
-      <span className="absolute bottom-full right-1/2 translate-x-1/2 mb-2 hidden group-hover:block bg-[#4A3B32] text-white text-sm p-3 rounded-xl shadow-xl w-max max-w-[250px] z-50 text-center font-sans font-normal leading-relaxed pointer-events-none">
+      <span className="absolute bottom-full right-1/2 translate-x-1/2 mb-2 hidden group-hover:block bg-[#1F1A14] text-white text-sm p-3 w-max max-w-[250px] z-50 text-center font-sans font-normal leading-relaxed pointer-events-none">
         {explanation}
-        <span className="absolute top-full right-1/2 translate-x-1/2 border-4 border-transparent border-t-[#4A3B32]"></span>
+        <span className="absolute top-full right-1/2 translate-x-1/2 border-4 border-transparent border-t-[#1F1A14]"></span>
       </span>
     </span>
   );
@@ -185,13 +185,13 @@ function makeComponents(pClassName: string) {
       }
       // Footnote reference links — style as superscript
       if (href?.startsWith('#fn-')) {
-        return <a href={href} {...props} className="text-[#8C2B2B] hover:underline font-bold no-underline">{children}</a>;
+        return <a href={href} {...props} className="text-[#B14F1C] hover:underline font-bold no-underline">{children}</a>;
       }
       // Footnote back-links
       if (href?.startsWith('#fnref-')) {
-        return <a href={href} {...props} className="text-[#8C7A6B] hover:text-[#8C2B2B] no-underline mr-1">{children}</a>;
+        return <a href={href} {...props} className="text-[#6B5D4F] hover:text-[#B14F1C] no-underline mr-1">{children}</a>;
       }
-      return <a href={href} {...props} target="_blank" rel="noopener noreferrer" className="text-[#8C2B2B] hover:underline font-bold">{children}</a>;
+      return <a href={href} {...props} target="_blank" rel="noopener noreferrer" className="text-[#B14F1C] hover:underline font-bold">{children}</a>;
     },
     span: ({ node, className, ...props }: any) => {
       if (className === 'tooltip-word') {
@@ -207,14 +207,14 @@ function makeComponents(pClassName: string) {
     },
     sup: ({ node, className, ...props }: any) => {
       if (className === 'footnote-ref') {
-        return <sup className="text-[10px] text-[#8C2B2B] font-bold cursor-pointer mx-0.5" {...props} />;
+        return <sup className="text-[10px] text-[#B14F1C] font-bold cursor-pointer mx-0.5" {...props} />;
       }
       return <sup className={className} {...props} />;
     },
     p: ({ node, ...props }: any) => <p {...props} className={pClassName} />,
-    h2: ({ node, ...props }: any) => <h2 {...props} className="text-lg font-bold text-[#8C2B2B] mt-8 mb-3 pb-2 border-b border-[#E5E0D8]" />,
-    h3: ({ node, ...props }: any) => <h3 {...props} className="text-lg font-bold text-[#8C2B2B] mt-6 mb-2 pb-2 border-b border-[#E5E0D8]" />,
-    h4: ({ node, ...props }: any) => <h4 {...props} className="text-base font-bold text-[#8C2B2B] mt-4 mb-2 pb-2 border-b border-[#E5E0D8]" />,
+    h2: ({ node, ...props }: any) => <h2 {...props} className="text-lg font-bold text-[#B14F1C] mt-8 mb-3 pb-2 border-b border-[#D6C8A8]" />,
+    h3: ({ node, ...props }: any) => <h3 {...props} className="text-lg font-bold text-[#B14F1C] mt-6 mb-2 pb-2 border-b border-[#D6C8A8]" />,
+    h4: ({ node, ...props }: any) => <h4 {...props} className="text-base font-bold text-[#B14F1C] mt-4 mb-2 pb-2 border-b border-[#D6C8A8]" />,
   };
 }
 

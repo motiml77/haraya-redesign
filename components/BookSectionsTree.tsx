@@ -47,7 +47,6 @@ export function BookSectionsTree({ sections: flatSections, bookId }: { sections:
   const tree = useMemo(() => buildTree(flatSections || []), [flatSections]);
   const router = useRouter();
 
-  // Build a map for quick lookup when prefetching children
   const nodeMap = useMemo(() => {
     const map = new Map<string, SectionNode>();
     const addToMap = (nodes: SectionNode[]) => {
@@ -64,7 +63,6 @@ export function BookSectionsTree({ sections: flatSections, bookId }: { sections:
         next.delete(sectionId);
       } else {
         next.add(sectionId);
-        // Prefetch children pages in background when expanding
         const node = nodeMap.get(sectionId);
         if (node) {
           node.children.forEach(child => {
@@ -81,7 +79,7 @@ export function BookSectionsTree({ sections: flatSections, bookId }: { sections:
   if (tree.length === 0) return null;
 
   return (
-    <>
+    <div className="space-y-2">
       {tree.map(section => (
         <SectionCard
           key={section.id}
@@ -92,7 +90,7 @@ export function BookSectionsTree({ sections: flatSections, bookId }: { sections:
           depth={0}
         />
       ))}
-    </>
+    </div>
   );
 }
 
@@ -106,49 +104,48 @@ function SectionCard({ section, bookId, expandedSections, onToggle, depth }: {
   const hasChildren = section.children.length > 0;
   const isExpanded = expandedSections.has(section.id);
 
-  const indent = depth === 0 ? '' : depth === 1 ? 'mr-4' : 'mr-8';
-  const textSize = depth === 0 ? 'text-sm' : 'text-xs';
+  const indent = depth === 0 ? '' : depth === 1 ? 'mr-6' : 'mr-12';
+  const titleSize = depth === 0 ? 'text-lg' : depth === 1 ? 'text-base' : 'text-sm';
 
   // If section has content and no children — direct link
   if (section.hasContent && !hasChildren) {
     return (
       <Link href={`/book/${bookId}/${section.id}`}
-        className={`flex items-center gap-2 bg-white px-3 py-2 rounded-lg shadow-sm border border-[#E5E0D8] hover:border-[#8C2B2B] hover:shadow-md transition-all group ${indent}`}>
-        <FileText size={14} className="text-[#8C7A6B] group-hover:text-[#8C2B2B] transition-colors shrink-0" />
-        <span className={`${textSize} font-bold text-[#4A3B32] flex-1`}>{section.title}</span>
-        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${section.isEdited ? 'bg-green-500' : 'bg-red-400'}`}
+        className={`flex items-center gap-3 bg-[#E8DCC4] px-4 py-3 border border-[#D6C8A8] hover:border-[#B14F1C] hover:bg-[#F1E6D2] transition-all group ${indent}`}>
+        <FileText size={15} className="text-[#B14F1C] shrink-0" />
+        <span className={`${titleSize} font-serif font-semibold text-[#1F1A14] flex-1 group-hover:text-[#B14F1C] transition-colors`}>{section.title}</span>
+        <span className={`w-2 h-2 rounded-full shrink-0 ${section.isEdited ? 'bg-[#3F5C3F]' : 'bg-[#B85450]'}`}
           title={section.isEdited ? 'ערוך' : 'לא ערוך'}></span>
+        <span className="text-xs text-[#B14F1C] font-bold opacity-0 group-hover:opacity-100 transition-opacity">קרא ←</span>
       </Link>
     );
   }
 
-  // Container with children (may also have content)
+  // Container with children
   return (
-    <div className={`bg-white rounded-lg shadow-sm border border-[#E5E0D8] overflow-hidden ${indent}`}>
+    <div className={`bg-[#E8DCC4] border border-[#D6C8A8] overflow-hidden ${indent}`}>
       <div className="flex items-center">
         {section.hasContent ? (
           <Link href={`/book/${bookId}/${section.id}`}
-            className="flex-1 flex items-center gap-2 px-3 py-2 hover:bg-[#FAF8F5] transition-colors text-right">
-            <h2 className={`${textSize} font-bold text-[#4A3B32]`}>{section.title}</h2>
-            {section.hasContent && (
-              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${section.isEdited ? 'bg-green-500' : 'bg-red-400'}`}></span>
-            )}
+            className="flex-1 flex items-center gap-3 px-4 py-3 hover:bg-[#F1E6D2] transition-colors text-right">
+            <h2 className={`${titleSize} font-serif font-semibold text-[#1F1A14]`}>{section.title}</h2>
+            <span className={`w-2 h-2 rounded-full shrink-0 ${section.isEdited ? 'bg-[#3F5C3F]' : 'bg-[#B85450]'}`}></span>
           </Link>
         ) : (
           <button onClick={() => onToggle(section.id)}
-            className="flex-1 flex items-center gap-2 px-3 py-2 hover:bg-[#FAF8F5] transition-colors text-right">
-            <h2 className={`${textSize} font-bold text-[#4A3B32]`}>{section.title}</h2>
+            className="flex-1 flex items-center gap-3 px-4 py-3 hover:bg-[#F1E6D2] transition-colors text-right">
+            <h2 className={`${titleSize} font-serif font-semibold text-[#1F1A14]`}>{section.title}</h2>
           </button>
         )}
         {hasChildren && (
-          <button onClick={() => onToggle(section.id)} className="px-3 py-2">
-            <ChevronDown size={16} className={`text-[#8C7A6B] transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+          <button onClick={() => onToggle(section.id)} className="px-4 py-3" aria-label="הרחב/כווץ">
+            <ChevronDown size={16} className={`text-[#B14F1C] transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
           </button>
         )}
       </div>
 
       {isExpanded && hasChildren && (
-        <div className="border-t border-[#E5E0D8] px-3 py-2 space-y-1.5">
+        <div className="border-t border-dashed border-[#D6C8A8] bg-[#F1E6D2] px-4 py-3 space-y-2">
           {section.children.map(child => (
             <SectionCard
               key={child.id}

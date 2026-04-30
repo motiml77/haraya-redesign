@@ -128,11 +128,11 @@ export function FileAttacher({ sectionId, commentId, authorName, attachments, on
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {attachments.map((att, i) => (
-            <div key={i} className="flex items-center gap-1.5 px-2 py-1 bg-[#F0EBE1] rounded-lg text-xs">
+            <div key={i} className="flex items-center gap-1.5 px-2 py-1 bg-[#E8DCC4] text-xs">
               {getTypeIcon(att.type)}
-              <span className="text-[#4A3B32] font-bold max-w-[120px] truncate">{att.name}</span>
-              <span className="text-[#8C7A6B]">({formatSize(att.size)})</span>
-              <button onClick={() => removeAttachment(i)} className="text-[#8C7A6B] hover:text-red-500 p-0.5">
+              <span className="text-[#1F1A14] font-bold max-w-[120px] truncate">{att.name}</span>
+              <span className="text-[#6B5D4F]">({formatSize(att.size)})</span>
+              <button onClick={() => removeAttachment(i)} className="text-[#6B5D4F] hover:text-red-500 p-0.5">
                 <X size={12} />
               </button>
             </div>
@@ -142,26 +142,26 @@ export function FileAttacher({ sectionId, commentId, authorName, attachments, on
 
       {/* Upload buttons */}
       {uploading ? (
-        <div className="flex items-center gap-2 text-xs text-[#8C7A6B]">
+        <div className="flex items-center gap-2 text-xs text-[#6B5D4F]">
           <Loader2 size={14} className="animate-spin" />
           <span>מעלה: {uploadingName}</span>
         </div>
       ) : (
         <div className="flex items-center gap-1.5 flex-wrap">
           <button onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1 px-2.5 py-1 text-xs text-[#8C2B2B] border border-[#8C2B2B]/30 rounded-lg hover:bg-[#8C2B2B]/5 transition-colors"
+            className="flex items-center gap-1 px-2.5 py-1 text-xs text-[#B14F1C] border border-[#B14F1C]/30 hover:bg-[#B14F1C]/5 transition-colors"
             title="צרף PDF או Word">
             <Paperclip size={13} />
             <span>צרף קובץ</span>
           </button>
           <button onClick={() => imageInputRef.current?.click()}
-            className="flex items-center gap-1 px-2.5 py-1 text-xs text-[#8C2B2B] border border-[#8C2B2B]/30 rounded-lg hover:bg-[#8C2B2B]/5 transition-colors"
+            className="flex items-center gap-1 px-2.5 py-1 text-xs text-[#B14F1C] border border-[#B14F1C]/30 hover:bg-[#B14F1C]/5 transition-colors"
             title="צרף תמונה מהגלריה">
             <Image size={13} />
             <span>תמונה</span>
           </button>
           <button onClick={() => cameraInputRef.current?.click()}
-            className="flex items-center gap-1 px-2.5 py-1 text-xs text-[#8C2B2B] border border-[#8C2B2B]/30 rounded-lg hover:bg-[#8C2B2B]/5 transition-colors"
+            className="flex items-center gap-1 px-2.5 py-1 text-xs text-[#B14F1C] border border-[#B14F1C]/30 hover:bg-[#B14F1C]/5 transition-colors"
             title="צלם תמונה מהמצלמה">
             <Camera size={13} />
             <span>צלם</span>

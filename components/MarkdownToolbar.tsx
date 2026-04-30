@@ -79,23 +79,23 @@ export function MarkdownToolbar({ textareaRef, onAskRabbi }: { textareaRef: Reac
   };
 
   return (
-    <div className="flex flex-wrap gap-1 bg-[#F0EBE1] p-2 rounded-t-xl border-b border-[#E5E0D8]">
-      <button type="button" onClick={() => insertText('**', '**')} className="p-1.5 hover:bg-white rounded text-[#4A3B32] transition-colors" title="מודגש"><Bold size={18} /></button>
-      <button type="button" onClick={() => insertText('*', '*')} className="p-1.5 hover:bg-white rounded text-[#4A3B32] transition-colors" title="נטוי"><Italic size={18} /></button>
-      <button type="button" onClick={() => insertText('<u>', '</u>')} className="p-1.5 hover:bg-white rounded text-[#4A3B32] transition-colors" title="קו תחתון"><Underline size={18} /></button>
-      <div className="w-px h-6 bg-[#D5D0C8] mx-1 self-center"></div>
-      <button type="button" onClick={() => insertLinePrefix('### ')} className="p-1.5 hover:bg-white rounded text-[#4A3B32] transition-colors" title="כותרת"><Heading size={18} /></button>
-      <button type="button" onClick={() => insertLinePrefix('- ')} className="p-1.5 hover:bg-white rounded text-[#4A3B32] transition-colors" title="רשימה"><List size={18} /></button>
-      <button type="button" onClick={() => insertLinePrefix('1. ')} className="p-1.5 hover:bg-white rounded text-[#4A3B32] transition-colors" title="רשימה ממוספרת"><List size={18} /></button>
-      <button type="button" onClick={() => insertLinePrefix('> ')} className="p-1.5 hover:bg-white rounded text-[#4A3B32] transition-colors" title="ציטוט"><Quote size={18} /></button>
-      <div className="w-px h-6 bg-[#D5D0C8] mx-1 self-center"></div>
-      <button type="button" onClick={insertLink} className="p-1.5 hover:bg-white rounded text-[#4A3B32] transition-colors" title="הוסף קישור"><LinkIcon size={18} /></button>
-      <button type="button" onClick={insertTooltip} className="p-1.5 hover:bg-white rounded text-[#4A3B32] transition-colors" title="הוסף ביאור מילה (בועה)"><MessageSquare size={18} /></button>
-      <button type="button" onClick={insertFootnote} className="p-1.5 hover:bg-white rounded text-[#4A3B32] transition-colors" title="הוסף הערת שוליים"><Superscript size={18} /></button>
+    <div className="flex flex-wrap gap-1 bg-[#E8DCC4] p-2 -t-xl border-b border-[#D6C8A8]">
+      <button type="button" onClick={() => insertText('**', '**')} className="p-1.5 hover:bg-[#E8DCC4] text-[#1F1A14] transition-colors" title="מודגש"><Bold size={18} /></button>
+      <button type="button" onClick={() => insertText('*', '*')} className="p-1.5 hover:bg-[#E8DCC4] text-[#1F1A14] transition-colors" title="נטוי"><Italic size={18} /></button>
+      <button type="button" onClick={() => insertText('<u>', '</u>')} className="p-1.5 hover:bg-[#E8DCC4] text-[#1F1A14] transition-colors" title="קו תחתון"><Underline size={18} /></button>
+      <div className="w-px h-6 bg-[#D6C8A8] mx-1 self-center"></div>
+      <button type="button" onClick={() => insertLinePrefix('### ')} className="p-1.5 hover:bg-[#E8DCC4] text-[#1F1A14] transition-colors" title="כותרת"><Heading size={18} /></button>
+      <button type="button" onClick={() => insertLinePrefix('- ')} className="p-1.5 hover:bg-[#E8DCC4] text-[#1F1A14] transition-colors" title="רשימה"><List size={18} /></button>
+      <button type="button" onClick={() => insertLinePrefix('1. ')} className="p-1.5 hover:bg-[#E8DCC4] text-[#1F1A14] transition-colors" title="רשימה ממוספרת"><List size={18} /></button>
+      <button type="button" onClick={() => insertLinePrefix('> ')} className="p-1.5 hover:bg-[#E8DCC4] text-[#1F1A14] transition-colors" title="ציטוט"><Quote size={18} /></button>
+      <div className="w-px h-6 bg-[#D6C8A8] mx-1 self-center"></div>
+      <button type="button" onClick={insertLink} className="p-1.5 hover:bg-[#E8DCC4] text-[#1F1A14] transition-colors" title="הוסף קישור"><LinkIcon size={18} /></button>
+      <button type="button" onClick={insertTooltip} className="p-1.5 hover:bg-[#E8DCC4] text-[#1F1A14] transition-colors" title="הוסף ביאור מילה (בועה)"><MessageSquare size={18} /></button>
+      <button type="button" onClick={insertFootnote} className="p-1.5 hover:bg-[#E8DCC4] text-[#1F1A14] transition-colors" title="הוסף הערת שוליים"><Superscript size={18} /></button>
       {onAskRabbi && (
         <>
-          <div className="w-px h-6 bg-[#D5D0C8] mx-1 self-center"></div>
-          <button type="button" onClick={onAskRabbi} className="p-1.5 hover:bg-white rounded text-[#8C2B2B] transition-colors font-bold text-sm flex items-center gap-1" title="שאל את הרב על הפסקה">
+          <div className="w-px h-6 bg-[#D6C8A8] mx-1 self-center"></div>
+          <button type="button" onClick={onAskRabbi} className="p-1.5 hover:bg-[#E8DCC4] text-[#B14F1C] transition-colors font-bold text-sm flex items-center gap-1" title="שאל את הרב על הפסקה">
             <MessageSquare size={16} />
             שאלת רב
           </button>

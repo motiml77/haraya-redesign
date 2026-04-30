@@ -91,13 +91,13 @@ export function TagInput({ tags, onChange }: TagInputProps) {
 
   return (
     <div ref={containerRef} className="relative">
-      <div className="flex flex-wrap gap-2 p-3 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus-within:ring-2 focus-within:ring-[#8C2B2B] min-h-[48px] items-center cursor-text"
+      <div className="flex flex-wrap gap-2 p-3 border border-[#D6C8A8] bg-[#F1E6D2] focus-within:ring-2 focus-within:ring-[#B14F1C] min-h-[48px] items-center cursor-text"
         onClick={() => inputRef.current?.focus()}>
         {tags.map(tag => (
-          <span key={tag} className="flex items-center gap-1 px-2.5 py-1 bg-[#F0EBE1] text-[#4A3B32] text-sm rounded-full border border-[#E5E0D8]">
-            <span className="text-[#8C2B2B] font-bold">#</span>{tag}
+          <span key={tag} className="flex items-center gap-1 px-2.5 py-1 bg-[#E8DCC4] text-[#1F1A14] text-sm rounded-full border border-[#D6C8A8]">
+            <span className="text-[#B14F1C] font-bold">#</span>{tag}
             <button onClick={(e) => { e.stopPropagation(); removeTag(tag); }}
-              className="text-[#8C7A6B] hover:text-red-500 transition-colors">
+              className="text-[#6B5D4F] hover:text-red-500 transition-colors">
               <X size={14} />
             </button>
           </span>
@@ -116,12 +116,12 @@ export function TagInput({ tags, onChange }: TagInputProps) {
 
       {/* Suggestions dropdown */}
       {showSuggestions && filteredSuggestions.length > 0 && (
-        <div className="absolute z-50 w-full mt-1 bg-white rounded-xl border border-[#E5E0D8] shadow-lg max-h-48 overflow-y-auto custom-scrollbar">
+        <div className="absolute z-50 w-full mt-1 bg-[#E8DCC4] border border-[#D6C8A8] max-h-48 overflow-y-auto custom-scrollbar">
           {filteredSuggestions.map(tag => (
             <button key={tag} onClick={() => addTag(tag)}
-              className="w-full text-right px-4 py-2 text-sm hover:bg-[#FAF8F5] transition-colors flex items-center gap-2 border-b border-[#F0EBE1] last:border-0">
-              <span className="text-[#8C2B2B] font-bold">#</span>
-              <span className="text-[#4A3B32]">{tag}</span>
+              className="w-full text-right px-4 py-2 text-sm hover:bg-[#F1E6D2] transition-colors flex items-center gap-2 border-b border-[#E8DCC4] last:border-0">
+              <span className="text-[#B14F1C] font-bold">#</span>
+              <span className="text-[#1F1A14]">{tag}</span>
             </button>
           ))}
         </div>
