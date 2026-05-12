@@ -100,14 +100,8 @@ function walkNode(node: Node, baselineSize: number): string {
     case 'p': {
       const content = childContent().trim();
       if (!content) return '\n';
-
-      // Check if this paragraph is a heading (larger font and/or all bold)
-      const headingLevel = detectHeading(el, content, baselineSize);
-      if (headingLevel) {
-        const clean = content.replace(/\*\*/g, '');
-        return '#'.repeat(headingLevel) + ' ' + clean + '\n\n';
-      }
-
+      // No automatic heading detection — paragraphs stay as paragraphs.
+      // Users insert explicit headings via the toolbar's H button.
       return content + '\n\n';
     }
 
@@ -219,65 +213,6 @@ function isSmallFont(style: string, baselineSize: number): boolean {
   const unit = match[2].toLowerCase();
   const sizeInPt = unit === 'pt' ? size : size * 0.75;
   return sizeInPt < baselineSize * 0.8;
-}
-
-function detectHeading(el: HTMLElement, markdownContent: string, baselineSize: number): number | false {
-  const text = el.textContent?.trim() || '';
-  if (!text || text.length > 80) return false;
-
-  // Check font size
-  const fontRatio = getFontRatio(el, baselineSize);
-
-  // Check if all content is bold
-  const allBold = isAllBold(el);
-
-  if (allBold && fontRatio > 1.15) return 2;
-  if (fontRatio > 1.35) return 2;
-  if (allBold && text.length <= 60) return 3;
-
-  return false;
-}
-
-function getFontRatio(el: HTMLElement, baselineSize: number): number {
-  // Check the paragraph's own style
-  const style = el.getAttribute('style') || '';
-  const match = style.match(/font-size\s*:\s*([\d.]+)\s*(pt|px)/i);
-  if (match) {
-    const size = parseFloat(match[1]);
-    const sizeInPt = match[2].toLowerCase() === 'pt' ? size : size * 0.75;
-    return sizeInPt / baselineSize;
-  }
-
-  // Check first span child
-  const spans = el.querySelectorAll('span[style]');
-  for (let i = 0; i < spans.length; i++) {
-    const spanStyle = spans[i].getAttribute('style') || '';
-    const spanMatch = spanStyle.match(/font-size\s*:\s*([\d.]+)\s*(pt|px)/i);
-    if (spanMatch) {
-      const size = parseFloat(spanMatch[1]);
-      const sizeInPt = spanMatch[2].toLowerCase() === 'pt' ? size : size * 0.75;
-      return sizeInPt / baselineSize;
-    }
-  }
-
-  return 1.0;
-}
-
-function isAllBold(el: HTMLElement): boolean {
-  for (let i = 0; i < el.childNodes.length; i++) {
-    const child = el.childNodes[i];
-    if (child.nodeType === Node.TEXT_NODE) {
-      if (child.textContent?.trim()) return false; // Naked text = not all bold
-    } else if (child.nodeType === Node.ELEMENT_NODE) {
-      const childEl = child as HTMLElement;
-      const tag = childEl.tagName.toLowerCase();
-      const style = childEl.getAttribute('style') || '';
-      const childIsBold = tag === 'b' || tag === 'strong' || /font-weight\s*:\s*(bold|[7-9]\d\d)/i.test(style);
-      if (childIsBold) continue;
-      if (!isAllBold(childEl)) return false;
-    }
-  }
-  return true;
 }
 
 function cleanMarkdown(md: string): string {
