@@ -9,6 +9,7 @@ import { useAdminUser } from '../../admin-context';
 import { MarkdownToolbar } from '@/components/MarkdownToolbar';
 import { MarkdownRenderer, SimpleMarkdown } from '@/components/MarkdownRenderer';
 import { convertWordHtmlToMarkdown } from '@/lib/word-to-markdown';
+import { convertGoogleDocsHtmlToMarkdown } from '@/lib/gdocs-to-markdown';
 import { normalizeSectionContent } from '@/lib/normalize-section';
 import { Breadcrumb } from '@/components/Breadcrumb';
 import { TagInput } from '@/components/TagInput';
@@ -317,12 +318,28 @@ export default function SectionEditorPage() {
     }
   };
 
-  // Word paste handler for block textareas
+  // Rich paste handler for block textareas — handles Word, Google Docs, and any HTML with formatting
   const handleWordPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>, blockId: string, field: 'sourceText' | 'commentaryText') => {
     const html = e.clipboardData?.getData('text/html');
-    if (!html || !/class="?Mso|mso-|<o:p>/i.test(html)) return;
+    if (!html) return;
+
+    const isWordHtml = /class="?Mso|mso-|<o:p>|<w:|urn:schemas-microsoft-com:office/i.test(html);
+    const isGoogleDocsHtml = /docs-internal-guid/i.test(html);
+    const hasRichFormatting = !isWordHtml && !isGoogleDocsHtml && (
+      /font-weight\s*:\s*(bold|[7-9]\d\d)/i.test(html) ||
+      /text-decoration\s*:[^;]*underline/i.test(html) ||
+      /font-style\s*:\s*italic/i.test(html) ||
+      /font-size\s*:/i.test(html) ||
+      /<\s*(b|strong|i|em|u)\s*[ >]/i.test(html)
+    );
+
+    if (!isWordHtml && !isGoogleDocsHtml && !hasRichFormatting) return;
     e.preventDefault();
-    const markdown = convertWordHtmlToMarkdown(html);
+
+    const markdown = isWordHtml
+      ? convertWordHtmlToMarkdown(html)
+      : convertGoogleDocsHtmlToMarkdown(html);
+
     const target = e.currentTarget;
     const start = target.selectionStart;
     const end = target.selectionEnd;
@@ -331,6 +348,35 @@ export default function SectionEditorPage() {
     const current = block[field];
     const newText = current.substring(0, start) + markdown + current.substring(end);
     updateBlockField(blockId, field, newText);
+  };
+
+  // Same handler for the introduction textarea
+  const handleIntroductionPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const html = e.clipboardData?.getData('text/html');
+    if (!html) return;
+
+    const isWordHtml = /class="?Mso|mso-|<o:p>|<w:|urn:schemas-microsoft-com:office/i.test(html);
+    const isGoogleDocsHtml = /docs-internal-guid/i.test(html);
+    const hasRichFormatting = !isWordHtml && !isGoogleDocsHtml && (
+      /font-weight\s*:\s*(bold|[7-9]\d\d)/i.test(html) ||
+      /text-decoration\s*:[^;]*underline/i.test(html) ||
+      /font-style\s*:\s*italic/i.test(html) ||
+      /font-size\s*:/i.test(html) ||
+      /<\s*(b|strong|i|em|u)\s*[ >]/i.test(html)
+    );
+
+    if (!isWordHtml && !isGoogleDocsHtml && !hasRichFormatting) return;
+    e.preventDefault();
+
+    const markdown = isWordHtml
+      ? convertWordHtmlToMarkdown(html)
+      : convertGoogleDocsHtmlToMarkdown(html);
+
+    const target = e.currentTarget;
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    const newText = formData.introduction.substring(0, start) + markdown + formData.introduction.substring(end);
+    setFormData(prev => ({ ...prev, introduction: newText }));
   };
 
   if (isLoading) return <p className="text-center text-[#8C7A6B] py-12">טוען...</p>;
@@ -385,6 +431,7 @@ export default function SectionEditorPage() {
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-[#E5E0D8] space-y-4">
             <h2 className="text-xl font-bold text-[#8C2B2B] border-b border-[#F0EBE1] pb-3">הקדמה</h2>
             <textarea name="introduction" value={formData.introduction} onChange={handleInputChange}
+              onPaste={handleIntroductionPaste}
               className="w-full p-4 h-28 rounded-xl border border-[#E5E0D8] bg-[#FAF8F5] focus:ring-2 focus:ring-[#8C2B2B] outline-none resize-y font-serif text-base leading-loose" placeholder="הקדמה לפרק (אופציונלי)..." />
           </div>
 
