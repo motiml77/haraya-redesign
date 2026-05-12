@@ -4,7 +4,7 @@ import { convertGoogleDocsHtmlToMarkdown } from '@/lib/gdocs-to-markdown';
 
 /**
  * Attaches a paste event handler to a textarea that converts
- * rich HTML clipboard content (Word / Google Docs) to Markdown before inserting.
+ * rich HTML clipboard content (Word / Google Docs / any source) to Markdown.
  * Plain-text-only pastes are left untouched.
  */
 export function useWordPasteHandler(
@@ -20,15 +20,25 @@ export function useWordPasteHandler(
 
     // Detect source
     const isWordHtml = /class="?Mso|mso-|<o:p>|<w:|urn:schemas-microsoft-com:office/i.test(html);
-    const isGoogleDocsHtml = /docs-internal-guid|id="docs-internal-guid/i.test(html);
+    const isGoogleDocsHtml = /docs-internal-guid/i.test(html);
 
-    if (!isWordHtml && !isGoogleDocsHtml) return;
+    // For any other HTML source: check if it contains formatting worth converting
+    const hasRichFormatting = !isWordHtml && !isGoogleDocsHtml && (
+      /font-weight\s*:\s*(bold|[7-9]\d\d)/i.test(html) ||
+      /text-decoration\s*:[^;]*underline/i.test(html) ||
+      /font-style\s*:\s*italic/i.test(html) ||
+      /font-size\s*:/i.test(html) ||
+      /<\s*(b|strong|i|em|u)\s*[ >]/i.test(html)
+    );
+
+    if (!isWordHtml && !isGoogleDocsHtml && !hasRichFormatting) return;
 
     e.preventDefault();
 
-    const markdown = isGoogleDocsHtml
-      ? convertGoogleDocsHtmlToMarkdown(html)
-      : convertWordHtmlToMarkdown(html);
+    // Word has its own specialized converter; everything else uses the generic one
+    const markdown = isWordHtml
+      ? convertWordHtmlToMarkdown(html)
+      : convertGoogleDocsHtmlToMarkdown(html);
     const textarea = e.target as HTMLTextAreaElement;
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;

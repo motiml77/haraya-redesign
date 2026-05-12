@@ -15,6 +15,9 @@
  * This converter handles those patterns and emits Markdown.
  */
 export function convertGoogleDocsHtmlToMarkdown(html: string): string {
+  // Debug: log raw HTML to help diagnose paste issues
+  console.log('[GDocs→MD] raw HTML (first 3000 chars):', html.substring(0, 3000));
+
   // Step 1: Parse
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
