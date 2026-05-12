@@ -1,10 +1,11 @@
 import { useEffect, useCallback, RefObject } from 'react';
 import { convertWordHtmlToMarkdown } from '@/lib/word-to-markdown';
+import { convertGoogleDocsHtmlToMarkdown } from '@/lib/gdocs-to-markdown';
 
 /**
  * Attaches a paste event handler to a textarea that converts
- * Word HTML clipboard content to Markdown before inserting.
- * Non-Word pastes are left untouched.
+ * rich HTML clipboard content (Word / Google Docs) to Markdown before inserting.
+ * Plain-text-only pastes are left untouched.
  */
 export function useWordPasteHandler(
   textareaRef: RefObject<HTMLTextAreaElement | null>,
@@ -17,13 +18,17 @@ export function useWordPasteHandler(
     // Only intercept if there is HTML content
     if (!html) return;
 
-    // Check if the HTML is from Word
+    // Detect source
     const isWordHtml = /class="?Mso|mso-|<o:p>|<w:|urn:schemas-microsoft-com:office/i.test(html);
-    if (!isWordHtml) return;
+    const isGoogleDocsHtml = /docs-internal-guid|id="docs-internal-guid/i.test(html);
+
+    if (!isWordHtml && !isGoogleDocsHtml) return;
 
     e.preventDefault();
 
-    const markdown = convertWordHtmlToMarkdown(html);
+    const markdown = isGoogleDocsHtml
+      ? convertGoogleDocsHtmlToMarkdown(html)
+      : convertWordHtmlToMarkdown(html);
     const textarea = e.target as HTMLTextAreaElement;
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
