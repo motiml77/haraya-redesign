@@ -13,14 +13,19 @@ export function useWordPasteHandler(
   getValue: () => string
 ): void {
   const handlePaste = useCallback((e: ClipboardEvent) => {
+    console.warn('[Paste] event fired! Available types:', e.clipboardData?.types);
     const html = e.clipboardData?.getData('text/html');
+    const text = e.clipboardData?.getData('text/plain');
+
+    console.warn('[Paste] html length:', html?.length || 0, '| text length:', text?.length || 0);
 
     // Only intercept if there is HTML content
-    if (!html) return;
+    if (!html) {
+      console.warn('[Paste] No HTML in clipboard, falling back to default paste');
+      return;
+    }
 
-    // DEBUG: Always log what we get from clipboard
-    console.log('[Paste] HTML detected, length:', html.length);
-    console.log('[Paste] First 2000 chars:', html.substring(0, 2000));
+    console.warn('[Paste] HTML first 2000 chars:', html.substring(0, 2000));
 
     // Detect source
     const isWordHtml = /class="?Mso|mso-|<o:p>|<w:|urn:schemas-microsoft-com:office/i.test(html);
@@ -64,8 +69,12 @@ export function useWordPasteHandler(
 
   useEffect(() => {
     const textarea = textareaRef.current;
-    if (!textarea) return;
+    if (!textarea) {
+      console.warn('[Paste] hook ran but textarea ref is null — listener NOT attached');
+      return;
+    }
 
+    console.warn('[Paste] listener ATTACHED to textarea');
     textarea.addEventListener('paste', handlePaste);
     return () => textarea.removeEventListener('paste', handlePaste);
   }, [textareaRef, handlePaste]);
