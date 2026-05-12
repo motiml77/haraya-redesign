@@ -18,6 +18,10 @@ export function useWordPasteHandler(
     // Only intercept if there is HTML content
     if (!html) return;
 
+    // DEBUG: Always log what we get from clipboard
+    console.log('[Paste] HTML detected, length:', html.length);
+    console.log('[Paste] First 2000 chars:', html.substring(0, 2000));
+
     // Detect source
     const isWordHtml = /class="?Mso|mso-|<o:p>|<w:|urn:schemas-microsoft-com:office/i.test(html);
     const isGoogleDocsHtml = /docs-internal-guid/i.test(html);
@@ -30,6 +34,8 @@ export function useWordPasteHandler(
       /font-size\s*:/i.test(html) ||
       /<\s*(b|strong|i|em|u)\s*[ >]/i.test(html)
     );
+
+    console.log('[Paste] isWord:', isWordHtml, '| isGDocs:', isGoogleDocsHtml, '| hasRich:', hasRichFormatting);
 
     if (!isWordHtml && !isGoogleDocsHtml && !hasRichFormatting) return;
 
