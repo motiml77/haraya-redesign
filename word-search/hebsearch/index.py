@@ -18,11 +18,11 @@ import zlib
 from array import array
 from concurrent.futures import ProcessPoolExecutor
 
-from .extract import DOC_EXTS, DOCX_EXTS, doc_support_available, extract_doc_com, extract_docx
+from .extract import DOC_EXTS, DOCX_EXTS, PDF_EXTS, doc_support_available, extract_doc_com, extract_docx
 from .normalize import normalize_text
 
-INDEX_VERSION = "2"
-SUPPORTED_EXTS = DOCX_EXTS | DOC_EXTS
+INDEX_VERSION = "3"
+SUPPORTED_EXTS = DOCX_EXTS | DOC_EXTS | PDF_EXTS
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS vocab(id INTEGER PRIMARY KEY, word TEXT UNIQUE NOT NU
 CREATE TABLE IF NOT EXISTS postings(
     word_id INTEGER, file_id INTEGER, paras BLOB,
     PRIMARY KEY(word_id, file_id)) WITHOUT ROWID;
-CREATE TABLE IF NOT EXISTS baskets(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL);
+CREATE TABLE IF NOT EXISTS baskets(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL,
+    doc_count INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS basket_items(
     basket_id INTEGER, path TEXT, kind TEXT, PRIMARY KEY(basket_id, path));
 """
@@ -46,26 +47,40 @@ def is_supported(path: str) -> bool:
     return not name.startswith("~$") and os.path.splitext(name)[1].lower() in SUPPORTED_EXTS
 
 
-def resolve_items(items):
-    """הופך פריטי סל (תיקיות וקבצים) לרשימת קבצים ממוינת ללא כפילויות."""
-    seen, out = set(), []
+def _key(p):
+    return os.path.normcase(os.path.abspath(p))
 
-    def add(p):
-        p = os.path.abspath(p)
-        key = os.path.normcase(p)
-        if key not in seen and is_supported(p) and os.path.isfile(p):
-            seen.add(key)
-            out.append(p)
 
+def resolve_basket(items):
+    """פריטי סל → (רשומות, קבצים).
+
+    items: [(נתיב, סוג)] כשסוג הוא folder / file / exclude (קובץ שהוחרג מתוך תיקייה).
+    רשומות: [(נתיב, סוג, [כל המסמכים שתחתיו])] – לתצוגת תוכן הסל.
+    קבצים: המסמכים שייכללו בחיפוש, ממוינים וללא כפילויות וללא המוחרגים.
+    """
+    excluded = {_key(p) for p, k in items if k == "exclude"}
+    entries, files, seen = [], [], set()
     for path, kind in items:
+        if kind == "exclude":
+            continue
+        found = []
         if kind == "folder":
             for root, dirs, names in os.walk(path):
                 dirs[:] = sorted(d for d in dirs if not d.startswith("."))
-                for n in sorted(names):
-                    add(os.path.join(root, n))
-        else:
-            add(path)
-    return out
+                found.extend(os.path.join(root, n) for n in sorted(names) if is_supported(n))
+        elif is_supported(path) and os.path.isfile(path):
+            found.append(os.path.abspath(path))
+        entries.append((path, kind, found))
+        for f in found:
+            k = _key(f)
+            if k not in excluded and k not in seen:
+                seen.add(k)
+                files.append(f)
+    return entries, files
+
+
+def resolve_items(items):
+    return resolve_basket(items)[1]
 
 
 def word_postings(paras):
@@ -87,19 +102,30 @@ def pack_paras(paras) -> bytes:
 
 
 def process_file(path: str) -> dict:
-    """עבודה כבדה (פריסת XML + נרמול) – רצה בתהליך נפרד."""
+    """עבודה כבדה (קריאת המסמך + נרמול) – רצה בתהליך נפרד."""
     st = os.stat(path)
     res = {"path": path, "mtime": st.st_mtime, "size": st.st_size,
            "paras": b"", "n_paras": 0, "words": {}, "status": "ok", "message": ""}
     ext = os.path.splitext(path)[1].lower()
-    if ext not in DOCX_EXTS:
+    if ext in DOCX_EXTS:
+        extract = extract_docx
+    elif ext in PDF_EXTS:
+        try:
+            from .pdftext import extract_pdf as extract
+            import pymupdf  # noqa: F401
+        except ImportError:
+            res["status"], res["message"] = "unsupported", "לקריאת PDF יש להתקין את pymupdf"
+            return res
+    else:
         res["status"], res["message"] = "unsupported", "פורמט doc ישן – נדרש וורד מותקן בחלונות"
         return res
     try:
-        paras = extract_docx(path)
+        paras = extract(path)
         res["words"] = word_postings(paras)
         res["paras"], res["n_paras"] = pack_paras(paras), len(paras)
-    except Exception as e:  # קובץ פגום / מוגן בסיסמה
+    except ValueError as e:  # הודעה ידידותית (PDF סרוק, סיסמה)
+        res["status"], res["message"] = "error", str(e)
+    except Exception as e:  # קובץ פגום
         res["status"], res["message"] = "error", f"{type(e).__name__}: {e}"
     return res
 
@@ -114,6 +140,9 @@ class IndexDB:
         c.execute("PRAGMA cache_size=-65536")
         c.execute("PRAGMA temp_store=MEMORY")
         c.executescript(SCHEMA)
+        cols = {r[1] for r in c.execute("PRAGMA table_info(baskets)")}
+        if "doc_count" not in cols:  # מסד נתונים מגרסה קודמת
+            c.execute("ALTER TABLE baskets ADD COLUMN doc_count INTEGER DEFAULT 0")
         row = c.execute("SELECT value FROM meta WHERE key='index_version'").fetchone()
         if not row or row[0] != INDEX_VERSION:
             with c:
@@ -127,7 +156,22 @@ class IndexDB:
 
     # ---------- סלים ----------
     def baskets(self):
-        return self.conn.execute("SELECT id, name FROM baskets ORDER BY id").fetchall()
+        """[(מזהה, שם, מספר_מסמכים)]"""
+        return self.conn.execute("SELECT id, name, doc_count FROM baskets ORDER BY id").fetchall()
+
+    def set_basket_counts(self, counts):
+        with self.conn:
+            self.conn.executemany("UPDATE baskets SET doc_count=? WHERE id=?",
+                                  [(c, bid) for bid, c in counts.items()])
+
+    def set_excluded(self, basket_id: int, path: str, excluded: bool):
+        with self.conn:
+            if excluded:
+                self.conn.execute("INSERT OR REPLACE INTO basket_items VALUES(?,?,'exclude')",
+                                  (basket_id, os.path.abspath(path)))
+            else:
+                self.conn.execute("DELETE FROM basket_items WHERE basket_id=? AND path=? AND kind='exclude'",
+                                  (basket_id, os.path.abspath(path)))
 
     def create_basket(self, name: str) -> int:
         with self.conn:

@@ -3,44 +3,23 @@ import os
 from PySide6.QtCore import QSettings, QStringListModel, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QFont, QKeySequence
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QCompleter, QFileDialog, QFrame, QHBoxLayout,
-    QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
-    QMessageBox, QProgressBar, QPushButton, QSizePolicy, QSpinBox, QSplitter, QStyle,
-    QToolButton, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QCompleter, QFrame, QHBoxLayout, QLabel, QLineEdit,
+    QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QPushButton, QSpinBox, QSplitter,
+    QVBoxLayout, QWidget,
 )
 
 from .. import __version__
-from ..index import IndexDB, is_supported
-from ..opener import open_at, reveal_in_folder, word_automation_available
+from ..index import IndexDB
+from ..opener import open_at, open_default, reveal_in_folder, word_automation_available
 from ..search import Searcher, SearchOptions
-from .results import SYNTAX_TABLE, ResultsView, doc_name, form_of, ltr, short_path
+from . import pdf_viewer
+from .basket_panel import BasketPanel
+from .icons import file_icon
+from .results import SYNTAX_TABLE, ResultsView, doc_name, form_of, ltr
 from .workers import Job
 
 AHEVI_CHOICES = [("none", "מדויק"), ("vy", "ו׳ י׳ – כתיב מלא וחסר"), ("all", "כל אותיות אהו״י")]
-
-
-class BasketList(QListWidget):
-    """רשימת פריטי הסל – מקבלת גם גרירת קבצים ותיקיות מהסייר."""
-    dropped = Signal(list)
-
-    def __init__(self):
-        super().__init__()
-        self.setAcceptDrops(True)
-        self.setSelectionMode(QListWidget.ExtendedSelection)
-        self.setWordWrap(True)
-
-    def dragEnterEvent(self, e):
-        if e.mimeData().hasUrls():
-            e.acceptProposedAction()
-
-    def dragMoveEvent(self, e):
-        if e.mimeData().hasUrls():
-            e.acceptProposedAction()
-
-    def dropEvent(self, e):
-        paths = [u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()]
-        if paths:
-            self.dropped.emit(paths)
+SORT_CHOICES = [("relevance", "הכי מדויק קודם"), ("document", "לפי מסמך ומיקום")]
 
 
 def _panel():
@@ -67,17 +46,20 @@ class MainWindow(QMainWindow):
         self.settings = QSettings("HebWordSearch", "app")
         self.thread = None
         self.job = None
-        self.pending = None          # (query, opts) שממתין לסיום עבודה קודמת
+        self.pending = None          # שאילתה שממתינה לסיום עבודה קודמת ("" = רק סריקה)
         self.result = None
-        self.problems = []
+        self.form_filter = None
+        self.viewers = []
         self.history = self.settings.value("history", [], list) or []
+        saved = self.settings.value("search_baskets", None)
+        self.search_ids = None if saved is None else {int(x) for x in (saved if isinstance(saved, list) else [saved])}
 
-        self.setWindowTitle("חיפוש במסמכי וורד")
-        self.resize(1280, 820)
+        self.setWindowTitle("חיפוש במסמכי Word ו-PDF")
+        self.resize(1360, 860)
         self._build()
-        self._load_baskets()
         self._restore_options()
         self._open_error.connect(lambda m: self.statusBar().showMessage(f"לא הצלחתי לפתוח בוורד: {m}", 8000))
+        self._refresh_chips()
         self._refresh_stats()
         QTimer.singleShot(300, lambda: self.start_job(None))
 
@@ -92,80 +74,21 @@ class MainWindow(QMainWindow):
         splitter = QSplitter(Qt.Horizontal)
         splitter.setHandleWidth(10)
         root.addWidget(splitter)
-        splitter.addWidget(self._build_basket_panel())
+        self.baskets = BasketPanel(self.db, self.settings)
+        self.baskets.contentsChanged.connect(lambda: self.start_job(None))
+        self.baskets.basketsChanged.connect(self._baskets_changed)
+        self.baskets.update_btn.clicked.connect(lambda: self.start_job(None))
+        self.baskets.cancel_btn.clicked.connect(self._cancel_job)
+        splitter.addWidget(self.baskets)
         splitter.addWidget(self._build_search_panel())
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([310, 970])
+        splitter.setSizes([390, 970])
 
         act = QAction(self)
         act.setShortcut(QKeySequence("Ctrl+F"))
         act.triggered.connect(lambda: (self.search_edit.setFocus(), self.search_edit.selectAll()))
         self.addAction(act)
-
-    def _build_basket_panel(self):
-        panel = _panel()
-        lay = QVBoxLayout(panel)
-        lay.setContentsMargins(12, 12, 12, 12)
-        lay.setSpacing(8)
-        lay.addWidget(_label("🧺 סל החיפוש", "title"))
-
-        row = QHBoxLayout()
-        self.basket_combo = QComboBox()
-        self.basket_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.basket_combo.currentIndexChanged.connect(self._basket_changed)
-        row.addWidget(self.basket_combo)
-        for icon, tip, slot in (("＋", "סל חדש", self._new_basket),
-                                ("✎", "שינוי שם", self._rename_basket),
-                                ("🗑", "מחיקת הסל", self._delete_basket)):
-            b = QToolButton()
-            b.setText(icon)
-            b.setToolTip(tip)
-            b.clicked.connect(slot)
-            row.addWidget(b)
-        lay.addLayout(row)
-
-        self.basket_list = BasketList()
-        self.basket_list.dropped.connect(self._add_paths)
-        lay.addWidget(self.basket_list, 1)
-
-        row = QHBoxLayout()
-        b_folder = QPushButton("📁 הוסף תיקייה")
-        b_folder.clicked.connect(self._add_folder)
-        b_files = QPushButton("📄 הוסף קבצים")
-        b_files.clicked.connect(self._add_files)
-        row.addWidget(b_folder)
-        row.addWidget(b_files)
-        lay.addLayout(row)
-        b_remove = QPushButton("הסר את הנבחרים")
-        b_remove.clicked.connect(self._remove_selected)
-        lay.addWidget(b_remove)
-
-        self.basket_info = _label("", "muted")
-        self.basket_info.setWordWrap(True)
-        self.basket_info.setTextFormat(Qt.RichText)
-        self.basket_info.linkActivated.connect(lambda _: self._show_problems())
-        lay.addWidget(self.basket_info)
-
-        self.progress = QProgressBar()
-        self.progress.setTextVisible(False)
-        self.progress.hide()
-        lay.addWidget(self.progress)
-        self.progress_label = _label("", "muted")
-        self.progress_label.setWordWrap(True)
-        lay.addWidget(self.progress_label)
-
-        row = QHBoxLayout()
-        self.update_btn = QPushButton("🔄 עדכן מפת חיפוש")
-        self.update_btn.setToolTip("קורא מחדש מסמכים שנוספו או השתנו מאז הפעם הקודמת")
-        self.update_btn.clicked.connect(lambda: self.start_job(None))
-        self.cancel_btn = QPushButton("עצור")
-        self.cancel_btn.clicked.connect(self._cancel_job)
-        self.cancel_btn.hide()
-        row.addWidget(self.update_btn, 1)
-        row.addWidget(self.cancel_btn)
-        lay.addLayout(row)
-        return panel
 
     def _build_search_panel(self):
         w = QWidget()
@@ -195,14 +118,20 @@ class MainWindow(QMainWindow):
         row.addWidget(self.search_btn)
         tl.addLayout(row)
 
+        # בחירת סלים בלחיצה אחת
+        self.chips_row = QHBoxLayout()
+        self.chips_row.setSpacing(6)
+        tl.addLayout(self.chips_row)
+        self.chips = {}
+
         opts = QHBoxLayout()
         opts.setSpacing(18)
         self.cb_prefixes = QCheckBox("אותיות שימוש (ו, ה, ש, ב, כ, ל, מ)")
         self.cb_prefixes.setToolTip("למשל: חיפוש 'דרך' ימצא גם 'בדרך', 'והדרך', 'כשבדרך'")
         self.cb_inflect = QCheckBox("הטיות (הלך ← הלכה, הליכה, הולכים)")
         self.cb_inflect.setToolTip(
-            "מוצא צורות נוספות של המילה: סיומות, תחיליות ותנועות בתוך המילה.\n"
-            "זהו קירוב – לא נמצאות צורות שבהן נשמטת אות שורש (ילך, ללכת).")
+            "מוצא צורות נוספות של המילה: סיומות, תחיליות ותנועות בתוך המילה (הלכה, הולכים, וילך, ללכת).\n"
+            "זהו קירוב – צורות חריגות כמו בית/בתים לא נמצאות.")
         opts.addWidget(self.cb_prefixes)
         opts.addWidget(self.cb_inflect)
         opts.addWidget(_label("אותיות אהו״י:"))
@@ -244,11 +173,20 @@ class MainWindow(QMainWindow):
         res_panel = _panel()
         rl = QVBoxLayout(res_panel)
         rl.setContentsMargins(12, 10, 12, 10)
+        head = QHBoxLayout()
         self.summary = _label("", "summary")
         self.summary.setTextFormat(Qt.RichText)
         self.summary.setWordWrap(True)
         self.summary.linkActivated.connect(self._summary_link)
-        rl.addWidget(self.summary)
+        head.addWidget(self.summary, 1)
+        head.addWidget(_label("מיון:", "muted"), 0, Qt.AlignTop)
+        self.sort_combo = QComboBox()
+        for _, label in SORT_CHOICES:
+            self.sort_combo.addItem(label)
+        self.sort_combo.setToolTip("הכי מדויק קודם: צורה זהה למילה שהוקלדה ומילים צמודות – בראש הרשימה")
+        self.sort_combo.currentIndexChanged.connect(self._sort_changed)
+        head.addWidget(self.sort_combo, 0, Qt.AlignTop)
+        rl.addLayout(head)
 
         split = QSplitter(Qt.Horizontal)
         self.file_list = QListWidget()
@@ -257,124 +195,79 @@ class MainWindow(QMainWindow):
         self.file_list.itemDoubleClicked.connect(self._file_item_open)
         self.results = ResultsView(self.searcher.materialize)
         self.results.hitClicked.connect(self.open_hit)
-        self.results.fileClicked.connect(lambda p: open_at(p))
+        self.results.fileClicked.connect(open_default)
         self.results.folderClicked.connect(reveal_in_folder)
         split.addWidget(self.file_list)
         split.addWidget(self.results)
         split.setStretchFactor(1, 1)
-        split.setSizes([230, 740])
+        split.setSizes([220, 750])
         self.file_list.hide()
         rl.addWidget(split, 1)
         lay.addWidget(res_panel, 1)
 
-        self.form_filter = None
         self.statusBar().showMessage(f"גרסה {__version__}")
         return w
 
-    # ================= סלים =================
-    def _load_baskets(self, select_id=None):
+    # ================= בחירת סלים לחיפוש =================
+    def _refresh_chips(self):
+        while self.chips_row.count():
+            it = self.chips_row.takeAt(0)
+            if it.widget():
+                it.widget().hide()
+                it.widget().deleteLater()
+        self.chips = {}
         baskets = self.db.baskets()
-        if not baskets:
-            self.db.create_basket("הסל שלי")
-            baskets = self.db.baskets()
-        if select_id is None:
-            select_id = int(self.settings.value("basket", baskets[0][0]))
-        self.basket_combo.blockSignals(True)
-        self.basket_combo.clear()
-        idx = 0
-        for i, (bid, name) in enumerate(baskets):
-            self.basket_combo.addItem(name, bid)
-            if bid == select_id:
-                idx = i
-        self.basket_combo.setCurrentIndex(idx)
-        self.basket_combo.blockSignals(False)
-        self._fill_basket_list()
+        ids = {b[0] for b in baskets}
+        if self.search_ids is None:
+            self.search_ids = set(ids)
+        self.search_ids &= ids
+        self.chips_row.addWidget(_label("חיפוש בסלים:", "muted"))
+        for bid, name, count in baskets:
+            chip = QPushButton(f"{name}  {count:,}")
+            chip.setObjectName("chip")
+            chip.setCheckable(True)
+            chip.setChecked(bid in self.search_ids)
+            chip.setCursor(Qt.PointingHandCursor)
+            chip.setToolTip("לחיצה: הכללה/הוצאה של הסל מהחיפוש\nלחיצה כפולה: חיפוש רק בסל הזה")
+            chip.toggled.connect(lambda on, bid=bid: self._chip_toggled(bid, on))
+            chip.mouseDoubleClickEvent = lambda e, bid=bid: self._only_basket(bid)
+            self.chips[bid] = chip
+            self.chips_row.addWidget(chip)
+        if len(baskets) > 1:
+            all_link = _label('<a href="all" style="color:#1d4ed8; text-decoration:none">כל הסלים</a>')
+            all_link.setTextFormat(Qt.RichText)
+            all_link.linkActivated.connect(lambda _: self._set_search_ids(ids))
+            self.chips_row.addWidget(all_link)
+        self.chips_row.addStretch(1)
 
-    @property
-    def basket_id(self):
-        return self.basket_combo.currentData()
+    def _set_search_ids(self, ids):
+        self.search_ids = set(ids)
+        for bid, chip in self.chips.items():
+            chip.blockSignals(True)
+            chip.setChecked(bid in self.search_ids)
+            chip.blockSignals(False)
+        self._search_ids_changed()
 
-    def _basket_changed(self):
-        self.settings.setValue("basket", self.basket_id)
-        self._fill_basket_list()
+    def _chip_toggled(self, bid, on):
+        (self.search_ids.add if on else self.search_ids.discard)(bid)
+        self._search_ids_changed()
+
+    def _only_basket(self, bid):
+        self._set_search_ids({bid})
+
+    def _search_ids_changed(self):
+        self.settings.setValue("search_baskets", sorted(self.search_ids))
+        if self.result is not None and self.search_edit.text().strip():
+            self.run_search()
+
+    def _baskets_changed(self):
+        known = set(self.chips)
+        new = {b[0] for b in self.db.baskets()} - known
+        if self.search_ids is not None:
+            self.search_ids |= new          # סל חדש נכלל בחיפוש מיד
+            self.settings.setValue("search_baskets", sorted(self.search_ids))
+        self._refresh_chips()
         self.start_job(None)
-
-    def _fill_basket_list(self):
-        self.basket_list.clear()
-        style = self.style()
-        for path, kind in self.db.basket_items(self.basket_id):
-            name = os.path.basename(path.rstrip("\\/")) or path
-            if kind != "folder":
-                name = doc_name(path)
-            item = QListWidgetItem(f"{name}\n{ltr(short_path(os.path.dirname(path)))}")
-            item.setIcon(style.standardIcon(QStyle.SP_DirIcon if kind == "folder" else QStyle.SP_FileIcon))
-            item.setToolTip(path)
-            item.setData(Qt.UserRole, path)
-            self.basket_list.addItem(item)
-        if not self.basket_list.count():
-            self.basket_info.setText("הסל ריק. הוסיפו תיקיות או קבצים, או גררו אותם לכאן.")
-
-    def _new_basket(self):
-        name, ok = QInputDialog.getText(self, "סל חדש", "שם הסל:")
-        if ok and name.strip():
-            try:
-                bid = self.db.create_basket(name.strip())
-            except Exception:
-                QMessageBox.warning(self, "סל חדש", "כבר קיים סל בשם הזה.")
-                return
-            self._load_baskets(bid)
-            self._basket_changed()
-
-    def _rename_basket(self):
-        name, ok = QInputDialog.getText(self, "שינוי שם", "שם חדש:", text=self.basket_combo.currentText())
-        if ok and name.strip():
-            try:
-                self.db.rename_basket(self.basket_id, name.strip())
-            except Exception:
-                QMessageBox.warning(self, "שינוי שם", "כבר קיים סל בשם הזה.")
-                return
-            self._load_baskets(self.basket_id)
-
-    def _delete_basket(self):
-        if QMessageBox.question(self, "מחיקת סל",
-                                f"למחוק את הסל '{self.basket_combo.currentText()}'?\n"
-                                "(המסמכים עצמם לא יימחקו)") == QMessageBox.Yes:
-            self.db.delete_basket(self.basket_id)
-            self._load_baskets()
-            self._basket_changed()
-
-    def _add_folder(self):
-        d = QFileDialog.getExistingDirectory(self, "בחירת תיקייה", self.settings.value("last_dir", ""))
-        if d:
-            self.settings.setValue("last_dir", d)
-            self._add_paths([d])
-
-    def _add_files(self):
-        files, _ = QFileDialog.getOpenFileNames(
-            self, "בחירת מסמכים", self.settings.value("last_dir", ""),
-            "מסמכי וורד (*.docx *.docm *.dotx *.doc *.rtf);;כל הקבצים (*)")
-        if files:
-            self.settings.setValue("last_dir", os.path.dirname(files[0]))
-            self._add_paths(files)
-
-    def _add_paths(self, paths):
-        items = []
-        for p in paths:
-            if os.path.isdir(p):
-                items.append((p, "folder"))
-            elif os.path.isfile(p) and is_supported(p):
-                items.append((p, "file"))
-        if items:
-            self.db.add_basket_items(self.basket_id, items)
-            self._fill_basket_list()
-            self.start_job(None)
-
-    def _remove_selected(self):
-        paths = [it.data(Qt.UserRole) for it in self.basket_list.selectedItems()]
-        if paths:
-            self.db.remove_basket_items(self.basket_id, paths)
-            self._fill_basket_list()
-            self.start_job(None)
 
     # ================= אפשרויות =================
     def options(self) -> SearchOptions:
@@ -385,16 +278,25 @@ class MainWindow(QMainWindow):
             max_gap=self.gap_spin.value(),
             whole_paragraph=self.cb_paragraph.isChecked(),
             ordered=self.cb_ordered.isChecked(),
+            sort=SORT_CHOICES[self.sort_combo.currentIndex()][0],
         )
 
     def _restore_options(self):
         s = self.settings
+        widgets = [self.cb_prefixes, self.cb_inflect, self.ahevi_combo, self.gap_spin,
+                   self.cb_paragraph, self.cb_ordered, self.sort_combo]
+        for wd in widgets:
+            wd.blockSignals(True)
         self.cb_prefixes.setChecked(s.value("prefixes", True, bool))
         self.cb_inflect.setChecked(s.value("inflect", False, bool))
         self.ahevi_combo.setCurrentIndex(int(s.value("ahevi", 0)))
         self.gap_spin.setValue(int(s.value("gap", 0)))
         self.cb_paragraph.setChecked(s.value("paragraph", False, bool))
+        self.gap_spin.setEnabled(not self.cb_paragraph.isChecked())
         self.cb_ordered.setChecked(s.value("ordered", True, bool))
+        self.sort_combo.setCurrentIndex(int(s.value("sort", 0)))
+        for wd in widgets:
+            wd.blockSignals(False)
 
     def _options_changed(self):
         s = self.settings
@@ -407,10 +309,18 @@ class MainWindow(QMainWindow):
         if self.result is not None and self.search_edit.text().strip():
             self.run_search()
 
+    def _sort_changed(self):
+        self.settings.setValue("sort", self.sort_combo.currentIndex())
+        if self.result is not None and self.search_edit.text().strip():
+            self.run_search()
+
     # ================= עבודות רקע =================
     def run_search(self):
         q = self.search_edit.text().strip()
         if not q:
+            return
+        if not self.search_ids:
+            self.summary.setText('<span style="color:#b45309">בחרו לפחות סל אחד לחיפוש (מעל התוצאות).</span>')
             return
         if q in self.history:
             self.history.remove(q)
@@ -427,15 +337,16 @@ class MainWindow(QMainWindow):
             elif self.pending is None:
                 self.pending = ""
             return
-        items = self.db.basket_items(self.basket_id)
-        self.job = Job(self.db_path, items, query, self.options() if query else None)
+        baskets = {bid: self.db.basket_items(bid) for bid, _, _ in self.db.baskets()}
+        self.job = Job(self.db_path, baskets, sorted(self.search_ids or ()), query,
+                       self.options() if query else None)
         self.thread = QThread()
         self.job.moveToThread(self.thread)
         self.thread.started.connect(self.job.run)
         self.job.progress.connect(self._on_progress)
         self.job.done.connect(self._on_done)
-        self.update_btn.setEnabled(False)
-        self.cancel_btn.show()
+        self.baskets.update_btn.setEnabled(False)
+        self.baskets.cancel_btn.show()
         if query:
             self.search_btn.setEnabled(False)
             self.summary.setText("מחפש…")
@@ -447,14 +358,15 @@ class MainWindow(QMainWindow):
             self.pending = None
 
     def _on_progress(self, text, done, total):
-        self.progress.show()
+        bar, label = self.baskets.progress, self.baskets.progress_label
+        bar.show()
         if total:
-            self.progress.setRange(0, total)
-            self.progress.setValue(done)
-            self.progress_label.setText(f"{text}\n{done:,} מתוך {total:,}")
+            bar.setRange(0, total)
+            bar.setValue(done)
+            label.setText(f"{text}\n{done:,} מתוך {total:,}")
         else:
-            self.progress.setRange(0, 0)
-            self.progress_label.setText(text)
+            bar.setRange(0, 0)
+            label.setText(text)
 
     def _on_done(self, out):
         self.thread.quit()
@@ -462,17 +374,17 @@ class MainWindow(QMainWindow):
         self.job.deleteLater()
         self.thread.deleteLater()
         self.job = self.thread = None
-        self.progress.hide()
-        self.progress_label.setText("")
-        self.update_btn.setEnabled(True)
-        self.cancel_btn.hide()
+        self.baskets.progress.hide()
+        self.baskets.progress_label.setText("העדכון נעצר." if out.cancelled else "")
+        self.baskets.update_btn.setEnabled(True)
+        self.baskets.cancel_btn.hide()
         self.search_btn.setEnabled(True)
 
         if out.error:
             QMessageBox.critical(self, "שגיאה", out.error[-1500:])
         else:
-            self.problems = out.problems
-            self._update_basket_info(out)
+            self.baskets.set_scan(out.baskets, out.status)
+            self._update_chip_counts()
             if out.result is not None:
                 self._show_result(out.result)
             elif out.indexed:
@@ -483,29 +395,18 @@ class MainWindow(QMainWindow):
         if pending is not None:
             self.start_job(pending or None)
 
-    def _update_basket_info(self, out):
-        if not self.basket_list.count():
-            return
-        txt = f"{out.files:,} מסמכים בסל"
-        if out.problems:
-            txt += f' · <a href="p" style="color:#b45309">{len(out.problems):,} לא נקראו</a>'
-        if out.cancelled:
-            txt += " · העדכון נעצר"
-        self.basket_info.setText(txt)
-
-    def _show_problems(self):
-        lines = [f"• {doc_name(p)} – {m}" for p, m in self.problems[:40]]
-        if len(self.problems) > 40:
-            lines.append(f"… ועוד {len(self.problems) - 40}")
-        QMessageBox.information(self, "מסמכים שלא נקראו", "\n".join(lines))
+    def _update_chip_counts(self):
+        for bid, name, count in self.db.baskets():
+            chip = self.chips.get(bid)
+            if chip:
+                chip.setText(f"{name}  {count:,}")
 
     def _refresh_stats(self):
         st = self.db.stats()
         size = ltr(f"{st['size_mb']:.1f} MB")
         jump = " · קפיצה למקום בוורד: פעילה" if word_automation_available() else ""
         self.statusBar().showMessage(
-            f"מפת חיפוש: {st['files']:,} מסמכים · {st['words']:,} מילים שונות · "
-            f"{size}{jump}")
+            f"מפת חיפוש: {st['files']:,} מסמכים · {st['words']:,} מילים שונות · {size}{jump}")
 
     # ================= תוצאות =================
     def _show_result(self, res):
@@ -516,7 +417,7 @@ class MainWindow(QMainWindow):
         if res.files:
             self.file_list.addItem(QListWidgetItem(f"כל המסמכים  ({res.total:,})"))
             for fid, path, count in res.files:
-                it = QListWidgetItem(f"{doc_name(path)}  ({count:,})")
+                it = QListWidgetItem(file_icon(path), f"{doc_name(path)}  ({count:,})")
                 it.setToolTip(path)
                 it.setData(Qt.UserRole, fid)
                 it.setData(Qt.UserRole + 1, path)
@@ -532,10 +433,12 @@ class MainWindow(QMainWindow):
         if not res.total:
             return f"לא נמצאו תוצאות ב-{res.searched_files:,} מסמכים."
         files_word = "מסמך אחד" if len(res.files) == 1 else f"-{len(res.files):,} מסמכים"
-        found = ("נמצאה <b style=\"color:#1d4ed8\">תוצאה אחת</b>" if res.total == 1 else
+        found = ('נמצאה <b style="color:#1d4ed8">תוצאה אחת</b>' if res.total == 1 else
                  f'נמצאו <b style="color:#1d4ed8">{res.total:,}</b> תוצאות')
-        s = (f'{found} ב{files_word}'
-             f'<span style="color:#94a3b8">  ·  {res.elapsed:.2f} שניות</span>')
+        s = f'{found} ב{files_word}<span style="color:#94a3b8">  ·  {res.elapsed:.2f} שניות</span>'
+        exact = sum(1 for h in res.hits if h.exact)
+        if exact and exact != res.total:
+            s += f'<span style="color:#166534">  ·  {exact:,} מדויקות</span>'
         if shown != res.total:
             s += f'<span style="color:#64748b">  ·  מוצגות {shown:,}</span>'
         if res.truncated:
@@ -544,13 +447,13 @@ class MainWindow(QMainWindow):
             chips = []
             for form, c in res.forms.most_common(14):
                 on = form == self.form_filter
-                style = ("background:#1d4ed8; color:white" if on else "color:#1d4ed8")
+                style = "background:#1d4ed8; color:white" if on else "color:#1d4ed8"
                 chips.append(f'<a href="form:{form}" style="{style}; text-decoration:none">&nbsp;{form}&nbsp;</a>'
                              f'<span style="color:#94a3b8">({c:,})</span>')
             more = f" … ועוד {len(res.forms) - 14:,}" if len(res.forms) > 14 else ""
-            reset = ('  <a href="form:" style="color:#64748b">[הצג הכל]</a>' if self.form_filter else "")
-            s += f'<br><span style="color:#64748b; font-size:9.5pt">צורות שנמצאו: </span>' \
-                 f'<span style="font-size:10pt">{"  ".join(chips)}{more}{reset}</span>'
+            reset = '  <a href="form:" style="color:#64748b">[הצג הכל]</a>' if self.form_filter else ""
+            s += (f'<br><span style="color:#64748b; font-size:9.5pt">צורות שנמצאו: </span>'
+                  f'<span style="font-size:10pt">{"  ".join(chips)}{more}{reset}</span>')
         return s
 
     def _apply_filters(self):
@@ -566,12 +469,13 @@ class MainWindow(QMainWindow):
             hits = [h for h in hits if any(form_of(w) == self.form_filter for w in h.words)]
         self.summary.setText(self._summary_html(res, len(hits)))
         if hits:
-            self.results.show_hits(res, hits)
+            grouped = SORT_CHOICES[self.sort_combo.currentIndex()][0] == "document" and fid is None
+            self.results.show_hits(res, hits, grouped)
         else:
             self.results.show_message(
                 '<p style="font-size:13pt; color:#64748b; margin:30px" align="center">'
                 'לא נמצאו תוצאות.<br><span style="font-size:10pt">נסו להפעיל הטיות, אותיות שימוש '
-                'או גמישות באותיות אהו״י, או להגדיל את הרווח בין המילים.</span></p>')
+                'או גמישות באותיות אהו״י, להגדיל את הרווח בין המילים, או לבחור סלים נוספים.</span></p>')
 
     def _summary_link(self, link):
         if link.startswith("form:"):
@@ -590,15 +494,30 @@ class MainWindow(QMainWindow):
             "<li><b>הטיות</b> – 'הלך' ימצא גם 'הלכה', 'הליכה', 'הולכים', 'וילך', 'ללכת'.</li>"
             "<li><b>אותיות אהו״י</b> – 'שמרה' ימצא גם 'שמירה', 'שומרה'.</li>"
             "<li><b>רווח בין המילים</b> – כמה מילים מותר שיפרידו בין מילות החיפוש (0 = צמודות).</li>"
-            "</ul><p style='color:#64748b'>ניקוד, טעמים, גרשיים ואותיות סופיות לא משנים את החיפוש.</p>")
+            "</ul><p><b>דירוג:</b> קודם הצורה הזהה למה שהוקלד, ואחריה צורות רחוקות יותר; "
+            "מילים צמודות ובסדר הנכון לפני מילים מרוחקות.</p>"
+            "<p style='color:#64748b'>ניקוד, טעמים, גרשיים ואותיות סופיות לא משנים את החיפוש.</p>")
         box.exec()
 
     def _file_item_open(self, item):
         path = item.data(Qt.UserRole + 1)
         if path:
-            open_at(path)
+            open_default(path)
 
     def open_hit(self, hit):
+        self.searcher.materialize(hit, self.result.highlight if self.result else frozenset())
+        if hit.path.lower().endswith(".pdf"):
+            if pdf_viewer.AVAILABLE:
+                word = max(hit.needle.split(), key=len) if hit.needle.split() else ""
+                v = pdf_viewer.PdfViewer(hit.path, hit.page or 1, word, doc_name(hit.path), self)
+                v.show()
+                self.viewers = [x for x in self.viewers if x.isVisible()] + [v]
+            else:
+                open_default(hit.path)
+                QApplication.clipboard().setText(hit.needle)
+                self.statusBar().showMessage(
+                    f"'{doc_name(hit.path)}' נפתח – {hit.location}. הטקסט שנמצא הועתק ללוח.", 12000)
+            return
         cands = self.searcher.locate(hit)
         used_word = open_at(hit.path, cands, hit.kind, hit.note, on_error=self._open_error.emit)
         if used_word:
@@ -625,8 +544,7 @@ def run(db_path):
     app.setLayoutDirection(Qt.RightToLeft)
     from .style import QSS
     app.setStyleSheet(QSS)
-    f = QFont("Segoe UI", 10)
-    app.setFont(f)
+    app.setFont(QFont("Segoe UI", 10))
     win = MainWindow(db_path)
     win.show()
     return app.exec()

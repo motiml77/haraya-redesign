@@ -9,6 +9,7 @@ from .extract import KIND_ENDNOTE, KIND_FOOTNOTE
 
 WD_FIND_STOP = 0
 WD_COLLAPSE_END = 0
+WD_COLOR_YELLOW = 65535
 
 
 def _word_find_text(s: str) -> str:
@@ -87,7 +88,14 @@ def _open_in_word(path, candidates, kind, note):
         doc = word.Documents.Open(os.path.abspath(path), AddToRecentFiles=True)
         doc.Activate()
         for match_diacritics in (True, False):
-            if any(_find(doc, n, k, kind, note, match_diacritics, word) for n, k in candidates):
+            found = next((n for n, k in candidates
+                          if _find(doc, n, k, kind, note, match_diacritics, word)), None)
+            if found:
+                # מרקר צהוב זמני על המילים (לא נשמר בקובץ; נעלם בלחיצה על Esc/חיפוש חדש)
+                try:
+                    doc.Content.Find.HitHighlight(_word_find_text(found), WD_COLOR_YELLOW)
+                except Exception:
+                    pass
                 break
         word.Activate()
     finally:

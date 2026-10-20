@@ -16,8 +16,8 @@ C_CARD = "#ffffff"
 C_FILE = "#e6edfb"
 C_ACCENT = "#1d4ed8"
 C_MUTED = "#64748b"
-C_HL_BG = "#fde68a"
-C_HL_FG = "#7c2d12"
+C_HL_BG = "#fff200"   # מרקר צהוב
+C_HL_FG = "#111111"
 
 SNIPPET_FONT = "'David', 'Frank Ruehl CLM', 'Frank Ruehl', 'Times New Roman', serif"
 
@@ -63,16 +63,23 @@ SYNTAX_TABLE = f"""
 WELCOME = f"""
 <div dir="rtl" style="color:#334155; font-size:11pt">
 <p style="font-size:17pt; font-weight:bold; color:{C_ACCENT}; margin-bottom:4px">ברוכים הבאים</p>
-<p style="color:{C_MUTED}; margin-top:0">חיפוש מהיר וגמיש בתוך מסמכי וורד בעברית</p>
+<p style="color:{C_MUTED}; margin-top:0">חיפוש מהיר וגמיש בתוך מסמכי Word ו-PDF בעברית</p>
 <table align="right" cellpadding="6">
-<tr><td align="right"><b>מלאו את הסל</b> – הוסיפו תיקיות או קבצים בודדים (אפשר גם לגרור לכאן מהסייר).</td><td style="font-size:15pt; color:{C_ACCENT}">①</td></tr>
+<tr><td align="right"><b>צרו סלים</b> – לכל סל שם משלו (שיעורים, תורה…), ובו תיקיות ומסמכי Word או PDF. אפשר לגרור מהסייר.</td><td style="font-size:15pt; color:{C_ACCENT}">①</td></tr>
 <tr><td align="right"><b>המפה נבנית לבד</b> – בפעם הראשונה כל מסמך נקרא פעם אחת; אחר כך רק מסמכים שהשתנו.</td><td style="font-size:15pt; color:{C_ACCENT}">②</td></tr>
-<tr><td align="right"><b>חפשו</b> – הניקוד והסימנים מתעלמים מעצמם. לחיצה על תוצאה פותחת את המסמך במקום.</td><td style="font-size:15pt; color:{C_ACCENT}">③</td></tr>
+<tr><td align="right"><b>בחרו סלים וחפשו</b> – לחיצה על שם סל מעל תיבת החיפוש מכלילה או מוציאה אותו. התוצאות המדויקות ביותר ראשונות, ולחיצה על תוצאה פותחת את המסמך במקום.</td><td style="font-size:15pt; color:{C_ACCENT}">③</td></tr>
 </table>
 <p style="color:#334155; margin-top:16px; margin-bottom:2px"><b>חיפוש מתקדם</b></p>
 {SYNTAX_TABLE}
 </div>
 """
+
+
+def _meter(score):
+    """מד התאמה של 5 נקודות."""
+    n = max(1, min(5, round(score * 5)))
+    return (f'<span style="color:#22c55e">{"●" * n}</span>'
+            f'<span style="color:#d1d5db">{"●" * (5 - n)}</span>')
 
 
 class ResultsView(QTextBrowser):
@@ -90,6 +97,7 @@ class ResultsView(QTextBrowser):
         self.result = None
         self.hits = []
         self.shown = 0
+        self.grouped = False
         self._paths = {}
         self.show_message(WELCOME)
 
@@ -97,8 +105,9 @@ class ResultsView(QTextBrowser):
         self.result, self.hits, self.shown = None, [], 0
         self.setHtml(f'<html><body dir="rtl" style="background:{C_BG}">{body_html}</body></html>')
 
-    def show_hits(self, result, hits):
-        self.result, self.hits = result, hits
+    def show_hits(self, result, hits, grouped):
+        """grouped=True: מקובץ לפי מסמך; אחרת רשימה אחת לפי דירוג."""
+        self.result, self.hits, self.grouped = result, hits, grouped
         self.shown = min(PAGE, len(hits))
         self._render()
         self.verticalScrollBar().setValue(0)
@@ -108,12 +117,13 @@ class ResultsView(QTextBrowser):
         parts = [f'<html><body dir="rtl" style="background:{C_BG}">']
         last_file = None
         counts = {fid: c for fid, _, c in self.result.files} if self.result else {}
+        highlight = self.result.highlight if self.result else frozenset()
         self._paths = {}
         for i, hit in enumerate(self.hits[: self.shown]):
-            self._materialize(hit)
-            if hit.file_id != last_file:
+            self._materialize(hit, highlight)
+            self._paths[hit.file_id] = hit.path
+            if self.grouped and hit.file_id != last_file:
                 last_file = hit.file_id
-                self._paths[hit.file_id] = hit.path
                 parts.append(self._file_header(hit, counts.get(hit.file_id, 0)))
             parts.append(self._card(i, hit))
         if self.shown < len(self.hits):
@@ -131,9 +141,10 @@ class ResultsView(QTextBrowser):
         name = _esc(doc_name(hit.path))
         folder = _esc(ltr(os.path.dirname(hit.path)))
         word = "תוצאה" if count == 1 else "תוצאות"
+        kind = "📕" if hit.path.lower().endswith(".pdf") else "📄"
         return (
             f'<table width="100%" cellspacing="0" cellpadding="9" style="background:{C_FILE}; margin-top:16px">'
-            f'<tr><td><span style="font-size:13pt; font-weight:bold; color:#1e3a8a">📄 {name}</span>'
+            f'<tr><td><span style="font-size:13pt; font-weight:bold; color:#1e3a8a">{kind} {name}</span>'
             f'<span style="color:{C_MUTED}">&nbsp;&nbsp;·&nbsp;&nbsp;{count:,} {word}</span><br>'
             f'<span style="color:{C_MUTED}; font-size:8.5pt">{folder}</span></td>'
             f'<td align="left" style="white-space:nowrap">'
@@ -147,20 +158,29 @@ class ResultsView(QTextBrowser):
         for text, kind in hit.snippet:
             t = _esc(text)
             if kind == SEG_MATCH:
-                segs.append(f'<span style="background:{C_HL_BG}; color:{C_HL_FG}; font-weight:bold">{t}</span>')
+                segs.append(f'<span style="background:{C_HL_BG}; color:{C_HL_FG}">{t}</span>')
             elif kind == SEG_PARA:
                 segs.append('<span style="color:#cbd5e1"> ¶ </span>')
             elif kind == SEG_GAP:
                 segs.append(f'<span style="color:#94a3b8">{t}</span>')
             else:
                 segs.append(t)
+        doc = ""
+        if not self.grouped:
+            kind = "📕" if hit.path.lower().endswith(".pdf") else "📄"
+            doc = (f'<span style="color:#1e3a8a; font-weight:bold">{kind} {_esc(doc_name(hit.path))}</span>'
+                   f'<span style="color:#cbd5e1">&nbsp; | &nbsp;</span>')
+        badge = ('&nbsp;&nbsp;<span style="background:#dcfce7; color:#166534; font-size:8.5pt">'
+                 '&nbsp;התאמה מדויקת&nbsp;</span>' if hit.exact else "")
         return (
             f'<table width="100%" cellspacing="0" cellpadding="10" style="background:{C_CARD}; margin-top:3px">'
             f'<tr><td>'
+            f'<span style="color:#94a3b8">{i + 1}.</span>&nbsp; {doc}'
             f'<a href="hit:{i}" style="color:{C_ACCENT}; text-decoration:none; font-weight:bold">'
-            f'<span style="color:#94a3b8; font-weight:normal">{i + 1}.</span>&nbsp; {_esc(hit.location)}'
-            f'&nbsp; <span style="font-weight:normal">↗ פתח כאן</span></a>'
-            f'<p dir="rtl" style="font-family:{SNIPPET_FONT}; font-size:15pt; margin-top:5px; margin-bottom:0; '
+            f'{_esc(hit.location)}&nbsp; <span style="font-weight:normal">↗ פתח כאן</span></a>{badge}'
+            f'</td><td align="left" width="90" style="font-size:7pt; white-space:nowrap">{_meter(hit.score)}</td>'
+            f'</tr><tr><td colspan="2">'
+            f'<p dir="rtl" style="font-family:{SNIPPET_FONT}; font-size:15pt; margin-top:0; margin-bottom:0; '
             f'line-height:140%">{"".join(segs)}</p>'
             f'</td></tr></table>')
 

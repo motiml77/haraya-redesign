@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from .extract import KIND_BODY, KIND_ENDNOTE, KIND_FOOTNOTE, KIND_TEXTBOX
 from .morphology import MatchOptions, normalize_query_word, term_regex
 from .normalize import restore_finals, tokenize
+from .ranking import Scorer
 
 MAX_VARIANTS = 50000
 
@@ -36,6 +37,7 @@ class SearchOptions:
     ordered: bool = True
     context_words: int = 20      # מילים לפני ואחרי
     max_hits: int = 100000
+    sort: str = "relevance"      # relevance | document
 
     def match_options(self):
         return MatchOptions(self.prefixes, self.inflections, self.ahevi)
@@ -56,8 +58,11 @@ class Hit:
     para_idx: int
     span: tuple              # מיקומי המילים שנמצאו בתוך הפסקה
     words: tuple             # הצורות המנורמלות שנמצאו
+    score: float = 0.0       # 0..1 – כמה ההתאמה קרובה לשאילתה
+    exact: bool = False      # בדיוק המילים שהוקלדו, צמודות ובסדר
     # השדות הבאים מתמלאים ב-Searcher.materialize
     ready: bool = False
+    line: int = 0            # מספר שורה בעמוד (PDF)
     para_no: int = 0
     kind: int = KIND_BODY
     note: int = 0
@@ -71,7 +76,9 @@ class Hit:
         parts = []
         if self.page:
             parts.append(f"עמוד {self.page}")
-        if self.kind == KIND_FOOTNOTE:
+        if self.line:
+            parts.append(f"שורה {self.line}")
+        elif self.kind == KIND_FOOTNOTE:
             parts.append(f"הערת שוליים {self.note}")
         elif self.kind == KIND_ENDNOTE:
             parts.append(f"הערת סיום {self.note}")
@@ -89,6 +96,7 @@ class SearchResult:
     total: int = 0
     files: list = field(default_factory=list)       # [(file_id, path, count)]
     forms: Counter = field(default_factory=Counter)
+    highlight: set = field(default_factory=set)     # כל הצורות שיש לסמן בקטעי התצוגה
     terms: list = field(default_factory=list)
     elapsed: float = 0.0
     truncated: bool = False
@@ -271,11 +279,12 @@ class Searcher:
 
         # מהמילה הנדירה לנפוצה: כל שלב מצמצם את הקבצים שנבדקים בשלב הבא
         fileset = set(file_ids)
-        per_term, keys = [], None
-        for t in sorted(pos_terms, key=lambda t: len(t.words)):
+        occs, keys = [None] * len(pos_terms), None
+        for i in sorted(range(len(pos_terms)), key=lambda i: len(pos_terms[i].words)):
+            t = pos_terms[i]
             occ = self._occurrences([vocab_ids[w] for w in t.words], fileset, keys)
             keys = set(occ) if keys is None else keys & set(occ)
-            per_term.append((t, occ))
+            occs[i] = occ
             if not keys:
                 break
             fileset = {f for f, _ in keys}
@@ -286,11 +295,11 @@ class Searcher:
             if keys and t.words:
                 occ = self._occurrences([vocab_ids[w] for w in t.words], fileset, keys)
                 keys -= set(occ)
-        per_term.sort(key=lambda x: pos_terms.index(x[0]))
-        occs = [occ for _, occ in per_term]
 
+        scorer = Scorer(pos_terms)
         gap = None if opts.whole_paragraph else max(0, opts.max_gap)
         per_file = Counter()
+        best_in_file = {}
         hits = []
         for key in keys or ():
             maps = [occ[key] for occ in occs]
@@ -306,22 +315,28 @@ class Searcher:
                     spans = _find_unordered(positions, gap)
             if not spans:
                 continue
-            merged = {}
-            for m in maps:
-                merged.update(m)
             fid, para = key
             per_file[fid] += len(spans)
             for span in spans:
-                hits.append(Hit(fid, file_ids[fid], para, tuple(span),
-                                tuple(merged[p] for p in span)))
+                terms_at = [next(i for i, m in enumerate(maps) if p in m) for p in span]
+                words = tuple(maps[i][p] for i, p in zip(terms_at, span))
+                score, exact = scorer.score(span, words, terms_at)
+                hits.append(Hit(fid, file_ids[fid], para, tuple(span), words, score, exact))
+                if score > best_in_file.get(fid, -1):
+                    best_in_file[fid] = score
 
         res.total = len(hits)
         for h in hits:
             res.forms.update(restore_finals(w) for w in h.words)
+        res.highlight = set().union(*(t.words for t in pos_terms))
+        # מסמכים: הטוב ביותר קודם (הציון הגבוה, ואז מספר התוצאות)
         res.files = sorted(((f, file_ids[f], c) for f, c in per_file.items()),
-                           key=lambda x: (-x[2], x[1].lower()))
+                           key=lambda x: (-round(best_in_file[x[0]], 3), -x[2], x[1].lower()))
         rank = {f: i for i, (f, _, _) in enumerate(res.files)}
-        hits.sort(key=lambda h: (rank[h.file_id], h.para_idx, h.span[0]))
+        if opts.sort == "document":
+            hits.sort(key=lambda h: (rank[h.file_id], h.para_idx, h.span[0]))
+        else:
+            hits.sort(key=lambda h: (-h.score, rank[h.file_id], h.para_idx, h.span[0]))
         if len(hits) > opts.max_hits:
             hits = hits[: opts.max_hits]
             res.truncated = True
@@ -338,12 +353,14 @@ class Searcher:
             toks = tok_cache[idx] = tokenize(paras[idx][0])
         return toks
 
-    def materialize(self, hit: Hit) -> Hit:
+    def materialize(self, hit: Hit, highlight=frozenset()) -> Hit:
+        """בונה את קטע התצוגה. highlight – צורות נוספות לסמן במרקר (כל מילות החיפוש)."""
         if hit.ready:
             return hit
         entry = para_cache.get(self.db, hit.file_id)
         paras, numbers = entry[0], entry[1]
-        text, page, kind, note, breaks = paras[hit.para_idx]
+        para = paras[hit.para_idx]
+        text, page, kind, note, breaks = para[:5]
         toks = self._tokens(entry, hit.para_idx)
         span = [p for p in hit.span if p < len(toks)] or [0]
         matched = set(span)
@@ -354,10 +371,10 @@ class Searcher:
         if last - first <= 2 * ctx:
             lo, hi = first - ctx, last + ctx
             if lo < 0:
-                snippet += self._neighbor(entry, hit.para_idx, -1, -lo)
-            snippet += self._render(text, toks, max(lo, 0), min(hi, len(toks) - 1), matched)
+                snippet += self._neighbor(entry, hit.para_idx, -1, -lo, highlight)
+            snippet += self._render(text, toks, max(lo, 0), min(hi, len(toks) - 1), matched, highlight)
             if hi > len(toks) - 1:
-                snippet += self._neighbor(entry, hit.para_idx, +1, hi - (len(toks) - 1))
+                snippet += self._neighbor(entry, hit.para_idx, +1, hi - (len(toks) - 1), highlight)
         else:
             r = max(3, ctx // 2)
             windows = []
@@ -370,19 +387,21 @@ class Searcher:
             for k, (a, b) in enumerate(windows):
                 if k:
                     snippet.append((" … ", SEG_GAP))
-                snippet += self._render(text, toks, a, b, matched)
+                snippet += self._render(text, toks, a, b, matched, highlight)
 
         start, end = toks[first][0], toks[last][1]
         hit.needle = text[start:end] if end - start <= 200 else text[start:toks[first][1]]
         hit.needle_offset = start
         hit.page = page + sum(1 for b in breaks if b <= start) if page else 0
+        if len(para) > 6:  # PDF: שורה בעמוד
+            hit.line = para[5] + bisect_right(para[6], start) - 1
         hit.para_no, hit.kind, hit.note = numbers[hit.para_idx], kind, note
         hit.snippet = snippet
         hit.ready = True
         return hit
 
     @staticmethod
-    def _render(text, toks, a, b, matched):
+    def _render(text, toks, a, b, matched, highlight=frozenset()):
         if not toks:
             return [(text, SEG_TEXT)]
         segs = []
@@ -390,8 +409,8 @@ class Searcher:
             segs.append(("… ", SEG_GAP))
         pos = toks[a][0]
         for i in range(a, b + 1):
-            s, e, _ = toks[i]
-            if i in matched:
+            s, e, norm = toks[i]
+            if i in matched or norm in highlight:
                 if s > pos:
                     segs.append((text[pos:s], SEG_TEXT))
                 segs.append((text[s:e], SEG_MATCH))
@@ -403,7 +422,7 @@ class Searcher:
             segs.append((" …", SEG_GAP))
         return segs
 
-    def _neighbor(self, entry, pi, direction, need):
+    def _neighbor(self, entry, pi, direction, need, highlight=frozenset()):
         """מילים מפסקאות סמוכות (מאותו סוג) להשלמת ההקשר."""
         paras = entry[0]
         kind, note = paras[pi][2], paras[pi][3]
@@ -419,11 +438,11 @@ class Searcher:
             if toks:
                 if direction < 0:
                     a = max(0, len(toks) - need)
-                    collected = (self._render(paras[j][0], toks, a, len(toks) - 1, ())
+                    collected = (self._render(paras[j][0], toks, a, len(toks) - 1, (), highlight)
                                  + [(" ¶ ", SEG_PARA)] + collected)
                 else:
                     b = min(len(toks) - 1, need - 1)
-                    collected += [(" ¶ ", SEG_PARA)] + self._render(paras[j][0], toks, 0, b, ())
+                    collected += [(" ¶ ", SEG_PARA)] + self._render(paras[j][0], toks, 0, b, (), highlight)
                 need -= len(toks)
             j += direction
         return collected

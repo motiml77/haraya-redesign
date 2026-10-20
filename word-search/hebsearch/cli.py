@@ -68,7 +68,7 @@ def main(argv=None):
     if res.forms:
         print("צורות:", ", ".join(f"{w}({c})" for w, c in res.forms.most_common(15)))
     for h in res.hits[: args.limit]:
-        searcher.materialize(h)
+        searcher.materialize(h, res.highlight)
         snippet = "".join(f"[{t}]" if k == SEG_MATCH else t for t, k in h.snippet)
         print(f"\n{os.path.basename(h.path)} | {h.location}\n  {' '.join(snippet.split())}")
     return 0

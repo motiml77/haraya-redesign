@@ -5,7 +5,8 @@ docx נקרא ישירות מתוך קובץ ה-ZIP (בלי python-docx) – מ�
 מקום שבו התחיל עמוד חדש בפעם האחרונה שהמסמך הוצג, כך שאפשר לדעת באיזה
 עמוד נמצאת כל פסקה כפי שהמשתמש רואה אותה בוורד.
 
-כל פסקה נשמרת כ- [טקסט, עמוד, סוג, מספר_הערה, שבירות_עמוד_בתוך_הפסקה].
+כל פסקה נשמרת כ- [טקסט, עמוד, סוג, מספר_הערה, שבירות_עמוד_בתוך_הפסקה]
+ובקבצי PDF נוספים שני שדות: [..., מספר_השורה_הראשונה_בעמוד, היסטי_תחילת_שורות].
 """
 
 import posixpath
@@ -17,6 +18,7 @@ KIND_BODY, KIND_FOOTNOTE, KIND_ENDNOTE, KIND_TEXTBOX = 0, 1, 2, 3
 
 DOCX_EXTS = {".docx", ".docm", ".dotx", ".dotm"}
 DOC_EXTS = {".doc", ".dot", ".rtf"}
+PDF_EXTS = {".pdf"}
 
 _REL = "{http://schemas.openxmlformats.org/package/2006/relationships}"
 _MC_FALLBACK = "{http://schemas.openxmlformats.org/markup-compatibility/2006}Fallback"
@@ -136,7 +138,11 @@ def _rels(z: zipfile.ZipFile, part: str):
 
 
 def extract_docx(path: str):
-    with zipfile.ZipFile(path) as z:
+    try:
+        z = zipfile.ZipFile(path)
+    except zipfile.BadZipFile:
+        raise ValueError("הקובץ פגום או מוגן בסיסמה")
+    with z:
         main = _rels(z, "").get("officeDocument", "word/document.xml")
         data = z.read(main)
         root = ET.fromstring(data)
