@@ -197,6 +197,15 @@ class WrapLabel(QLabel):
         super().resizeEvent(e)
         self._fit()
 
+    def showEvent(self, e):
+        super().showEvent(e)
+        self._fit()
+
+    def changeEvent(self, e):
+        super().changeEvent(e)
+        if e.type() in (QEvent.FontChange, QEvent.StyleChange):     # ה-QSS משנה את הגופן אחרי הבנייה
+            self._fit()
+
     def _fit(self):
         width = max(60, self.width())
         if self.textFormat() == Qt.RichText or (self.textFormat() == Qt.AutoText and "<" in self.text()):

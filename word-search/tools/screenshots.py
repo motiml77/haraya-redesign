@@ -161,19 +161,19 @@ def main():
     idle()
     step("welcome", lambda: shot("welcome"))
 
-    def browser():
-        win.baskets.tabs.setCurrentIndex(1)
-        win.baskets.browser.reveal(docs)
-        spin(2.0)
-        shot("browse_tab", note="עץ בחירה מהמחשב (כוננים ותיקיות) עם סמלי המערכת")
-        win.baskets.tabs.setCurrentIndex(0)
-    step("browser", browser)
-
     def basket():
         win.baskets.add_paths([docs])
         idle()
         shot("basket")
     step("basket", basket)
+
+    def browser():
+        win.baskets.tabs.setCurrentIndex(1)
+        win.baskets.browser.reveal(docs)
+        spin(2.5)
+        shot("browse_tab", note="עץ בחירה מהמחשב: תיקיות, קבצים, סימוני ✓ וסמלי המערכת")
+        win.baskets.tabs.setCurrentIndex(0)
+    step("browser", browser)
 
     def results():
         win.search_edit.setText("הלך")
