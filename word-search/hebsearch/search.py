@@ -94,6 +94,17 @@ class Hit:
         return " · ".join(parts)
 
 
+class Highlight(frozenset):
+    """הצורות לסימון בקטעי התצוגה. בחיפוש של כמה מילים (multi) מסומנות רק המילים של ההתאמה עצמה:
+    מופע אחר של מילת חיפוש באותו קטע (למשל "איסור" מעט הלאה מהצירוף "איסור ייחוד") אינו חלק
+    מההתאמה, ואם יסומן ייראה כאילו נמצאה התאמה עם מרווח."""
+
+    def __new__(cls, words=(), multi=False):
+        self = super().__new__(cls, words)
+        self.multi = multi
+        return self
+
+
 @dataclass
 class SearchResult:
     query: str
@@ -427,7 +438,7 @@ class Searcher:
         raw_forms = Counter(w for h in hits for w in h.words)
         for w, c in raw_forms.items():
             res.forms[restore_finals(w)] += c
-        res.highlight = set().union(*(t.words for t in pos_terms))
+        res.highlight = Highlight(set().union(*(t.words for t in pos_terms)), multi=n >= 2)
         # מסמכים: הטוב ביותר קודם (הציון הגבוה, ואז מספר התוצאות)
         res.files = sorted(((f, file_ids[f], c) for f, c in per_file.items()),
                            key=lambda x: (-round(best_in_file[x[0]], 3), -x[2], x[1].lower()))
@@ -516,9 +527,10 @@ class Searcher:
         if a > 0:
             segs.append(("… ", SEG_GAP))
         pos = toks[a][0]
+        multi = getattr(highlight, "multi", False)
         for i in range(a, b + 1):
             s, e, norm = toks[i]
-            if i in matched or norm in highlight:
+            if i in matched or (norm in highlight and not multi):
                 if s > pos:
                     segs.append((text[pos:s], SEG_TEXT))
                 segs.append((text[s:e], SEG_MATCH))

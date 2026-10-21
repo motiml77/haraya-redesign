@@ -100,6 +100,22 @@ class RankingTest(Base):
         self.assertEqual(marked, ["שבת", "ושבת"])
 
 
+    def test_gap_zero_matches_only_adjacent_words(self):
+        """מרווח 0: רק צירוף צמוד נחשב, ומופע מרוחק של מילת חיפוש באותו קטע אינו מסומן."""
+        build_docx(os.path.join(self.dir, "g.docx"), [
+            "הלך בדרך ואחר כך הלך ממקום למקום עד שבא בדרך הביתה",
+            "הלך ממקום למקום ואחר כך בדרך",
+        ])
+        ids = self.index([(os.path.join(self.dir, "g.docx"), "file")])
+        r = self.search(ids, "הלך בדרך", max_gap=0, prefixes=False)
+        self.assertEqual(r.total, 1)                      # הפסקה השנייה: הלך ובדרך מרוחקות – אינה התאמה
+        self.assertEqual(r.hits[0].span, (0, 1))
+        marked = [t for t, k in r.hits[0].snippet if k == SEG_MATCH]
+        self.assertEqual(marked, ["הלך", "בדרך"])         # לא גם "הלך" ו"בדרך" המרוחקים באותה פסקה
+        self.assertEqual(self.search(ids, "הלך בדרך", max_gap=3, prefixes=False).total, 1)   # עדיין רחוק מדי
+        self.assertEqual(self.search(ids, "הלך בדרך", max_gap=4, prefixes=False).total, 3)
+
+
 class BasketTest(Base):
     def test_exclude(self):
         d = os.path.join(self.dir, "folder")

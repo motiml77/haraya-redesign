@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 
 from ..search import SearchOptions
 from .theme import T
-from .widgets import Combo, Popup, Stepper
+from .widgets import Combo, Popup, Stepper, WrapLabel
 
 AHEVI_CHOICES = [("none", "מדויק"), ("vy", "ו׳ י׳ – כתיב מלא וחסר"), ("all", "כל אותיות אהו״י")]
 DEFAULTS = {"prefixes": True, "inflect": False, "ahevi": 0, "gap": 0, "paragraph": False, "ordered": True}
@@ -65,6 +65,9 @@ class OptionsPopup(Popup):
         row.addWidget(QLabel("מילים"))
         row.addStretch(1)
         lay.addLayout(row)
+        hint = WrapLabel("0 = המילים צמודות זו לזו, בלי מילה ביניהן. סימני פיסוק (פסיק, נקודה) אינם נחשבים מילה.")
+        hint.setObjectName("caption")
+        lay.addWidget(hint)
         self.cb_paragraph = QCheckBox("בכל מקום באותה פסקה")
         self.cb_ordered = QCheckBox("שמירה על סדר המילים")
         lay.addWidget(self.cb_paragraph)

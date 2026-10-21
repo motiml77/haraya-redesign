@@ -33,13 +33,27 @@ class DocViewer(HitViewer):
         QTimer.singleShot(0, lambda: (self.browser.scrollToAnchor("cur"),
                                       sb.setValue(max(0, sb.value() - self.browser.viewport().height() // 3))))
 
+    def _matched_positions(self):
+        """פסקה ← מיקומי המילים שהן חלק מהתאמה כלשהי במסמך (בחיפוש של כמה מילים רק אותן מסמנים)."""
+        out = {}
+        for h in self.hits:
+            out.setdefault(h.para_idx, set()).update(h.span)
+        return out
+
     def _para_html(self, entry, i, hit):
         text = entry[0][i][0]
         toks = self.searcher._tokens(entry, i)
         current = set(hit.span) if i == hit.para_idx else ()
+        multi = getattr(self.highlight, "multi", False)
+        matched = self._matched.get(i, ()) if multi else None
         out, pos = [], 0
         for n, (s, e, norm) in enumerate(toks):
-            mark = C_CURRENT if n in current else C.marker if norm in self.highlight else None
+            if n in current:
+                mark = C_CURRENT
+            elif norm in self.highlight and (matched is None or n in matched):
+                mark = C.marker
+            else:
+                mark = None
             if not mark:
                 continue
             out.append(html.escape(text[pos:s]))
@@ -52,6 +66,7 @@ class DocViewer(HitViewer):
         return "".join(out).replace("\n", "<br>").replace("\t", "&nbsp;&nbsp;&nbsp;&nbsp;")
 
     def _html(self, hit):
+        self._matched = self._matched_positions()
         entry = para_cache.get(self.searcher.db, hit.file_id)
         paras = entry[0]
         body, notes = [], {KIND_FOOTNOTE: [], KIND_ENDNOTE: []}
