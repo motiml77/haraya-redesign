@@ -2,21 +2,23 @@
 
 import os
 
-from PySide6.QtCore import QSettings, Qt, Signal
+from PySide6.QtCore import QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QBrush, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QInputDialog, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QProgressBar, QPushButton,
-    QSplitter, QStyle, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QSplitter, QStyle, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
+from ..basket import CHECKED, PARTIAL, BasketEditor
 from ..index import _key, is_supported
 from ..opener import open_default, reveal_in_folder
+from .file_browser import FileBrowser
 from .icons import doc_kind, file_icon
 from .results import doc_name, ltr, short_path
 
 ROLE_PATH = Qt.UserRole
-ROLE_KIND = Qt.UserRole + 1     # folder / file / child
+ROLE_KIND = Qt.UserRole + 1     # folder / file (פריטי הסל) · subdir / child (בתוך תיקייה)
 
 C_OK, C_PENDING, C_BAD, C_OFF = "#15803d", "#64748b", "#b45309", "#94a3b8"
 
@@ -60,6 +62,8 @@ class BasketPanel(QFrame):
         self.db, self.settings = db, settings
         self.data = {}        # מזהה_סל → (רשומות, קבצים) מהסריקה האחרונה
         self.status = {}      # נתיב → (מצב, הודעה, מזהה)
+        self.expanded = {}    # מזהה_סל → נתיבי התיקיות הפתוחות בעץ
+        self.editor = BasketEditor(db, None)
         self._filling = False
 
         lay = QVBoxLayout(self)
@@ -99,11 +103,19 @@ class BasketPanel(QFrame):
         bl.setSpacing(6)
         self.contents_title = _title("תוכן הסל")
         bl.addWidget(self.contents_title)
+        self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
+        bl.addWidget(self.tabs, 1)
+
+        contents = QWidget()
+        cl = QVBoxLayout(contents)
+        cl.setContentsMargins(0, 6, 0, 0)
+        cl.setSpacing(6)
         self.filter_edit = QLineEdit()
         self.filter_edit.setPlaceholderText("🔍 סינון לפי שם מסמך…")
         self.filter_edit.setClearButtonEnabled(True)
         self.filter_edit.textChanged.connect(self._apply_filter)
-        bl.addWidget(self.filter_edit)
+        cl.addWidget(self.filter_edit)
 
         self.tree = DropTree()
         self.tree.setColumnCount(2)
@@ -119,7 +131,9 @@ class BasketPanel(QFrame):
         self.tree.itemChanged.connect(self._item_changed)
         self.tree.itemDoubleClicked.connect(self._item_open)
         self.tree.dropped.connect(self.add_paths)
-        bl.addWidget(self.tree, 1)
+        self.tree.itemExpanded.connect(lambda _: self._remember_expanded())
+        self.tree.itemCollapsed.connect(lambda _: self._remember_expanded())
+        cl.addWidget(self.tree, 1)
 
         row = QHBoxLayout()
         self.add_folder_btn = QToolButton()
@@ -139,7 +153,12 @@ class BasketPanel(QFrame):
         row.addWidget(self.add_folder_btn, 1)
         row.addWidget(add_files, 1)
         row.addWidget(remove)
-        bl.addLayout(row)
+        cl.addLayout(row)
+        self.tabs.addTab(contents, "🧺 תוכן הסל")
+
+        self.browser = FileBrowser(lambda p, d: self.editor.state(p, d), settings)
+        self.browser.toggled.connect(self._browser_toggled)
+        self.tabs.addTab(self.browser, "📂 בחירה מהמחשב")
 
         self.summary = QLabel()
         self.summary.setObjectName("muted")
@@ -148,7 +167,7 @@ class BasketPanel(QFrame):
         self.summary.linkActivated.connect(lambda _: self._show_problems())
         bl.addWidget(self.summary)
         split.addWidget(bottom)
-        split.setSizes([170, 520])
+        split.setSizes([150, 560])
 
         # ---- התקדמות ----
         self.progress = QProgressBar()
@@ -216,7 +235,7 @@ class BasketPanel(QFrame):
                 return
             self.reload_baskets(bid)
             self.basketsChanged.emit()
-            self.add_folder()
+            self.tabs.setCurrentWidget(self.browser)
 
     def rename_basket(self):
         it = self.basket_list.currentItem()
@@ -290,16 +309,28 @@ class BasketPanel(QFrame):
         self.contentsChanged.emit()
 
     def remove_selected(self):
-        tops = []
-        for it in self.tree.selectedItems():
-            if it.parent() is None:
-                tops.append(it.data(0, ROLE_PATH))
-            else:
-                self.db.set_excluded(self.current_id, it.data(0, ROLE_PATH), True)
+        """פריטי סל מוסרים; מסמך או תת-תיקייה שבתוך תיקייה – מוחרגים."""
+        items = self.tree.selectedItems()
+        tops = [it.data(0, ROLE_PATH) for it in items if it.parent() is None]
         if tops:
             self.db.remove_basket_items(self.current_id, tops)
-        self._refresh_contents()
+        self.editor.reload()
+        for it in items:
+            if it.parent() is not None:
+                self.editor.set_checked(it.data(0, ROLE_PATH), it.data(0, ROLE_KIND) == "subdir", False)
+        self._changed()
+
+    def _changed(self):
+        self.editor.reload()
+        QTimer.singleShot(0, self._refresh_contents)   # לא בונים את העץ מחדש מתוך אירוע שלו
+        self.browser.refresh()
         self.contentsChanged.emit()
+
+    def _browser_toggled(self, path, is_dir, checked):
+        self.editor.set_checked(path, is_dir, checked)
+        if checked and is_dir:
+            self._remember_dir(path)
+        self._changed()
 
     # ================= תצוגת התוכן =================
     def set_scan(self, baskets, status):
@@ -329,76 +360,135 @@ class BasketPanel(QFrame):
         item.setToolTip(1, st[1] or "")
         return "bad"
 
+    def _walk(self, item=None):
+        items = [self.tree.topLevelItem(i) for i in range(self.tree.topLevelItemCount())] if item is None \
+            else [item.child(i) for i in range(item.childCount())]
+        for it in items:
+            yield it
+            yield from self._walk(it)
+
+    def _remember_expanded(self):
+        if not self._filling and self.current_id is not None:
+            self.expanded[self.current_id] = {_key(it.data(0, ROLE_PATH)) for it in self._walk()
+                                              if it.isExpanded()}
+
+    def _dir_item(self, path, kind):
+        it = QTreeWidgetItem([os.path.basename(path.rstrip("\\/")) or path])
+        it.setIcon(0, self.style().standardIcon(QStyle.SP_DirIcon))
+        it.setToolTip(0, path)
+        it.setData(0, ROLE_PATH, path)
+        it.setData(0, ROLE_KIND, kind)
+        if kind == "subdir":
+            it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
+            st = self.editor.state(path, True)
+            it.setCheckState(0, Qt.Checked if st == CHECKED else Qt.PartiallyChecked if st == PARTIAL
+                             else Qt.Unchecked)
+        return it
+
+    def _build_folder(self, top, root, files, counts, kinds, seen):
+        """תיקייה בסל → עץ מלא: תתי-תיקיות (עם מספר מסמכים) ובתוכן המסמכים."""
+        nodes = {_key(root): top}
+        tally = {}                       # מפתח תיקייה → [נכללים, סה"כ]
+
+        def node_for(d):
+            k = _key(d)
+            node = nodes.get(k)
+            if node is None:
+                parent = node_for(os.path.dirname(d))
+                node = nodes[k] = self._dir_item(d, "subdir")
+                parent.addChild(node)
+            return node
+
+        for d in sorted({os.path.dirname(f) for f in files}, key=lambda x: _key(x)):
+            node_for(d)                  # תתי-תיקיות לפני מסמכים, בסדר אלפביתי
+        for f in files:
+            parent = node_for(os.path.dirname(f))
+            ch = QTreeWidgetItem([doc_name(f)])
+            ch.setIcon(0, file_icon(f))
+            ch.setToolTip(0, f)
+            ch.setData(0, ROLE_PATH, f)
+            ch.setData(0, ROLE_KIND, "child")
+            included = self.editor.is_included(f)
+            ch.setFlags(ch.flags() | Qt.ItemIsUserCheckable)
+            ch.setCheckState(0, Qt.Checked if included else Qt.Unchecked)
+            state = self._status_cell(ch, f, not included)
+            parent.addChild(ch)
+            if _key(f) not in seen:
+                seen.add(_key(f))
+                counts[state] += 1
+                if included:
+                    kinds[doc_kind(f)] += 1
+            d = os.path.dirname(f)
+            while True:
+                t = tally.setdefault(_key(d), [0, 0])
+                t[0] += included
+                t[1] += 1
+                if _key(d) == _key(root) or os.path.dirname(d) == d:
+                    break
+                d = os.path.dirname(d)
+        for k, node in nodes.items():
+            inc, tot = tally.get(k, (0, 0))
+            node.setText(1, f"{tot:,}" if inc == tot else f"{inc:,}/{tot:,}")
+            node.setToolTip(1, f"{inc:,} מתוך {tot:,} מסמכים נכללים בחיפוש")
+            node.setForeground(1, QBrush(QColor(C_PENDING if inc else C_OFF)))
+            if not inc and node is not top:
+                node.setForeground(0, QBrush(QColor(C_OFF)))
+
     def _refresh_contents(self):
         bid = self.current_id
         if bid is None:
             return
+        self.editor.basket_id = bid
+        self.editor.reload()
+        self.browser.refresh()
         name = self.basket_list.currentItem().data(ROLE_KIND)
-        self.contents_title.setText(f"תוכן הסל: {name}")
+        self.contents_title.setText(f"סל: {name}")
         items = self.db.basket_items(bid)
-        excluded = {_key(p) for p, k in items if k == "exclude"}
         scanned = {e[0]: e[2] for e in self.data.get(bid, ([], []))[0]}
-        expanded = {self.tree.topLevelItem(i).data(0, ROLE_PATH)
-                    for i in range(self.tree.topLevelItemCount()) if self.tree.topLevelItem(i).isExpanded()}
-
         total_children = sum(len(v) for v in scanned.values())
+        remembered = self.expanded.get(bid)
+
         self._filling = True
         self.tree.clear()
         counts = {"ok": 0, "pending": 0, "bad": 0, "off": 0}
         kinds = {"word": 0, "pdf": 0, "doc": 0}
         seen = set()
-        folder_icon = self.style().standardIcon(QStyle.SP_DirIcon)
         for path, kind in items:
             if kind == "exclude":
                 continue
-            top = QTreeWidgetItem()
-            top.setData(0, ROLE_PATH, path)
-            top.setData(0, ROLE_KIND, kind)
-            top.setToolTip(0, path)
             if kind == "folder":
-                top.setIcon(0, folder_icon)
-                children = scanned.get(path)
-                top.setText(0, os.path.basename(path.rstrip("\\/")) or path)
-                if children is None:
+                top = self._dir_item(path, "folder")
+                self.tree.addTopLevelItem(top)
+                files = scanned.get(path)
+                if files is None:
                     top.setText(1, "סורק…")
                 else:
-                    top.setText(1, f"{len(children):,}")
-                    top.setToolTip(1, f"{len(children):,} מסמכים בתיקייה")
-                    for f in children:
-                        rel = os.path.relpath(os.path.dirname(f), path)
-                        label = doc_name(f) if rel == "." else f"{doc_name(f)}  ‹{rel}›"
-                        ch = QTreeWidgetItem([label])
-                        ch.setIcon(0, file_icon(f))
-                        ch.setToolTip(0, f)
-                        ch.setData(0, ROLE_PATH, f)
-                        ch.setData(0, ROLE_KIND, "child")
-                        off = _key(f) in excluded
-                        ch.setFlags(ch.flags() | Qt.ItemIsUserCheckable)
-                        ch.setCheckState(0, Qt.Unchecked if off else Qt.Checked)
-                        state = self._status_cell(ch, f, off)
-                        if _key(f) not in seen:
-                            seen.add(_key(f))
-                            counts[state] += 1
-                            if not off:
-                                kinds[doc_kind(f)] += 1
-                        top.addChild(ch)
+                    self._build_folder(top, path, files, counts, kinds, seen)
             else:
-                top.setText(0, doc_name(path))
+                top = QTreeWidgetItem([doc_name(path)])
                 top.setIcon(0, file_icon(path))
+                top.setToolTip(0, path)
+                top.setData(0, ROLE_PATH, path)
+                top.setData(0, ROLE_KIND, "file")
                 state = self._status_cell(top, path, False)
+                self.tree.addTopLevelItem(top)
                 if _key(path) not in seen:
                     seen.add(_key(path))
                     counts[state] += 1
                     kinds[doc_kind(path)] += 1
-            self.tree.addTopLevelItem(top)
-            if kind == "folder":
-                # סלים קטנים-בינוניים נפתחים במלואם כדי לראות את כל הרשימה
-                top.setExpanded(path in expanded or total_children <= 300)
+        # פתיחת תיקיות: כפי שהמשתמש השאיר; בפעם הראשונה – הכל, אם הסל לא ענק
+        for it in self._walk():
+            if it.childCount():
+                k = _key(it.data(0, ROLE_PATH))
+                it.setExpanded(k in remembered if remembered is not None
+                               else total_children <= 300 or it.parent() is None)
         self._filling = False
         self._apply_filter(self.filter_edit.text())
 
         if not items:
-            self.summary.setText("הסל ריק. הוסיפו תיקיות או מסמכים – או גררו אותם לכאן מהסייר.")
+            self.summary.setText("הסל ריק. סמנו תיקיות ומסמכים בלשונית \"בחירה מהמחשב\", "
+                                 "או גררו אותם לכאן מהסייר.")
+            self.tabs.setCurrentWidget(self.browser)
             return
         active = counts["ok"] + counts["pending"] + counts["bad"]
         parts = [f"<b>{active:,}</b> מסמכים"]
@@ -415,33 +505,36 @@ class BasketPanel(QFrame):
 
     def _apply_filter(self, text):
         text = text.strip().lower()
+
+        def visit(it):
+            own = not text or text in it.text(0).lower()
+            child_visible = False
+            for i in range(it.childCount()):
+                child_visible |= visit(it.child(i))
+            visible = own or child_visible
+            if own and text and it.childCount():   # תיקייה שהתאימה – מציגים את כל תוכנה
+                for ch in self._walk(it):
+                    ch.setHidden(False)
+                visible = True
+            it.setHidden(not visible)
+            if text and child_visible:
+                it.setExpanded(True)
+            return visible
+
+        self._filling = True
         for i in range(self.tree.topLevelItemCount()):
-            top = self.tree.topLevelItem(i)
-            any_child = False
-            for j in range(top.childCount()):
-                ch = top.child(j)
-                hide = bool(text) and text not in ch.text(0).lower()
-                ch.setHidden(hide)
-                any_child |= not hide
-            own = not text or text in top.text(0).lower()
-            top.setHidden(not (own or any_child))
-            if text and any_child:
-                top.setExpanded(True)
+            visit(self.tree.topLevelItem(i))
+        self._filling = False
 
     def _item_changed(self, item, column):
-        if self._filling or column != 0 or item.data(0, ROLE_KIND) != "child":
+        if self._filling or column != 0 or item.data(0, ROLE_KIND) not in ("child", "subdir"):
             return
-        excluded = item.checkState(0) != Qt.Checked
-        self.db.set_excluded(self.current_id, item.data(0, ROLE_PATH), excluded)
-        self._filling = True
-        self._status_cell(item, item.data(0, ROLE_PATH), excluded)
-        if not excluded:
-            item.setForeground(0, QBrush())
-        self._filling = False
-        self.contentsChanged.emit()
+        self.editor.set_checked(item.data(0, ROLE_PATH), item.data(0, ROLE_KIND) == "subdir",
+                                item.checkState(0) == Qt.Checked)
+        self._changed()
 
     def _item_open(self, item, _col):
-        if item.data(0, ROLE_KIND) != "folder":
+        if item.data(0, ROLE_KIND) in ("file", "child"):
             open_default(item.data(0, ROLE_PATH))
 
     def _context_menu(self, pos):
@@ -450,13 +543,14 @@ class BasketPanel(QFrame):
             return
         path, kind = item.data(0, ROLE_PATH), item.data(0, ROLE_KIND)
         menu = QMenu(self)
-        if kind != "folder":
+        if kind in ("file", "child"):
             menu.addAction("פתח את המסמך", lambda: open_default(path))
         menu.addAction("הצג בתיקייה", lambda: reveal_in_folder(path))
         menu.addSeparator()
-        if kind == "child":
-            on = item.checkState(0) == Qt.Checked
-            menu.addAction("החרג מהחיפוש" if on else "החזר לחיפוש",
+        if kind in ("child", "subdir"):
+            on = item.checkState(0) != Qt.Unchecked
+            what = "התיקייה" if kind == "subdir" else "המסמך"
+            menu.addAction(f"החרג את {what} מהחיפוש" if on else f"החזר את {what} לחיפוש",
                            lambda: item.setCheckState(0, Qt.Unchecked if on else Qt.Checked))
         else:
             act = QAction("הסר מהסל", menu)

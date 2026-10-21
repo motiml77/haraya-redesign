@@ -83,7 +83,7 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self._build_search_panel())
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([390, 970])
+        splitter.setSizes([420, 940])
 
         act = QAction(self)
         act.setShortcut(QKeySequence("Ctrl+F"))

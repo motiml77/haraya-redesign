@@ -48,6 +48,17 @@ QProgressBar {
 }
 QProgressBar::chunk { background: #2563eb; border-radius: 4px; }
 QTextBrowser { border: none; background: #f4f6fb; }
+QTabWidget::pane { border: none; }
+QTabBar::tab {
+    background: transparent; color: #64748b; padding: 7px 14px; margin-left: 2px;
+    border: none; border-bottom: 2px solid transparent; font-weight: 600;
+}
+QTabBar::tab:selected { color: #1d4ed8; border-bottom: 2px solid #2563eb; }
+QTabBar::tab:hover:!selected { color: #334155; background: #f1f5f9; }
+QTreeView { border: 1px solid #e3e8f0; border-radius: 6px; background: #ffffff; outline: none; }
+QTreeView::item { padding: 3px 2px; }
+QTreeView::item:selected { background: #dbeafe; color: #1e3a8a; }
+QTreeView::item:hover:!selected { background: #f1f5f9; }
 QSplitter::handle { background: transparent; }
 QStatusBar { background: #ffffff; color: #64748b; border-top: 1px solid #e3e8f0; }
 QCheckBox { spacing: 6px; }

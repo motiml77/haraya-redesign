@@ -146,3 +146,35 @@ class PdfTest(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BasketEditorTest(Base):
+    def test_browse_and_toggle(self):
+        from hebsearch.basket import CHECKED, PARTIAL, UNCHECKED, BasketEditor
+        root = os.path.join(self.dir, "lib")
+        sub = os.path.join(root, "sub")
+        deep = os.path.join(sub, "deep")
+        os.makedirs(deep)
+        a, b, c = (os.path.join(d, n) for d, n in ((root, "a.docx"), (sub, "b.docx"), (deep, "c.docx")))
+        for f in (a, b, c):
+            build_docx(f, ["טקסט"])
+        bid = self.db.create_basket("עיון")
+        ed = BasketEditor(self.db, bid)
+        names = lambda: sorted(os.path.basename(f) for f in resolve_basket(self.db.basket_items(bid))[1])
+
+        ed.set_checked(b, False, True)                     # מסמך בודד בתוך תת-תיקייה
+        self.assertEqual(names(), ["b.docx"])
+        self.assertEqual(ed.state(root, True), PARTIAL)
+        ed.set_checked(root, True, True)                   # כל התיקייה – כולל תתי-תיקיות
+        self.assertEqual(names(), ["a.docx", "b.docx", "c.docx"])
+        self.assertEqual(self.db.basket_items(bid), [(os.path.abspath(root), "folder")])
+        ed.set_checked(sub, True, False)                   # החרגת תת-תיקייה שלמה
+        self.assertEqual(names(), ["a.docx"])
+        self.assertEqual((ed.state(root, True), ed.state(c, False)), (PARTIAL, UNCHECKED))
+        ed.set_checked(c, False, True)                     # מסמך בתוך תת-תיקייה מוחרגת
+        self.assertEqual(names(), ["a.docx", "c.docx"])
+        ed.set_checked(sub, True, True)                    # החזרת התת-תיקייה
+        self.assertEqual(names(), ["a.docx", "b.docx", "c.docx"])
+        self.assertEqual(ed.state(root, True), CHECKED)
+        ed.set_checked(root, True, False)                  # ביטול הכל
+        self.assertEqual(self.db.basket_items(bid), [])

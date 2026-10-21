@@ -51,10 +51,26 @@ def _key(p):
     return os.path.normcase(os.path.abspath(p))
 
 
+def is_excluded(path, excluded, root=None) -> bool:
+    """האם המסמך הוחרג – בעצמו או דרך תת-תיקייה שלו (עד תיקיית הסל root, לא כולל)."""
+    if not excluded:
+        return False
+    k = _key(path)
+    stop = _key(root) if root else None
+    while k != stop:
+        if k in excluded:
+            return True
+        parent = os.path.dirname(k)
+        if parent == k:
+            return False
+        k = parent
+    return False
+
+
 def resolve_basket(items):
     """פריטי סל → (רשומות, קבצים).
 
-    items: [(נתיב, סוג)] כשסוג הוא folder / file / exclude (קובץ שהוחרג מתוך תיקייה).
+    items: [(נתיב, סוג)] כשסוג הוא folder / file / exclude (מסמך או תת-תיקייה שהוחרגו).
     רשומות: [(נתיב, סוג, [כל המסמכים שתחתיו])] – לתצוגת תוכן הסל.
     קבצים: המסמכים שייכללו בחיפוש, ממוינים וללא כפילויות וללא המוחרגים.
     """
@@ -73,7 +89,8 @@ def resolve_basket(items):
         entries.append((path, kind, found))
         for f in found:
             k = _key(f)
-            if k not in excluded and k not in seen:
+            # החרגה חלה רק על מה שבתוך תיקייה; מסמך שנוסף ישירות תמיד נכלל
+            if k not in seen and not (kind == "folder" and is_excluded(f, excluded, path)):
                 seen.add(k)
                 files.append(f)
     return entries, files
@@ -165,13 +182,21 @@ class IndexDB:
                                   [(c, bid) for bid, c in counts.items()])
 
     def set_excluded(self, basket_id: int, path: str, excluded: bool):
+        """מחריג מסמך או תת-תיקייה מתוך תיקייה שבסל (או מחזיר אותם).
+        החזרה של תיקייה מחזירה גם את כל מה שהוחרג בתוכה."""
+        path = os.path.abspath(path)
         with self.conn:
             if excluded:
-                self.conn.execute("INSERT OR REPLACE INTO basket_items VALUES(?,?,'exclude')",
-                                  (basket_id, os.path.abspath(path)))
+                self.conn.execute("INSERT OR IGNORE INTO basket_items VALUES(?,?,'exclude')", (basket_id, path))
             else:
-                self.conn.execute("DELETE FROM basket_items WHERE basket_id=? AND path=? AND kind='exclude'",
-                                  (basket_id, os.path.abspath(path)))
+                prefix = path.rstrip("\\/") + os.sep
+                rows = self.conn.execute(
+                    "SELECT path FROM basket_items WHERE basket_id=? AND kind='exclude'", (basket_id,)).fetchall()
+                gone = [p for (p,) in rows
+                        if os.path.normcase(p) == os.path.normcase(path)
+                        or os.path.normcase(p).startswith(os.path.normcase(prefix))]
+                self.conn.executemany("DELETE FROM basket_items WHERE basket_id=? AND path=? AND kind='exclude'",
+                                      [(basket_id, p) for p in gone])
 
     def create_basket(self, name: str) -> int:
         with self.conn:
@@ -193,13 +218,20 @@ class IndexDB:
 
     def add_basket_items(self, basket_id: int, items):
         with self.conn:
-            self.conn.executemany("INSERT OR IGNORE INTO basket_items VALUES(?,?,?)",
+            self.conn.executemany("INSERT OR REPLACE INTO basket_items VALUES(?,?,?)",
                                   [(basket_id, os.path.abspath(p), k) for p, k in items])
 
     def remove_basket_items(self, basket_id: int, paths):
+        """הסרת פריטים מהסל (וגם ההחרגות שהיו בתוך תיקייה שהוסרה)."""
         with self.conn:
             self.conn.executemany("DELETE FROM basket_items WHERE basket_id=? AND path=?",
                                   [(basket_id, p) for p in paths])
+            rows = self.conn.execute("SELECT path FROM basket_items WHERE basket_id=? AND kind='exclude'",
+                                     (basket_id,)).fetchall()
+            prefixes = [_key(p).rstrip("\\/") + os.sep for p in paths]
+            self.conn.executemany(
+                "DELETE FROM basket_items WHERE basket_id=? AND path=? AND kind='exclude'",
+                [(basket_id, p) for (p,) in rows if any(_key(p).startswith(x) for x in prefixes)])
 
     # ---------- מצב קבצים ----------
     def file_rows(self, paths):
