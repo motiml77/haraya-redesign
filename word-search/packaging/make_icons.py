@@ -33,7 +33,8 @@ def render(svg: bytes, size: int) -> Image.Image:
 
 def main():
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    app = QGuiApplication(sys.argv)  # noqa: F841 – נדרש לציור
+    app = QGuiApplication(sys.argv)  # נדרש לציור
+    app.setApplicationName("make_icons")
     svg = open(os.path.join(ASSETS, "icon.svg"), "rb").read()
     small = open(os.path.join(ASSETS, "icon-small.svg"), "rb").read()
     big = render(svg, 1024)
