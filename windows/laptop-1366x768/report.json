@@ -1,0 +1,187 @@
+{
+  "version": "1.0.0",
+  "python": "3.12.10",
+  "qt": "6.12.0",
+  "os": "Windows-2025Server-10.0.26100-SP0",
+  "kernel": "Windows Server 2025 Version 24H2",
+  "shots": {
+    "01_welcome.png": {
+      "size": [
+        1028,
+        655
+      ],
+      "dark_share": 0.0014,
+      "note": ""
+    },
+    "02_basket.png": {
+      "size": [
+        1028,
+        655
+      ],
+      "dark_share": 0.0018,
+      "note": ""
+    },
+    "03_browse_tab.png": {
+      "size": [
+        1028,
+        655
+      ],
+      "dark_share": 0.0024,
+      "note": "עץ בחירה מהמחשב: תיקיות, קבצים, סימוני ✓ וסמלי המערכת"
+    },
+    "04_results.png": {
+      "size": [
+        1028,
+        655
+      ],
+      "dark_share": 0.0053,
+      "note": ""
+    },
+    "05_options.png": {
+      "size": [
+        360,
+        303
+      ],
+      "dark_share": 0.0041,
+      "note": ""
+    },
+    "06_by_document.png": {
+      "size": [
+        1028,
+        655
+      ],
+      "dark_share": 0.0049,
+      "note": ""
+    },
+    "07_busy_overlay.png": {
+      "size": [
+        1028,
+        655
+      ],
+      "dark_share": 0.0014,
+      "note": "ספינר, אחוזים וכפתור ביטול"
+    },
+    "08_viewer_word.png": {
+      "size": [
+        900,
+        662
+      ],
+      "dark_share": 0.004,
+      "note": ""
+    },
+    "09_viewer_pdf.png": {
+      "size": [
+        900,
+        662
+      ],
+      "dark_share": 0.0481,
+      "note": ""
+    },
+    "10_two_baskets.png": {
+      "size": [
+        1028,
+        655
+      ],
+      "dark_share": 0.0045,
+      "note": ""
+    },
+    "11_zoom_125.png": {
+      "size": [
+        1028,
+        655
+      ],
+      "dark_share": 0.0085,
+      "note": ""
+    },
+    "12_zoom_85.png": {
+      "size": [
+        1028,
+        655
+      ],
+      "dark_share": 0.0039,
+      "note": ""
+    },
+    "13_narrow_900x560.png": {
+      "size": [
+        900,
+        560
+      ],
+      "dark_share": 0.0053,
+      "note": ""
+    },
+    "14_no_sidebar_narrow.png": {
+      "size": [
+        900,
+        560
+      ],
+      "dark_share": 0.007,
+      "note": ""
+    }
+  },
+  "errors": [],
+  "os_color_scheme": "ColorScheme.Light",
+  "os_palette_window_lightness": 243,
+  "app_palette_window_lightness": 245,
+  "screen": {
+    "geometry": [
+      0,
+      0,
+      1024,
+      768
+    ],
+    "available": [
+      0,
+      0,
+      1024,
+      720
+    ],
+    "dpr": 1.0,
+    "logical_dpi": 96.0,
+    "platform": "windows"
+  },
+  "font": {
+    "family": "Segoe UI",
+    "app_font": "Segoe UI",
+    "px": 12,
+    "zoom": 0.95
+  },
+  "system_icons": {
+    "docx": false,
+    "pdf": true,
+    "doc": false,
+    "folder": true
+  },
+  "style": "",
+  "search_seconds": 0.245,
+  "metrics": {
+    "window": [
+      1028,
+      700
+    ],
+    "search_field": [
+      416,
+      32
+    ],
+    "search_button": [
+      74,
+      32
+    ],
+    "options_button": [
+      123,
+      32
+    ],
+    "basket_tree": [
+      292,
+      424
+    ],
+    "browser_tree": [
+      292,
+      346
+    ],
+    "results": [
+      440,
+      492
+    ]
+  },
+  "ok": true
+}
