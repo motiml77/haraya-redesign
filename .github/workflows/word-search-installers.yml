@@ -32,6 +32,7 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     continue-on-error: ${{ matrix.optional }}
     strategy:
       fail-fast: false
