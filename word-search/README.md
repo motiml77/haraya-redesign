@@ -1,5 +1,7 @@
 # חיפוש במסמכים – Word ו-PDF בעברית
 
+[![בניית קובצי ההתקנה](https://github.com/motiml77/haraya-redesign/actions/workflows/word-search-installers.yml/badge.svg)](https://github.com/motiml77/haraya-redesign/actions/workflows/word-search-installers.yml)
+
 תוכנת שולחן עבודה לחיפוש מהיר וגמיש בתוך מסמכי וורד (‎.docx‎) וקבצי PDF בעברית.
 
 * **סלים קבועים בשמות** – כל סל ("שיעורים", "תורה", "מכתבים"…) מכיל תיקיות שלמות (כולל תתי־תיקיות)
