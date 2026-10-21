@@ -62,7 +62,8 @@ class MainWindow(QMainWindow):
         saved = self.settings.value("search_baskets", None)
         self.search_ids = None if saved is None else {int(x) for x in (saved if isinstance(saved, list) else [saved])}
 
-        self.setWindowTitle("חיפוש במסמכי Word ו-PDF")
+        from .. import APP_NAME
+        self.setWindowTitle(f"{APP_NAME} – Word ו-PDF")
         self.resize(1360, 860)
         self._build()
         self._restore_options()
@@ -226,8 +227,28 @@ class MainWindow(QMainWindow):
         rl.addWidget(split, 1)
         lay.addWidget(res_panel, 1)
 
+        about = QPushButton("ⓘ אודות")
+        about.setFlat(True)
+        about.setCursor(Qt.PointingHandCursor)
+        about.clicked.connect(self._about)
+        self.statusBar().addPermanentWidget(about)
         self.statusBar().showMessage(f"גרסה {__version__}")
         return w
+
+    def _about(self):
+        from PySide6.QtGui import QPixmap
+
+        from .. import APP_NAME, asset
+        from ..index import IndexDB as _DB  # noqa: F401
+        from ..paths import data_dir
+        box = QMessageBox(self)
+        box.setWindowTitle(f"אודות {APP_NAME}")
+        box.setIconPixmap(QPixmap(asset("icon.png")).scaled(96, 96, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        box.setTextFormat(Qt.RichText)
+        box.setText(f"<h3>{APP_NAME}</h3><p>גרסה {__version__}</p>"
+                    "<p>חיפוש מהיר וגמיש בתוך מסמכי Word ו-PDF בעברית.</p>"
+                    f"<p style='color:#64748b'>מפת החיפוש נשמרת ב:<br>{ltr(data_dir())}</p>")
+        box.exec()
 
     # ================= בחירת סלים לחיפוש =================
     def _refresh_chips(self):
@@ -617,14 +638,37 @@ class MainWindow(QMainWindow):
         super().closeEvent(e)
 
 
+def prepare_app(app):
+    """הגדרות כלליות לאפליקציה: שם, כיוון, עיצוב ולוגו."""
+    import sys
+
+    from PySide6.QtGui import QIcon
+
+    from .. import APP_ID, APP_NAME, asset
+    from .style import QSS
+    app.setApplicationName("HebWordSearch")
+    app.setApplicationDisplayName(APP_NAME)
+    app.setApplicationVersion(__version__)
+    app.setLayoutDirection(Qt.RightToLeft)
+    app.setStyleSheet(QSS)
+    app.setFont(QFont("Segoe UI", 10))
+    icon = QIcon()
+    for name in ("icon-16.png", "icon-32.png", "icon.png", "icon-512.png"):
+        icon.addFile(asset(name))
+    app.setWindowIcon(icon)
+    if sys.platform == "win32":
+        # בלי זה חלונות מציגה בשורת המשימות את האייקון של פייתון ולא את הלוגו
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(f"{APP_ID}.app")
+        except Exception:
+            pass
+
+
 def run(db_path):
     import sys
     app = QApplication.instance() or QApplication(sys.argv)
-    app.setApplicationName("HebWordSearch")
-    app.setLayoutDirection(Qt.RightToLeft)
-    from .style import QSS
-    app.setStyleSheet(QSS)
-    app.setFont(QFont("Segoe UI", 10))
+    prepare_app(app)
     win = MainWindow(db_path)
     win.show()
     return app.exec()

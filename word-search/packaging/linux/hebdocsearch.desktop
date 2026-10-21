@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=חיפוש במסמכים
+Name[en]=HebDocSearch
+Comment=חיפוש מהיר בתוך מסמכי Word ו-PDF בעברית
+Comment[en]=Fast search inside Hebrew Word and PDF documents
+Exec=@EXEC@
+Icon=hebdocsearch
+Terminal=false
+Categories=Office;Utility;
+StartupWMClass=HebDocSearch

@@ -4,7 +4,15 @@ import sys
 
 def main():
     multiprocessing.freeze_support()
-    if len(sys.argv) > 1 and sys.argv[1] in ("search", "index", "--db"):
+    args = sys.argv[1:]
+    if args and args[0] == "--version":
+        from . import __version__
+        print(__version__)
+        return 0
+    if args and args[0] == "--selftest":
+        from .selftest import run as selftest
+        return selftest(args[1:])
+    if args and args[0] in ("search", "index", "--db"):
         from .cli import main as cli_main
         return cli_main()
     from .gui.main_window import run

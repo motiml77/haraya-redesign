@@ -17,7 +17,9 @@ except ImportError:  # pragma: no cover
     pymupdf = None
 
 FONT = next((p for p in ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                         "C:/Windows/Fonts/arial.ttf") if os.path.exists(p)), None)
+                         "C:/Windows/Fonts/arial.ttf",
+                         "/System/Library/Fonts/Supplemental/Arial.ttf",
+                         "/Library/Fonts/Arial Unicode.ttf") if os.path.exists(p)), None)
 
 
 def visual(s):
