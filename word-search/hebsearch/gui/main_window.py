@@ -136,7 +136,7 @@ class MainWindow(QMainWindow):
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setCollapsible(1, False)
         total = max(600, self.width() - 2 * T.gap)
-        side = max(T.pad * 26, min(T.pad * 34, int(total * 0.27)))
+        side = max(T.pad * 28, min(T.pad * 34, int(total * 0.28)))
         self.splitter.setSizes([side, total - side])
 
         self._build_status_bar()

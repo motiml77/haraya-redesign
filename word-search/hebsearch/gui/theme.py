@@ -224,7 +224,7 @@ QMenu::separator {{ height: 1px; background: {C.border}; margin: 4px 6px; }}
 QTabWidget::pane {{ border: none; }}
 QTabBar {{ qproperty-drawBase: 0; background: transparent; }}
 QTabBar::tab {{
-    background: transparent; color: {C.text2}; padding: 0 {t.pad + 2}px; min-height: {t.h_tab - 3}px;
+    background: transparent; color: {C.text2}; padding: 0 {t.pad}px; min-height: {t.h_tab - 3}px;
     border: none; border-bottom: 2px solid transparent; margin-left: 2px;
 }}
 QTabBar::tab:selected {{ color: {C.accent}; border-bottom: 2px solid {C.accent}; font-weight: 600; }}

@@ -100,6 +100,10 @@ class BasketPanel(QFrame):
         # ---- לשוניות ----
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
+        bar = self.tabs.tabBar()
+        bar.setExpanding(True)                  # שתי הלשוניות מתחלקות ברוחב הסרגל, בלי כפתורי גלילה
+        bar.setUsesScrollButtons(False)
+        bar.setElideMode(Qt.ElideRight)
         lay.addWidget(self.tabs, 1)
 
         # תוכן הסל

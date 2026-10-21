@@ -4,13 +4,8 @@
 #   * וכענף ci-screenshots (ענף יתום שנדרס בכל ריצה) – כדי שאפשר יהיה לראות את התמונות ישירות.
 name: word-search screenshots
 
+# מופעל ידנית: לשונית Actions ← word-search screenshots ← Run workflow.
 on:
-  push:
-    branches:
-      - "ccr-*"
-    paths:
-      - "word-search/**"
-      - ".github/workflows/word-search-screenshots.yml"
   workflow_dispatch:
 
 permissions:

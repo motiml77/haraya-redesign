@@ -169,6 +169,9 @@ class FileBrowser(QWidget):
             QTimer.singleShot(1200, lambda: self.path_edit.setStyleSheet(""))
             return False
         idx = self.model.index(path)
+        if not idx.isValid():                     # נתיב בתוך תיקייה מוסתרת (למשל AppData) – מציגים גם מוסתרים
+            self.model.setFilter(self.model.filter() | QDir.Hidden)
+            idx = self.model.index(path)
         if not idx.isValid():
             return False
         self._target = path
