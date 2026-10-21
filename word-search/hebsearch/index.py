@@ -21,7 +21,7 @@ from concurrent.futures import ProcessPoolExecutor
 from .extract import DOC_EXTS, DOCX_EXTS, PDF_EXTS, doc_support_available, extract_doc_com, extract_docx
 from .normalize import normalize_text
 
-INDEX_VERSION = "3"
+INDEX_VERSION = "4"
 SUPPORTED_EXTS = DOCX_EXTS | DOC_EXTS | PDF_EXTS
 
 SCHEMA = """

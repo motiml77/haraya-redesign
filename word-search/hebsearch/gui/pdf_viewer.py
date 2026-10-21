@@ -1,11 +1,11 @@
-"""צופה PDF מובנה: נפתח בעמוד של התוצאה ומסמן את המילים שנמצאו."""
+"""צופה PDF מובנה: נפתח בעמוד ובגובה השורה של התוצאה ומסמן את המילה."""
 
 import os
 
-from PySide6.QtCore import QModelIndex, QPointF, Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMainWindow, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtCore import QModelIndex, QPointF, QTimer
 
-from ..opener import open_default, reveal_in_folder
+from ..opener import open_pdf_external, reveal_in_folder
+from .viewer_base import HitViewer
 
 try:
     from PySide6.QtPdf import QPdfDocument, QPdfSearchModel
@@ -15,61 +15,91 @@ except ImportError:  # PySide6 בלי מודול ה-PDF
     AVAILABLE = False
 
 
-class PdfViewer(QMainWindow):
-    def __init__(self, path, page, needle, title, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_DeleteOnClose)
-        self.setWindowTitle(f"{title} – עמוד {page}")
+class PdfViewer(HitViewer):
+    def __init__(self, searcher, highlight, hits, index, parent=None):
+        super().__init__(searcher, highlight, hits, index, parent)
         self.resize(900, 1000)
-        self.path, self.target = path, max(0, page - 1)
-
-        central = QWidget()
-        lay = QVBoxLayout(central)
-        lay.setContentsMargins(8, 8, 8, 8)
-        bar = QHBoxLayout()
-        self.page_label = QLabel()
-        bar.addWidget(self.page_label)
-        bar.addStretch(1)
-        for text, slot in (("－", lambda: self._zoom(1 / 1.2)), ("＋", lambda: self._zoom(1.2)),
-                           ("הצג בתיקייה", lambda: reveal_in_folder(path)),
-                           ("פתח בתוכנה החיצונית", lambda: open_default(path))):
-            b = QPushButton(text)
-            b.clicked.connect(slot)
-            bar.addWidget(b)
-        lay.addLayout(bar)
+        self.add_action("－", lambda: self._zoom(1 / 1.2), "הקטנה")
+        self.add_action("＋", lambda: self._zoom(1.2), "הגדלה")
+        self.add_action("פתח בתוכנה החיצונית", lambda: open_pdf_external(self.path, self.hit.page, self._word(self.hit)),
+                        "Acrobat / SumatraPDF נפתחים ישר בעמוד הנכון")
+        self.add_action("הצג בתיקייה", lambda: reveal_in_folder(self.path))
 
         self.doc = QPdfDocument(self)
-        self.doc.load(path)
+        self.doc.load(self.path)
         self.view = QPdfView(self)
         self.view.setDocument(self.doc)
         self.view.setPageMode(QPdfView.PageMode.MultiPage)
         self.view.setZoomMode(QPdfView.ZoomMode.FitToWidth)
-        lay.addWidget(self.view, 1)
-        self.setCentralWidget(central)
+        self.layout_.addWidget(self.view, 1)
 
-        nav = self.view.pageNavigator()
-        nav.currentPageChanged.connect(self._page_changed)
-        nav.jump(self.target, QPointF(), 0)
-        self._page_changed(self.target)
-
-        # סימון המילים (אם PDFium מצליח לזהות את הטקסט בקובץ)
         self.search = None
-        if needle and hasattr(self.view, "setSearchModel"):
+        if hasattr(self.view, "setSearchModel"):
             self.search = QPdfSearchModel(self)
             self.search.setDocument(self.doc)
             self.view.setSearchModel(self.search)
-            self.search.rowsInserted.connect(self._results_ready)
-            self.search.setSearchString(needle)
+            self.search.rowsInserted.connect(self._pick_result)
+            self.search.modelReset.connect(self._pick_result)
+        self._target = (0, 0.0)
+        self.go(index)
 
-    def _results_ready(self, *_):
+    @staticmethod
+    def _word(hit):
+        words = hit.needle.split()
+        return max(words, key=len) if words else ""
+
+    def show_hit(self, hit):
+        page = max(0, (hit.page or 1) - 1)
+        self._target = (page, hit.y)
+        self._jump()
+        for ms in (80, 300):                     # שוב אחרי שהדפים נפרסו בחלון
+            QTimer.singleShot(ms, self._jump)
+        self.where.setText(self.where.text() + f"   ·   {os.path.basename(self.path)}")
+        if self.search is not None:
+            word = self._word(hit)
+            if self.search.searchString() != word:
+                self.search.setSearchString(word)
+            # PDFium מחזיר תוצאות במנות – בוחרים שוב כשמגיעות עוד
+            for ms in (0, 150, 400, 1000, 2500):
+                QTimer.singleShot(ms, self._pick_result)
+
+    def _jump(self):
+        """גלילה לגובה השורה בעמוד. QPdfView במצב רב-עמודי מתעלם מהגובה שבתוך העמוד,
+        לכן מחשבים את מיקום הגלילה בעצמנו: ראש העמוד + גובה השורה × קנה המידה."""
+        page, y = self._target
+        self.view.pageNavigator().jump(page, QPointF(0, 0), 0)
+        n = self.doc.pageCount()
+        if n <= 0:
+            return
+        heights = [self.doc.pagePointSize(i).height() for i in range(n)]
+        sb = self.view.verticalScrollBar()
+        m = self.view.documentMargins()
+        spacing = self.view.pageSpacing()
+        content = sb.maximum() + self.view.viewport().height() - m.top() - m.bottom() - spacing * (n - 1)
+        scale = content / sum(heights) if sum(heights) else 1.0
+        top = m.top() + sum(h * scale + spacing for h in heights[:page])
+        offset = max(0.0, y - 40) * scale if y >= 0 else 0.0
+        sb.setValue(int(top + offset))
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        QTimer.singleShot(0, self._jump)
+
+    def _pick_result(self, *_):
+        """מבין תוצאות החיפוש של PDFium – זו שבעמוד ובגובה הקרובים ביותר לתוצאה."""
+        page, y = self._target
+        best, best_d = None, None
         for i in range(self.search.rowCount(QModelIndex())):
-            if self.search.resultAtIndex(i).page() == self.target:
-                self.search.rowsInserted.disconnect(self._results_ready)
-                self.view.setCurrentSearchResultIndex(i)
-                return
-
-    def _page_changed(self, page):
-        self.page_label.setText(f"עמוד {page + 1} מתוך {self.doc.pageCount()}   ·   {os.path.basename(self.path)}")
+            link = self.search.resultAtIndex(i)
+            if link.page() != page:
+                continue
+            rects = link.rectangles()
+            d = abs(rects[0].y() - y) if rects and y >= 0 else 0
+            if best is None or d < best_d:
+                best, best_d = i, d
+        if best is not None and best != self.view.currentSearchResultIndex():
+            self.view.setCurrentSearchResultIndex(best)
+            self._jump()          # בחירת תוצאה גוללת בעצמה – מחזירים לגובה המדויק
 
     def _zoom(self, factor):
         self.view.setZoomMode(QPdfView.ZoomMode.Custom)

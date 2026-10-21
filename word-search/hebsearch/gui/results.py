@@ -83,7 +83,8 @@ def _meter(score):
 
 
 class ResultsView(QTextBrowser):
-    hitClicked = Signal(object)        # Hit
+    hitClicked = Signal(object)        # Hit – פתיחה במקום
+    hitPreview = Signal(object)        # Hit – תצוגה מובנית
     fileClicked = Signal(str)          # נתיב
     folderClicked = Signal(str)        # נתיב
 
@@ -177,11 +178,14 @@ class ResultsView(QTextBrowser):
             f'<tr><td>'
             f'<span style="color:#94a3b8">{i + 1}.</span>&nbsp; {doc}'
             f'<a href="hit:{i}" style="color:{C_ACCENT}; text-decoration:none; font-weight:bold">'
-            f'{_esc(hit.location)}&nbsp; <span style="font-weight:normal">↗ פתח כאן</span></a>{badge}'
+            f'{_esc(hit.location)}&nbsp; <span style="font-weight:normal">↗ פתח במקום</span></a>'
+            f'<span style="color:#cbd5e1">&nbsp; | &nbsp;</span>'
+            f'<a href="view:{i}" style="color:{C_ACCENT}; text-decoration:none">👁 תצוגה</a>{badge}'
             f'</td><td align="left" width="90" style="font-size:7pt; white-space:nowrap">{_meter(hit.score)}</td>'
             f'</tr><tr><td colspan="2">'
             f'<p dir="rtl" style="font-family:{SNIPPET_FONT}; font-size:15pt; margin-top:0; margin-bottom:0; '
-            f'line-height:140%">{"".join(segs)}</p>'
+            f'line-height:140%"><a href="hit:{i}" style="color:#1f2937; text-decoration:none">'
+            f'{"".join(segs)}</a></p>'
             f'</td></tr></table>')
 
     def _on_anchor(self, url: QUrl):
@@ -192,6 +196,8 @@ class ResultsView(QTextBrowser):
             self._render(keep_scroll=True)
         elif kind == "hit":
             self.hitClicked.emit(self.hits[int(arg)])
+        elif kind == "view":
+            self.hitPreview.emit(self.hits[int(arg)])
         elif kind in ("file", "dir"):
             path = self._paths.get(int(arg))
             if path:

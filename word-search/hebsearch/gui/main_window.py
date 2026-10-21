@@ -10,16 +10,24 @@ from PySide6.QtWidgets import (
 
 from .. import __version__
 from ..index import IndexDB
-from ..opener import open_at, open_default, reveal_in_folder, word_automation_available
+from ..opener import open_at, open_default, open_pdf_external, reveal_in_folder, word_automation_available
 from ..search import Searcher, SearchOptions
 from . import pdf_viewer
 from .basket_panel import BasketPanel
+from .doc_viewer import DocViewer
 from .icons import file_icon
 from .results import SYNTAX_TABLE, ResultsView, doc_name, form_of, ltr
 from .workers import Job
 
 AHEVI_CHOICES = [("none", "מדויק"), ("vy", "ו׳ י׳ – כתיב מלא וחסר"), ("all", "כל אותיות אהו״י")]
 SORT_CHOICES = [("relevance", "הכי מדויק קודם"), ("document", "לפי מסמך ומיקום")]
+
+
+def _alive(widget):
+    try:
+        return widget.isVisible()
+    except RuntimeError:     # החלון נסגר ונמחק
+        return False
 
 
 def _panel():
@@ -58,7 +66,7 @@ class MainWindow(QMainWindow):
         self.resize(1360, 860)
         self._build()
         self._restore_options()
-        self._open_error.connect(lambda m: self.statusBar().showMessage(f"לא הצלחתי לפתוח בוורד: {m}", 8000))
+        self._open_error.connect(lambda m: self.statusBar().showMessage(m, 10000))
         self._refresh_chips()
         self._refresh_stats()
         QTimer.singleShot(300, lambda: self.start_job(None))
@@ -195,6 +203,7 @@ class MainWindow(QMainWindow):
         self.file_list.itemDoubleClicked.connect(self._file_item_open)
         self.results = ResultsView(self.searcher.materialize)
         self.results.hitClicked.connect(self.open_hit)
+        self.results.hitPreview.connect(self.preview_hit)
         self.results.fileClicked.connect(open_default)
         self.results.folderClicked.connect(reveal_in_folder)
         split.addWidget(self.file_list)
@@ -504,29 +513,51 @@ class MainWindow(QMainWindow):
         if path:
             open_default(path)
 
+    # ================= פתיחה במקום =================
     def open_hit(self, hit):
-        self.searcher.materialize(hit, self.result.highlight if self.result else frozenset())
+        """לחיצה על תוצאה: פותח את המסמך ומנווט בדיוק למקום שלה."""
+        highlight = self.result.highlight if self.result else frozenset()
+        self.searcher.materialize(hit, highlight)
         if hit.path.lower().endswith(".pdf"):
-            if pdf_viewer.AVAILABLE:
-                word = max(hit.needle.split(), key=len) if hit.needle.split() else ""
-                v = pdf_viewer.PdfViewer(hit.path, hit.page or 1, word, doc_name(hit.path), self)
-                v.show()
-                self.viewers = [x for x in self.viewers if x.isVisible()] + [v]
-            else:
-                open_default(hit.path)
-                QApplication.clipboard().setText(hit.needle)
-                self.statusBar().showMessage(
-                    f"'{doc_name(hit.path)}' נפתח – {hit.location}. הטקסט שנמצא הועתק ללוח.", 12000)
-            return
-        cands = self.searcher.locate(hit)
-        used_word = open_at(hit.path, cands, hit.kind, hit.note, on_error=self._open_error.emit)
-        if used_word:
-            self.statusBar().showMessage(f"פותח את '{doc_name(hit.path)}' בוורד ומסמן את המקום…", 6000)
+            self.preview_hit(hit)                      # צופה ה-PDF מגיע לעמוד ולשורה
+        elif word_automation_available():
+            self.open_in_word(hit)
+        else:
+            # בלי וורד לשליטה (מק/לינוקס, או וורד לא מותקן) – המציג המובנה מגיע בדיוק למקום
+            self.preview_hit(hit)
+            self.statusBar().showMessage(
+                "המסמך מוצג במציג המובנה, במקום המדויק. 'פתח את המסמך המקורי' פותח את הקובץ עצמו.", 10000)
+
+    def open_in_word(self, hit):
+        cands, ratio = self.searcher.locate(hit)
+        if open_at(hit.path, cands, hit.kind, hit.note, ratio, on_status=self._open_error.emit):
+            self.statusBar().showMessage(f"פותח את '{doc_name(hit.path)}' בוורד – {hit.location}…", 6000)
         else:
             QApplication.clipboard().setText(hit.needle)
             self.statusBar().showMessage(
                 f"'{doc_name(hit.path)}' נפתח ({hit.location}). הטקסט שנמצא הועתק – "
                 "Ctrl+F ואז Ctrl+V כדי להגיע אליו.", 12000)
+
+    def preview_hit(self, hit):
+        """פותח (או מעדכן) מציג מובנה של המסמך, גלול למקום התוצאה."""
+        if self.result is None:
+            return
+        hits, index = self.searcher.file_hits(self.result, hit)
+        self.viewers = [v for v in self.viewers if _alive(v)]
+        for v in self.viewers:
+            if v.path == hit.path:
+                v.navigate(hits, hit)
+                return
+        highlight = self.result.highlight
+        if hit.path.lower().endswith(".pdf"):
+            if not pdf_viewer.AVAILABLE:
+                open_pdf_external(hit.path, hit.page, hit.needle.split()[0] if hit.needle else "")
+                return
+            v = pdf_viewer.PdfViewer(self.searcher, highlight, hits, index, self)
+        else:
+            v = DocViewer(self.searcher, highlight, hits, index, self.open_in_word, self)
+        v.show()
+        self.viewers.append(v)
 
     def closeEvent(self, e):
         if self.job:

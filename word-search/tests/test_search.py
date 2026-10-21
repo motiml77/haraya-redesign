@@ -151,9 +151,11 @@ class SearchTest(unittest.TestCase):
     def test_locate(self):
         r = self.search("דרך")
         h = [h for h in r.hits if h.kind == 0][0]
-        self.assertEqual(Searcher(self.db).locate(h)[0], ("בדרך", 0))
+        cands, ratio = Searcher(self.db).locate(h)
+        self.assertEqual(cands[0], ("בדרך", 0))
+        self.assertTrue(0 < ratio < 1)
         h = [h for h in r.hits if h.kind == KIND_FOOTNOTE][0]
-        self.assertEqual(Searcher(self.db).locate(h)[0], ("הדרך", 0))
+        self.assertEqual(Searcher(self.db).locate(h)[0][0], ("הדרך", 0))
 
 
 if __name__ == "__main__":

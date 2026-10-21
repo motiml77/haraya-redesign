@@ -12,7 +12,8 @@
      לכיוונם המקורי והחלפת סוגריים.
 יחידת החיפוש ב-PDF היא עמוד שלם (חלוקת הבלוקים של PDF היא עניין של
 עימוד ולא של תוכן – צירוף מילים נשבר בה בקלות). לכל שורה נשמר המיקום
-שלה בטקסט העמוד, כך שלכל תוצאה מוצגים עמוד ושורה.
+שלה בטקסט העמוד ומיקומה האנכי על הדף, כך שלכל תוצאה מוצגים עמוד ושורה,
+ולחיצה עליה מגיעה בדיוק לגובה השורה בעמוד.
 """
 
 import re
@@ -148,14 +149,20 @@ def extract_pdf(path):
                     last[-1] = sorted(last[-1] + rows[0], key=lambda c: (c.x0 + c.x1) / 2)
                 else:
                     blocks.append(rows)
-            lines = [t for rows in blocks for t in (_row_text(r) for r in rows) if t]
+            lines, tops = [], []
+            for rows in blocks:
+                for r in rows:
+                    t = _row_text(r)
+                    if t:
+                        lines.append(t)
+                        tops.append(round(min(c.y - c.size for c in r), 1))   # ראש השורה, בנקודות
             if not lines:
                 continue
             offsets, pos = [], 0
             for ln in lines:
                 offsets.append(pos)
                 pos += len(ln) + 1
-            paras.append(["\n".join(lines), pno, KIND_BODY, 0, [], 1, offsets])
+            paras.append(["\n".join(lines), pno, KIND_BODY, 0, [], 1, offsets, tops])
     if not paras:
         raise ValueError("אין בקובץ טקסט (ייתכן שזה מסמך סרוק)")
     return paras

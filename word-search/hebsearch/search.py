@@ -63,6 +63,7 @@ class Hit:
     # השדות הבאים מתמלאים ב-Searcher.materialize
     ready: bool = False
     line: int = 0            # מספר שורה בעמוד (PDF)
+    y: float = -1.0          # גובה השורה בדף בנקודות (PDF) – לקפיצה מדויקת
     para_no: int = 0
     kind: int = KIND_BODY
     note: int = 0
@@ -394,7 +395,10 @@ class Searcher:
         hit.needle_offset = start
         hit.page = page + sum(1 for b in breaks if b <= start) if page else 0
         if len(para) > 6:  # PDF: שורה בעמוד
-            hit.line = para[5] + bisect_right(para[6], start) - 1
+            li = bisect_right(para[6], start) - 1
+            hit.line = para[5] + li
+            if len(para) > 7:
+                hit.y = para[7][li]
         hit.para_no, hit.kind, hit.note = numbers[hit.para_idx], kind, note
         hit.snippet = snippet
         hit.ready = True
@@ -449,11 +453,17 @@ class Searcher:
 
     # ---------- פתיחה במקום המדויק ----------
     def locate(self, hit: Hit):
-        """מחזיר מועמדים לאיתור בוורד: [(טקסט, מספר_המופעים_שלפניו)]."""
+        """מידע לאיתור התוצאה בוורד.
+
+        מחזיר (מועמדים, יחס): מועמדים = [(טקסט, מספר_המופעים_שלו_לפני_התוצאה)],
+        יחס = מיקום התוצאה כחלק מאורך הטקסט (0..1) – לגיבוי, אם הספירה לא מתאימה
+        למה שוורד רואה (למשל שינויים במעקב או שדות).
+        """
         self.materialize(hit)
         paras = para_cache.get(self.db, hit.file_id)[0]
         before = [p[0] for i, p in enumerate(paras)
                   if i < hit.para_idx and p[2] == hit.kind and (hit.kind == KIND_BODY or p[3] == hit.note)]
+        story = [p[0] for p in paras if p[2] == hit.kind and (hit.kind == KIND_BODY or p[3] == hit.note)]
         cur = paras[hit.para_idx][0][:hit.needle_offset]
         out = []
         first_word = re.split(r"\s", hit.needle, maxsplit=1)[0]
@@ -461,4 +471,12 @@ class Searcher:
             if needle:
                 k = sum(t.count(needle) for t in before) + cur.count(needle)
                 out.append((needle, k))
-        return out
+        total = sum(len(t) + 1 for t in story) or 1
+        ratio = (sum(len(t) + 1 for t in before) + len(cur)) / total
+        return out, ratio
+
+    def file_hits(self, result, hit):
+        """כל התוצאות באותו מסמך, בסדר הופעתן – למעבר הקודמת/הבאה במציג."""
+        hits = sorted((h for h in result.hits if h.file_id == hit.file_id),
+                      key=lambda h: (h.para_idx, h.span[0]))
+        return hits, next(i for i, h in enumerate(hits) if h is hit)
