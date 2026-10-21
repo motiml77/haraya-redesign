@@ -21,7 +21,7 @@ from .extract import KIND_BODY, KIND_ENDNOTE, KIND_FOOTNOTE, KIND_TEXTBOX
 from .matching import find_spans
 from .morphology import MatchOptions, normalize_query_word, term_regex
 from .normalize import restore_finals, tokenize
-from .ranking import Scorer
+from .ranking import Scorer, term_weights
 
 MAX_VARIANTS = 50000
 MAX_TERMS = 12
@@ -122,6 +122,22 @@ class SearchResult:
     required: int = 0                               # כמה מהן נדרשו
     near_miss: tuple = None                         # (נדרשות, תוצאות) – הצעה כשאין תוצאות
     cancelled: bool = False
+    phrase: bool = False                            # השאילתה במירכאות: ביטוי מדויק
+
+
+_QUOTES = ('"', '"'), ("“", "”"), ("„", "”")
+
+
+def quoted_phrase(query: str):
+    """"איסור ייחוד" (כל השאילתה במירכאות, שתי מילים ויותר) = ביטוי מדויק: מילים צמודות לפי הסדר,
+    בלי קשר להגדרות הרווח. מחזיר את הטקסט שבתוך המירכאות, או None."""
+    q = query.strip()
+    for opening, closing in _QUOTES:
+        if len(q) > 3 and q[0] == opening and q[-1] == closing:
+            inner = q[1:-1].strip()
+            if " " in inner and not any(c in inner for c in '"“”„'):      # ״ בתוך מילה (רמב״ם) לא נספרת
+                return inner
+    return None
 
 
 def parse_query(query: str):
@@ -291,6 +307,11 @@ class Searcher:
         t0 = time.perf_counter()
         self.context_words = opts.context_words
         res = SearchResult(query=query, searched_files=len(file_ids))
+        phrase = quoted_phrase(query)
+        if phrase is not None:
+            query = phrase
+            opts = replace(opts, max_gap=0, ordered=True, whole_paragraph=False, min_terms=0)
+            res.phrase = True
 
         def rep(frac, text=""):
             if progress:
@@ -397,7 +418,7 @@ class Searcher:
         if stop():
             return res
 
-        scorer = Scorer(pos_terms)
+        scorer = Scorer(pos_terms, term_weights([cost.get(i, 0) for i in range(n)]), opts.ahevi)
         gap = None if opts.whole_paragraph else max(0, opts.max_gap)
         phrase = n >= 2 and k == n and opts.ordered and gap == 0      # צירוף צמוד לפי הסדר – מסלול מהיר
         per_file = Counter()

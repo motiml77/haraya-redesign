@@ -104,6 +104,10 @@ def word_pattern(word: str, opts: MatchOptions) -> str:
 
     if ahevi:
         stripped = "".join(c for c in core if c not in ahevi)
+        if len(stripped.replace("*", "").replace("?", "")) < 2 and ahevi != AHEVI_SETS["vy"]:
+            # אחרי הסרת כל אותיות אהו״י נשארו פחות משתי אותיות (אהבה ← ב): התבנית רחבה מדי – מגבילים ל-ו/י
+            ahevi = AHEVI_SETS["vy"]
+            stripped = "".join(c for c in core if c not in ahevi)
         if stripped.replace("*", "").replace("?", ""):
             core = stripped
         ahevi_gap = f"[{ahevi}]{{0,2}}"

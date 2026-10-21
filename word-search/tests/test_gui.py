@@ -231,6 +231,20 @@ class SearchFlowTest(GuiBase):
         self.assertEqual(win.results.list.model().rowCount(), min(win.result.total, 30))
         self.assertIn("תוצאות", win.summary.text())
 
+    def test_quoted_phrase_is_exact_and_marks_only_the_match(self):
+        win = self.new_window()
+        win.baskets.add_paths([self.docs])
+        settle(win)
+        win.options.gap.setValue(5)
+        win.search_edit.setText('"ההולך בשבת"')
+        win.run_search()
+        settle(win)
+        self.assertTrue(win.result.phrase)
+        self.assertGreaterEqual(win.result.total, 1)
+        self.assertIn("ביטוי מדויק", win.summary.text())
+        for h in win.result.hits:
+            self.assertEqual(sorted(h.span), [min(h.span), min(h.span) + 1])   # צמודות
+
     def test_empty_search_and_missing_basket_selection_are_friendly(self):
         win = self.new_window()
         win.baskets.add_paths([self.docs])
