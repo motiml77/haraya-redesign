@@ -25,7 +25,9 @@ a = Analysis(
     excludes=["tkinter", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtQuick",
               "PySide6.QtQml", "PySide6.Qt3DCore", "PySide6.QtMultimedia", "PySide6.QtCharts",
               "PySide6.QtDataVisualization", "matplotlib", "numpy", "pandas",
-              "onnxruntime", "PIL", "yaml", "lxml", "docx", "IPython", "pytest", "setuptools"],
+              "onnxruntime", "PIL", "yaml", "lxml", "docx", "IPython", "pytest", "setuptools",
+              "pymupdf4llm", "pymupdf_layout", "pymupdf.layout", "networkx", "psutil", "google.protobuf",
+              "flatbuffers", "tabulate"],
     noarchive=False,
 )
 

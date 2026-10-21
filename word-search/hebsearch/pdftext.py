@@ -26,6 +26,8 @@ _LAT = re.compile("[A-Za-zÀ-ɏ]")
 _LTR_STRONG = re.compile("[0-9A-Za-zÀ-ɏ]")
 _LTR_INNER = set(".,:/%-+'")
 _MIRROR = str.maketrans("()[]{}<>", ")(][}{><")
+# רווחים מיוחדים (רווח קשיח וכו') – יש גופנים/מחוללים שמדווחים כך על כל רווח
+_SPACES = set("\u00a0\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000")
 
 
 def _is_mark(ch):
@@ -48,6 +50,8 @@ def _clusters(block):
                 c = ch["c"]
                 if not c:
                     continue
+                if c in _SPACES:
+                    c = " "
                 if _is_mark(c) and out:
                     out[-1].text += c
                     continue
