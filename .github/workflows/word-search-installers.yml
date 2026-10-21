@@ -90,20 +90,41 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: startsWith(github.ref, 'refs/tags/word-search-v')
+    # נוצר Release בשני מקרים: דחיפת תג word-search-v*, או דחיפה לענף עם [release] בהודעת ה-commit
+    if: startsWith(github.ref, 'refs/tags/word-search-v') || contains(github.event.head_commit.message, '[release]')
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: word-search/hebsearch/__init__.py
+          sparse-checkout-cone-mode: false
+
+      - name: Release tag name
+        id: tag
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            v=$(grep -oP '__version__ = "\K[^"]+' word-search/hebsearch/__init__.py)
+            echo "name=word-search-v${v}" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/download-artifact@v4
         with:
           path: out
           merge-multiple: true
+
       - uses: softprops/action-gh-release@v2
         with:
-          name: חיפוש במסמכים ${{ github.ref_name }}
+          tag_name: ${{ steps.tag.outputs.name }}
+          target_commitish: ${{ github.sha }}
+          name: חיפוש במסמכים ${{ steps.tag.outputs.name }}
           files: out/*
           body: |
             קובצי ההתקנה של "חיפוש במסמכים":
             * **חלונות** – `HebDocSearch-Setup-*.exe` (אשף התקנה בעברית)
-            * **מק** – `*-macOS-arm64.dmg` (Apple Silicon) / `*-macOS-x86_64.dmg` (אינטל)
-            * **לינוקס** – `*-linux-x86_64.tar.gz` (לחלץ ולהריץ `install.sh`)
+            * **מק** – `*-macOS-arm64.dmg` (Apple Silicon, M1 ומעלה) / `*-macOS-x86_64.dmg` (אינטל)
+            * **לינוקס** – `*-linux-x86_64.tar.gz` (לחלץ ולהריץ `./install.sh`)
+
+            בהפעלה הראשונה חלונות עשויה להציג "Windows protected your PC" – לוחצים "More info" ← "Run anyway".
