@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 from .. import __version__
 from ..index import IndexDB
 from ..opener import open_at, open_default, open_pdf_external, reveal_in_folder, word_automation_available
-from ..search import Searcher, SearchOptions
+from ..search import Searcher, SearchOptions, parse_query
 from . import pdf_viewer
 from .basket_panel import BasketPanel
 from .doc_viewer import DocViewer
@@ -115,6 +115,7 @@ class MainWindow(QMainWindow):
         self.search_edit.setPlaceholderText("הקלידו מילים לחיפוש…   למשל: הלך בדרך")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.returnPressed.connect(self.run_search)
+        self.search_edit.textChanged.connect(self._query_changed)
         self.history_model = QStringListModel(self.history)
         completer = QCompleter(self.history_model, self)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
@@ -157,7 +158,8 @@ class MainWindow(QMainWindow):
         self.gap_spin = QSpinBox()
         self.gap_spin.setRange(0, 99)
         self.gap_spin.setSuffix(" מילים")
-        self.gap_spin.setToolTip("0 = המילים צמודות זו לזו (צירוף מדויק)")
+        self.gap_spin.setToolTip("כמה מילים מותר שיפרידו בין כל מילת חיפוש לבאה אחריה.\n"
+                                 "0 = המילים צמודות זו לזו (צירוף מדויק)")
         opts2.addWidget(self.gap_spin)
         self.cb_paragraph = QCheckBox("בכל מקום באותה פסקה")
         self.cb_paragraph.toggled.connect(lambda on: self.gap_spin.setEnabled(not on))
@@ -166,6 +168,16 @@ class MainWindow(QMainWindow):
         opts2.addWidget(self.cb_paragraph)
         opts2.addSpacing(10)
         opts2.addWidget(self.cb_ordered)
+        opts2.addSpacing(10)
+        self.required_label = _label("נדרשות:")
+        self.required_combo = QComboBox()
+        self.required_combo.setToolTip("כמה ממילות החיפוש חייבות להופיע יחד.\n"
+                                       "תוצאות עם כל המילים מדורגות תמיד לפני תוצאות חלקיות.")
+        self.required_combo.currentIndexChanged.connect(self._required_changed)
+        opts2.addWidget(self.required_label)
+        opts2.addWidget(self.required_combo)
+        self.required_label.hide()
+        self.required_combo.hide()
         opts2.addStretch(1)
         hint = _label('<a href="help" style="color:#1d4ed8; text-decoration:none">❔ חיפוש מתקדם</a>')
         hint.setTextFormat(Qt.RichText)
@@ -287,6 +299,7 @@ class MainWindow(QMainWindow):
             max_gap=self.gap_spin.value(),
             whole_paragraph=self.cb_paragraph.isChecked(),
             ordered=self.cb_ordered.isChecked(),
+            min_terms=self.required_combo.currentData() or 0,
             sort=SORT_CHOICES[self.sort_combo.currentIndex()][0],
         )
 
@@ -315,6 +328,25 @@ class MainWindow(QMainWindow):
         s.setValue("gap", self.gap_spin.value())
         s.setValue("paragraph", self.cb_paragraph.isChecked())
         s.setValue("ordered", self.cb_ordered.isChecked())
+        if self.result is not None and self.search_edit.text().strip():
+            self.run_search()
+
+    def _query_changed(self, text):
+        """עדכון בחירת "כמה מילים נדרשות" לפי מספר המילים בשאילתה."""
+        n = sum(1 for t in parse_query(text) if not t.negate)
+        current = self.required_combo.currentData() or 0
+        self.required_combo.blockSignals(True)
+        self.required_combo.clear()
+        self.required_combo.addItem(f"כל {n} המילים" if n > 1 else "כל המילים", 0)
+        for m in range(n - 1, 0, -1):
+            self.required_combo.addItem("לפחות אחת מהן" if m == 1 else f"לפחות {m} מתוך {n}", m)
+        idx = self.required_combo.findData(current) if current and current < n else 0
+        self.required_combo.setCurrentIndex(max(0, idx))
+        self.required_combo.blockSignals(False)
+        self.required_label.setVisible(n > 1)
+        self.required_combo.setVisible(n > 1)
+
+    def _required_changed(self):
         if self.result is not None and self.search_edit.text().strip():
             self.run_search()
 
@@ -437,8 +469,16 @@ class MainWindow(QMainWindow):
         self._apply_filters()
 
     def _summary_html(self, res, shown):
+        near = ""
+        if res.near_miss:
+            m, count = res.near_miss
+            near = (f'<br><a href="near:{m}" style="color:#1d4ed8">נסו בלי אחת המילים: '
+                    f'{m} מתוך {res.n_terms} – {count:,} תוצאות ›</a>')
         if res.message and not res.total:
-            return f'<span style="color:#b45309">{res.message}</span>'
+            return f'<span style="color:#b45309">{res.message}</span>{near}'
+        if not res.total and res.n_terms > 1:
+            return (f"לא נמצאו כל {res.n_terms} המילים יחד ב-{res.searched_files:,} מסמכים "
+                    f"(עם הרווח והסדר שנבחרו).{near}")
         if not res.total:
             return f"לא נמצאו תוצאות ב-{res.searched_files:,} מסמכים."
         files_word = "מסמך אחד" if len(res.files) == 1 else f"-{len(res.files):,} מסמכים"
@@ -448,6 +488,10 @@ class MainWindow(QMainWindow):
         exact = sum(1 for h in res.hits if h.exact)
         if exact and exact != res.total:
             s += f'<span style="color:#166534">  ·  {exact:,} מדויקות</span>'
+        if res.required and res.required < res.n_terms:
+            full = sum(1 for h in res.hits if h.covered == res.n_terms)
+            if full:
+                s += f'<span style="color:#64748b">  ·  {full:,} עם כל המילים</span>'
         if shown != res.total:
             s += f'<span style="color:#64748b">  ·  מוצגות {shown:,}</span>'
         if res.truncated:
@@ -487,6 +531,11 @@ class MainWindow(QMainWindow):
                 'או גמישות באותיות אהו״י, להגדיל את הרווח בין המילים, או לבחור סלים נוספים.</span></p>')
 
     def _summary_link(self, link):
+        if link.startswith("near:"):
+            idx = self.required_combo.findData(int(link[5:]))
+            if idx >= 0:
+                self.required_combo.setCurrentIndex(idx)      # מפעיל חיפוש מחדש
+            return
         if link.startswith("form:"):
             form = link[5:] or None
             self.form_filter = None if form == self.form_filter else form

@@ -296,6 +296,15 @@ class IndexDB:
             self.conn.executemany("INSERT INTO vocab(id, word) VALUES(?,?)", new)
         return ids
 
+    def postings_size(self, word_ids):
+        """אומדן עלות לשליפת המילים: סך גודל רשימות המופעים (בלי לקרוא אותן)."""
+        total = 0
+        for i in range(0, len(word_ids), 500):
+            chunk = word_ids[i:i + 500]
+            q = f"SELECT sum(length(paras)) FROM postings WHERE word_id IN ({','.join('?' * len(chunk))})"
+            total += self.conn.execute(q, chunk).fetchone()[0] or 0
+        return total
+
     def postings(self, word_ids, file_ids):
         """מחזיר (מזהה_מילה, מזהה_קובץ, array[פסקה, מיקום, ...]) לקבצי הסל בלבד."""
         for i in range(0, len(word_ids), 500):

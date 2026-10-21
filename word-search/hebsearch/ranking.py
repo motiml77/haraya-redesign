@@ -7,6 +7,8 @@
   * קרבה (35%) – כמה מילים מפרידות בין מילות החיפוש (צירוף צמוד = 1).
   * סדר (10%) – האם המילים מופיעות באותו סדר כמו בשאילתה.
 בחיפוש של מילה אחת הציון הוא דיוק הצורה בלבד.
+בחיפוש "לפחות N מהמילים" הציון מוכפל ב-(מספר המילים שנמצאו / מספר מילות החיפוש)²,
+כך שתוצאה עם כל המילים קודמת בדרך כלל לתוצאה חלקית.
 """
 
 import re
@@ -51,11 +53,13 @@ class Scorer:
         quality = sum(self.word_quality(w) for w in words) / len(words)
         if self.n == 1:
             return quality, quality == 1.0
-        window, in_order = _best_window(span, terms_at, self.n)
-        extra = max(0, window - self.n)
+        m = len(set(terms_at))
+        window, in_order = _best_window(span, terms_at, m)
+        extra = max(0, window - m)
         proximity = 1.0 / (1.0 + 0.5 * extra)
         score = 0.55 * quality + 0.35 * proximity + 0.10 * (1.0 if in_order else 0.0)
-        exact = quality == 1.0 and extra == 0 and in_order
+        score *= (m / self.n) ** 2
+        exact = quality == 1.0 and extra == 0 and in_order and m == self.n
         return score, exact
 
 
@@ -63,6 +67,8 @@ def _best_window(span, terms_at, n):
     """החלון הקצר ביותר שמכיל את כל מילות השאילתה, והאם הן בסדר בתוכו."""
     if len(span) == n:
         return span[-1] - span[0] + 1, list(terms_at) == sorted(terms_at)
+    if len(span) == 1:
+        return 1, True
     counts, have, lo = {}, 0, 0
     best = (span[-1] - span[0] + 1, 0, len(span) - 1)
     for hi in range(len(span)):

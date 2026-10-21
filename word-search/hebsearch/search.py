@@ -15,14 +15,16 @@ import threading
 import time
 from bisect import bisect_left, bisect_right
 from collections import Counter, OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from .extract import KIND_BODY, KIND_ENDNOTE, KIND_FOOTNOTE, KIND_TEXTBOX
+from .matching import find_spans
 from .morphology import MatchOptions, normalize_query_word, term_regex
 from .normalize import restore_finals, tokenize
 from .ranking import Scorer
 
 MAX_VARIANTS = 50000
+MAX_TERMS = 12
 
 SEG_TEXT, SEG_MATCH, SEG_GAP, SEG_PARA = 0, 1, 2, 3
 
@@ -32,7 +34,8 @@ class SearchOptions:
     prefixes: bool = True
     inflections: bool = False
     ahevi: str = "none"          # none | vy | all
-    max_gap: int = 0             # מספר המילים המרבי בין מילה למילה
+    max_gap: int = 0             # מספר המילים המרבי בין מילה נבחרת לבאה
+    min_terms: int = 0           # כמה מילים לפחות צריכות להימצא (0 = כולן)
     whole_paragraph: bool = False
     ordered: bool = True
     context_words: int = 20      # מילים לפני ואחרי
@@ -59,6 +62,7 @@ class Hit:
     span: tuple              # מיקומי המילים שנמצאו בתוך הפסקה
     words: tuple             # הצורות המנורמלות שנמצאו
     score: float = 0.0       # 0..1 – כמה ההתאמה קרובה לשאילתה
+    covered: int = 1         # כמה ממילות החיפוש נמצאו בתוצאה
     exact: bool = False      # בדיוק המילים שהוקלדו, צמודות ובסדר
     # השדות הבאים מתמלאים ב-Searcher.materialize
     ready: bool = False
@@ -103,6 +107,9 @@ class SearchResult:
     truncated: bool = False
     message: str = ""
     searched_files: int = 0
+    n_terms: int = 0                                # מספר מילות החיפוש (בלי "-מילה")
+    required: int = 0                               # כמה מהן נדרשו
+    near_miss: tuple = None                         # (נדרשות, תוצאות) – הצעה כשאין תוצאות
 
 
 def parse_query(query: str):
@@ -174,56 +181,6 @@ class _ParaCache:
 para_cache = _ParaCache()
 
 
-def _find_ordered(positions, gap):
-    """התאמות לפי הסדר: כל מילה אחרי הקודמת, עם עד gap מילים ביניהן."""
-    out, last_end = [], -1
-    for p0 in positions[0]:
-        if p0 <= last_end:
-            continue
-        span, cur = [p0], p0
-        for plist in positions[1:]:
-            j = bisect_right(plist, cur)
-            if j == len(plist) or (gap is not None and plist[j] - cur - 1 > gap):
-                span = None
-                break
-            cur = plist[j]
-            span.append(cur)
-        if span:
-            out.append(span)
-            last_end = cur
-    return out
-
-
-def _find_unordered(positions, gap):
-    """התאמות בכל סדר: כל המילים בתוך חלון של n + (n-1)*gap מילים."""
-    n = len(positions)
-    limit = None if gap is None else n + (n - 1) * gap
-    out, last_end = [], -1
-    for p0 in positions[0]:
-        if p0 <= last_end:
-            continue
-        chosen, used = [p0], {p0}
-        for plist in positions[1:]:
-            best = None
-            j = bisect_left(plist, p0)
-            for k in (j - 1, j, j + 1, j - 2, j + 2):
-                if 0 <= k < len(plist) and plist[k] not in used and plist[k] > last_end:
-                    if best is None or abs(plist[k] - p0) < abs(best - p0):
-                        best = plist[k]
-            if best is None:
-                chosen = None
-                break
-            chosen.append(best)
-            used.add(best)
-        if not chosen:
-            continue
-        lo, hi = min(chosen), max(chosen)
-        if limit is None or hi - lo + 1 <= limit:
-            out.append(sorted(chosen))
-            last_end = hi
-    return out
-
-
 class Searcher:
     def __init__(self, db, context_words=20):
         self.db = db
@@ -231,20 +188,45 @@ class Searcher:
 
     # ---------- שלב 1-4: מציאת ההתאמות ----------
     def _occurrences(self, ids, fileset, keys=None):
-        """(קובץ, פסקה) → {מיקום: מילה}"""
+        """(קובץ, פסקה) → {מיקום: מילה}. עם keys – רק בפסקאות האלה.
+
+        רשימת המופעים של כל מילה ממוינת לפי פסקה, ולכן כשצריך רק מעט פסקאות
+        מתוך רשימה ארוכה (מילה נפוצה) מאתרים אותן בחיפוש בינארי במקום לעבור
+        על כל המופעים.
+        """
         occ = {}
+        want = None
+        if keys is not None:
+            want = {}
+            for f, p in keys:
+                want.setdefault(f, []).append(p)
+            for v in want.values():
+                v.sort()
+            fileset = fileset & set(want)
         for wid, fid, arr in self.db.postings(ids, fileset):
             word = self._id_word[wid]
-            it = iter(arr)
-            for para, pos in zip(it, it):
-                key = (fid, para)
-                if keys is not None and key not in keys:
+            wanted = want.get(fid) if want is not None else None
+            if wanted is None or len(wanted) * 8 > len(arr):
+                it = iter(arr)
+                wset = set(wanted) if wanted is not None else None
+                for para, pos in zip(it, it):
+                    if wset is not None and para not in wset:
+                        continue
+                    d = occ.get((fid, para))
+                    if d is None:
+                        occ[(fid, para)] = {pos: word}
+                    else:
+                        d[pos] = word
+                continue
+            paras, poss = arr[0::2], arr[1::2]
+            for para in wanted:
+                lo = bisect_left(paras, para)
+                if lo == len(paras) or paras[lo] != para:
                     continue
-                d = occ.get(key)
-                if d is None:
-                    occ[key] = {pos: word}
-                else:
-                    d[pos] = word
+                hi = bisect_right(paras, para, lo)
+                d = occ.setdefault((fid, para), {})
+                for j in range(lo, hi):
+                    d[poss[j]] = word
         return occ
 
     def search(self, query, file_ids, opts: SearchOptions, cancelled=None) -> SearchResult:
@@ -271,30 +253,51 @@ class Searcher:
             if len(t.words) > MAX_VARIANTS:
                 res.message = f"המילה '{t.text}' רחבה מדי ({len(t.words):,} צורות). נסו לצמצם."
                 return res
+        n = len(pos_terms)
+        if n > MAX_TERMS:
+            res.message = f"אפשר לחפש עד {MAX_TERMS} מילים בבת אחת."
+            return res
+        k = n if not opts.min_terms else max(1, min(opts.min_terms, n))
+        res.n_terms, res.required = n, k
         missing = [t.text for t in pos_terms if not t.words]
-        if missing:
+        present = [i for i, t in enumerate(pos_terms) if t.words]
+        if len(present) < k:
             res.message = "לא נמצאו במסמכים: " + ", ".join(missing)
+            if k == n and n >= 2 and len(present) == n - 1:
+                sub = self.search(query, file_ids, replace(opts, min_terms=n - 1), cancelled)
+                if sub.total:
+                    res.near_miss = (n - 1, sub.total)
             res.elapsed = time.perf_counter() - t0
             return res
         self._id_word = {vocab_ids[w]: w for t in terms for w in t.words}
 
-        # מהמילה הנדירה לנפוצה: כל שלב מצמצם את הקבצים שנבדקים בשלב הבא
+        # סדר השליפה: מהמילה עם הכי מעט מופעים (לפי גודל הרשימות באינדקס).
+        # פסקה עם k מתוך המילים חייבת להכיל לפחות אחת מ-(מספר_המילים - k + 1)
+        # הנדירות ביותר – רק אותן שולפים במלואן; את השאר – רק בפסקאות האלה.
+        ids_of = {i: [vocab_ids[w] for w in pos_terms[i].words] for i in present}
+        cost = {i: self.db.postings_size(ids_of[i]) for i in present}
+        present.sort(key=lambda i: cost[i])
+        r = len(present) - k + 1
         fileset = set(file_ids)
-        occs, keys = [None] * len(pos_terms), None
-        for i in sorted(range(len(pos_terms)), key=lambda i: len(pos_terms[i].words)):
-            t = pos_terms[i]
-            occ = self._occurrences([vocab_ids[w] for w in t.words], fileset, keys)
-            keys = set(occ) if keys is None else keys & set(occ)
-            occs[i] = occ
+        occs, keys = {}, set()
+        for i in present[:r]:
+            occs[i] = self._occurrences(ids_of[i], fileset)
+            keys |= set(occs[i])
+        for i in present[r:]:
             if not keys:
                 break
-            fileset = {f for f, _ in keys}
+            occs[i] = self._occurrences(ids_of[i], fileset, keys)
+            if k == n:
+                keys &= set(occs[i])
+                fileset = {f for f, _ in keys}
             if cancelled and cancelled():
                 res.message = "החיפוש בוטל."
                 return res
+        if k < n:
+            keys = {key for key in keys if sum(key in occ for occ in occs.values()) >= k}
         for t in neg_terms:
             if keys and t.words:
-                occ = self._occurrences([vocab_ids[w] for w in t.words], fileset, keys)
+                occ = self._occurrences([vocab_ids[w] for w in t.words], {f for f, _ in keys}, keys)
                 keys -= set(occ)
 
         scorer = Scorer(pos_terms)
@@ -302,27 +305,24 @@ class Searcher:
         per_file = Counter()
         best_in_file = {}
         hits = []
-        for key in keys or ():
-            maps = [occ[key] for occ in occs]
-            if len(maps) == 1:
-                spans = [[p] for p in maps[0]]
+        empty = {}
+        for key in keys:
+            maps = [occs.get(i, empty).get(key, empty) for i in range(n)]
+            if n == 1:
+                chains = [[(p, 0)] for p in maps[0]]
             else:
-                positions = [sorted(m) for m in maps]
-                if opts.whole_paragraph:
-                    spans = [sorted({p for plist in positions for p in plist})]
-                elif opts.ordered:
-                    spans = _find_ordered(positions, gap)
-                else:
-                    spans = _find_unordered(positions, gap)
-            if not spans:
+                chains = find_spans([sorted(m) for m in maps], gap, opts.ordered, k)
+            if not chains:
                 continue
             fid, para = key
-            per_file[fid] += len(spans)
-            for span in spans:
-                terms_at = [next(i for i, m in enumerate(maps) if p in m) for p in span]
-                words = tuple(maps[i][p] for i, p in zip(terms_at, span))
+            per_file[fid] += len(chains)
+            for chain in chains:
+                span = tuple(p for p, _ in chain)
+                terms_at = [t for _, t in chain]
+                words = tuple(maps[t][p] for p, t in chain)
                 score, exact = scorer.score(span, words, terms_at)
-                hits.append(Hit(fid, file_ids[fid], para, tuple(span), words, score, exact))
+                hits.append(Hit(fid, file_ids[fid], para, span, words, score=score, exact=exact,
+                                covered=len(set(terms_at))))
                 if score > best_in_file.get(fid, -1):
                     best_in_file[fid] = score
 
@@ -342,6 +342,11 @@ class Searcher:
             hits = hits[: opts.max_hits]
             res.truncated = True
         res.hits = hits
+        if not hits and n >= 2 and k == n and not (cancelled and cancelled()):
+            # אין צירוף עם כל המילים – כמה תוצאות יש בלי אחת מהן? (מוצע למשתמש בלחיצה)
+            sub = self.search(query, file_ids, replace(opts, min_terms=n - 1), cancelled)
+            if sub.total:
+                res.near_miss = (n - 1, sub.total)
         res.elapsed = time.perf_counter() - t0
         return res
 

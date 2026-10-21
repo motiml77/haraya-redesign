@@ -173,6 +173,10 @@ class ResultsView(QTextBrowser):
                    f'<span style="color:#cbd5e1">&nbsp; | &nbsp;</span>')
         badge = ('&nbsp;&nbsp;<span style="background:#dcfce7; color:#166534; font-size:8.5pt">'
                  '&nbsp;התאמה מדויקת&nbsp;</span>' if hit.exact else "")
+        n_terms = self.result.n_terms if self.result else 0
+        if n_terms > 1 and hit.covered < n_terms:
+            badge += ('&nbsp;&nbsp;<span style="background:#fef3c7; color:#92400e; font-size:8.5pt">'
+                      f'&nbsp;{hit.covered} מתוך {n_terms} מילים&nbsp;</span>')
         return (
             f'<table width="100%" cellspacing="0" cellpadding="10" style="background:{C_CARD}; margin-top:3px">'
             f'<tr><td>'
