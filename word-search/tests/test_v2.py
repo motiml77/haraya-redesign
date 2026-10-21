@@ -178,5 +178,11 @@ class BasketEditorTest(Base):
         ed.set_checked(sub, True, True)                    # החזרת התת-תיקייה
         self.assertEqual(names(), ["a.docx", "b.docx", "c.docx"])
         self.assertEqual(ed.state(root, True), CHECKED)
+        # ✓ מחדש על תיקייה "חלקית" לא מוסיפה אותה פעם נוספת כפריט נפרד, אלא מנקה את ההחרגות שבתוכה
+        ed.set_checked(b, False, False)
+        self.assertEqual(ed.state(sub, True), PARTIAL)
+        ed.set_checked(sub, True, True)
+        self.assertEqual(names(), ["a.docx", "b.docx", "c.docx"])
+        self.assertEqual(self.db.basket_items(bid), [(os.path.abspath(root), "folder")])
         ed.set_checked(root, True, False)                  # ביטול הכל
         self.assertEqual(self.db.basket_items(bid), [])

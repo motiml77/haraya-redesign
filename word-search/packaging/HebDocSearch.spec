@@ -12,7 +12,8 @@ from hebsearch import APP_ID, APP_NAME, __version__  # noqa: E402
 ASSETS = os.path.join(ROOT, "hebsearch", "assets")
 icon = os.path.join(ASSETS, "icon.icns" if sys.platform == "darwin" else "icon.ico")
 
-hidden = ["hebsearch.gui.main_window", "hebsearch.selftest", "pymupdf"]
+hidden = ["hebsearch.gui.main_window", "hebsearch.selftest", "pymupdf", "PySide6.QtSvg", "PySide6.QtPdf",
+          "PySide6.QtPdfWidgets"]
 if sys.platform == "win32":
     hidden += ["win32com", "win32com.client", "pythoncom", "pywintypes", "win32gui"]
 

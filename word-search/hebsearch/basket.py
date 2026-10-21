@@ -64,6 +64,14 @@ class BasketEditor:
             return PARTIAL
         return UNCHECKED
 
+    def _drop_inner(self, key, is_dir):
+        """פריטים שנוספו לסל במפורש בתוך תיקייה שחזרה להיות כלולה במלואה – מיותרים."""
+        if not is_dir:
+            return
+        inner = [p for k, p in list(self.folders.items()) + list(self.files.items()) if _under(k, key)]
+        if inner:
+            self.db.remove_basket_items(self.basket_id, inner)
+
     # ---------- שינוי ----------
     def set_checked(self, path, is_dir, checked):
         path = os.path.abspath(path)
@@ -71,15 +79,23 @@ class BasketEditor:
         bid = self.basket_id
         if checked:
             root = self.covering_folder(key)
-            if root is not None and key in self.excluded:
-                self.db.set_excluded(bid, path, False)
-            else:
-                if is_dir:  # תיקייה חדשה מכסה פריטים שנבחרו בתוכה
+            if root is None:
+                # לא בסל: מוסיפים (תיקייה חדשה מכסה פריטים שנבחרו בתוכה)
+                if is_dir:
                     inner = [p for k, p in list(self.folders.items()) + list(self.files.items()) if _under(k, key)]
                     if inner:
                         self.db.remove_basket_items(bid, inner)
                     self.db.set_excluded(bid, path, False)
                 self.db.add_basket_items(bid, [(path, "folder" if is_dir else "file")])
+            elif key in self.excluded:
+                self.db.set_excluded(bid, path, False)             # הוחרג בעצמו – מחזירים
+                self._drop_inner(key, is_dir)                      # פריטים שנבחרו בתוכו כבר מיותרים
+            elif self._excluded_below(key, root):
+                # בתוך תת-תיקייה מוחרגת – נכלל במפורש כפריט נפרד
+                self.db.add_basket_items(bid, [(path, "folder" if is_dir else "file")])
+            else:
+                self.db.set_excluded(bid, path, False)             # כלול "חלקית": מנקים החרגות שמתחתיו
+                self._drop_inner(key, is_dir)
         else:
             if key in self.folders or key in self.files:
                 self.db.remove_basket_items(bid, [self.folders.get(key) or self.files[key]])

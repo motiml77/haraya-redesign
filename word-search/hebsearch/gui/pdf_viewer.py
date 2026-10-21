@@ -18,7 +18,7 @@ except ImportError:  # PySide6 בלי מודול ה-PDF
 class PdfViewer(HitViewer):
     def __init__(self, searcher, highlight, hits, index, parent=None):
         super().__init__(searcher, highlight, hits, index, parent)
-        self.resize(900, 1000)
+        self.fit(900, 1000)
         self.add_action("－", lambda: self._zoom(1 / 1.2), "הקטנה")
         self.add_action("＋", lambda: self._zoom(1.2), "הגדלה")
         self.add_action("פתח בתוכנה החיצונית", lambda: open_pdf_external(self.path, self.hit.page, self._word(self.hit)),
@@ -54,7 +54,7 @@ class PdfViewer(HitViewer):
         self._jump()
         for ms in (80, 300):                     # שוב אחרי שהדפים נפרסו בחלון
             QTimer.singleShot(ms, self._jump)
-        self.where.setText(self.where.text() + f"   ·   {os.path.basename(self.path)}")
+        self.where.setFullText(self.where.fullText() + f"   ·   {os.path.basename(self.path)}")
         if self.search is not None:
             word = self._word(hit)
             if self.search.searchString() != word:

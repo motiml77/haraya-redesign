@@ -1,0 +1,84 @@
+# צילומי מסך של "חיפוש במסמכים" על מחשב חלונות אמיתי (גופן, סמלי מערכת, מצב כהה של המערכת).
+# לא בונה התקנה – רק מריץ את tools/screenshots.py ומפרסם את התמונות:
+#   * כארטיפקט של הריצה
+#   * וכענף ci-screenshots (ענף יתום שנדרס בכל ריצה) – כדי שאפשר יהיה לראות את התמונות ישירות.
+name: word-search screenshots
+
+on:
+  push:
+    branches:
+      - "ccr-*"
+    paths:
+      - "word-search/**"
+      - ".github/workflows/word-search-screenshots.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: word-search-screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+
+jobs:
+  shots:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: word-search
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: word-search/requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Screenshots - native screen
+        run: python tools/screenshots.py shots/native
+
+      - name: Screenshots - laptop 1366x768
+        run: python tools/screenshots.py shots/laptop-1366x768 --screen 1366x728
+
+      - name: Screenshots - Windows dark mode (checks the app keeps its light theme)
+        shell: pwsh
+        run: |
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+          New-Item -Path $key -Force | Out-Null
+          Set-ItemProperty -Path $key -Name AppsUseLightTheme -Value 0 -Type DWord
+          Set-ItemProperty -Path $key -Name SystemUsesLightTheme -Value 0 -Type DWord
+          python tools/screenshots.py shots/dark-mode --screen 1366x728
+          Set-ItemProperty -Path $key -Name AppsUseLightTheme -Value 1 -Type DWord
+          Set-ItemProperty -Path $key -Name SystemUsesLightTheme -Value 1 -Type DWord
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: word-search-screenshots-windows
+          path: word-search/shots
+          if-no-files-found: error
+
+      - name: Publish to branch ci-screenshots
+        if: always()
+        shell: bash
+        run: |
+          set -e
+          dest="$(mktemp -d)"
+          mkdir -p "$dest/windows"
+          cp -r shots/* "$dest/windows/"
+          cd "$dest"
+          git init -q -b ci-screenshots
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "screenshots of ${GITHUB_SHA}"
+          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" ci-screenshots

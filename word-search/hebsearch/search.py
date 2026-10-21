@@ -110,6 +110,7 @@ class SearchResult:
     n_terms: int = 0                                # מספר מילות החיפוש (בלי "-מילה")
     required: int = 0                               # כמה מהן נדרשו
     near_miss: tuple = None                         # (נדרשות, תוצאות) – הצעה כשאין תוצאות
+    cancelled: bool = False
 
 
 def parse_query(query: str):
@@ -147,19 +148,23 @@ _vocab_cache = _VocabCache()
 
 
 class _ParaCache:
-    """מטמון LRU לטקסט המפוענח של קבצים (נשמר בין חיפושים)."""
+    """מטמון LRU לטקסט המפוענח של קבצים (נשמר בין חיפושים).
+    מוגבל בנפח (מספר תווים כולל) ולא במספר קבצים: קובץ אחד גדול יכול להיות עשרות מגה-בייט בזיכרון,
+    ומטמון של 128 כאלה יכול לתקוע את המחשב."""
 
-    def __init__(self, size=128):
-        self.size = size
-        self.data = OrderedDict()
+    def __init__(self, max_chars=20_000_000):
+        self.max_chars = max_chars
+        self.total = 0
+        self.data = OrderedDict()      # key -> (value, chars)
         self.lock = threading.Lock()
 
     def get(self, db, fid):
         key = (db.path, fid)
         with self.lock:
-            if key in self.data:
+            hit = self.data.get(key)
+            if hit is not None:
                 self.data.move_to_end(key)
-                return self.data[key]
+                return hit[0]
         paras = db.file_paras(fid)
         body_no, numbers = 0, []
         for p in paras:
@@ -167,18 +172,48 @@ class _ParaCache:
                 body_no += 1
             numbers.append(body_no)
         val = (paras, numbers, {})
+        chars = sum(len(p[0]) for p in paras) + 1
         with self.lock:
-            self.data[key] = val
-            while len(self.data) > self.size:
-                self.data.popitem(last=False)
+            old = self.data.pop(key, None)
+            if old is not None:
+                self.total -= old[1]
+            self.data[key] = (val, chars)
+            self.total += chars
+            while self.total > self.max_chars and len(self.data) > 1:
+                _, (_, c) = self.data.popitem(last=False)
+                self.total -= c
         return val
 
     def invalidate(self):
         with self.lock:
             self.data.clear()
+            self.total = 0
 
 
 para_cache = _ParaCache()
+
+
+def _phrase_matches(maps):
+    """צירוף צמוד לפי הסדר: מילה i נמצאת במיקום p+i. maps[i] = {מיקום: מילה}.
+    מחזיר [(span, words, terms_at)] ללא חפיפות."""
+    n = len(maps)
+    rest = maps[1:]
+    out = []
+    last = -1
+    for p in sorted(maps[0]):
+        if p <= last:
+            continue
+        ok = True
+        for i, m in enumerate(rest, 1):
+            if p + i not in m:
+                ok = False
+                break
+        if ok:
+            span = tuple(range(p, p + n))
+            words = tuple(m[p + i] for i, m in enumerate(maps))
+            out.append((span, words, tuple(range(n))))
+            last = p + n - 1
+    return out
 
 
 class Searcher:
@@ -187,8 +222,9 @@ class Searcher:
         self.context_words = context_words
 
     # ---------- שלב 1-4: מציאת ההתאמות ----------
-    def _occurrences(self, ids, fileset, keys=None):
+    def _occurrences(self, ids, fileset, keys=None, on_bytes=None):
         """(קובץ, פסקה) → {מיקום: מילה}. עם keys – רק בפסקאות האלה.
+        on_bytes(n): נקרא מדי פעם עם מספר הבתים שנקראו מהאינדקס (לאחוזי התקדמות).
 
         רשימת המופעים של כל מילה ממוינת לפי פסקה, ולכן כשצריך רק מעט פסקאות
         מתוך רשימה ארוכה (מילה נפוצה) מאתרים אותן בחיפוש בינארי במקום לעבור
@@ -203,8 +239,15 @@ class Searcher:
             for v in want.values():
                 v.sort()
             fileset = fileset & set(want)
+        read = 0
         for wid, fid, arr in self.db.postings(ids, fileset):
             word = self._id_word[wid]
+            if on_bytes is not None:
+                read += len(arr) * 4
+                if read > 400_000:
+                    if on_bytes(read) is False:      # בוטל
+                        return occ
+                    read = 0
             wanted = want.get(fid) if want is not None else None
             if wanted is None or len(wanted) * 8 > len(arr):
                 it = iter(arr)
@@ -229,11 +272,28 @@ class Searcher:
                     d[poss[j]] = word
         return occ
 
-    def search(self, query, file_ids, opts: SearchOptions, cancelled=None) -> SearchResult:
-        """file_ids: מילון מזהה_קובץ → נתיב (קבצי הסל)."""
+    def search(self, query, file_ids, opts: SearchOptions, cancelled=None, progress=None) -> SearchResult:
+        """file_ids: מילון מזהה_קובץ → נתיב (קבצי הסל).
+
+        progress(שבר 0..1, טקסט) – דיווח התקדמות אמיתי לפי שלבים; cancelled() – ביטול באמצע.
+        """
         t0 = time.perf_counter()
         self.context_words = opts.context_words
         res = SearchResult(query=query, searched_files=len(file_ids))
+
+        def rep(frac, text=""):
+            if progress:
+                progress(max(0.0, min(1.0, frac)), text)
+
+        def stop():
+            if cancelled and cancelled():
+                res.cancelled = True
+                res.message = "החיפוש בוטל."
+                res.elapsed = time.perf_counter() - t0
+                return True
+            return False
+
+        rep(0.01, "מנתח את השאילתה")
         terms = parse_query(query)
         res.terms = terms
         pos_terms = [t for t in terms if not t.negate]
@@ -245,14 +305,18 @@ class Searcher:
             res.message = "הסל ריק, או שאין בו מסמכים שנקראו בהצלחה."
             return res
 
+        rep(0.02, "טוען את אוצר המילים")
         joined, vocab_ids = _vocab_cache.get(self.db)
         mopts = opts.match_options()
-        for t in terms:
+        for i, t in enumerate(terms):
             rx = term_regex(t.alts, mopts)
             t.words = {m.group() for m in rx.finditer(joined)} if rx else set()
             if len(t.words) > MAX_VARIANTS:
                 res.message = f"המילה '{t.text}' רחבה מדי ({len(t.words):,} צורות). נסו לצמצם."
                 return res
+            rep(0.03 + 0.04 * (i + 1) / len(terms), "מחפש צורות של המילים")
+        if stop():
+            return res
         n = len(pos_terms)
         if n > MAX_TERMS:
             res.message = f"אפשר לחפש עד {MAX_TERMS} מילים בבת אחת."
@@ -277,58 +341,92 @@ class Searcher:
         ids_of = {i: [vocab_ids[w] for w in pos_terms[i].words] for i in present}
         cost = {i: self.db.postings_size(ids_of[i]) for i in present}
         present.sort(key=lambda i: cost[i])
+        total_cost = max(1, sum(cost[i] for i in present))
+        done_cost = 0
+
+        def retrieval(i):
+            label = f"שולף את המופעים של «{pos_terms[i].text}»"
+
+            def on_bytes(nbytes):
+                frac = (done_cost + min(nbytes_total[0] + nbytes, cost[i])) / total_cost
+                nbytes_total[0] += nbytes
+                rep(0.08 + 0.38 * frac, label)
+                return not stop()
+
+            nbytes_total = [0]
+            return on_bytes
+
         r = len(present) - k + 1
         fileset = set(file_ids)
         occs, keys = {}, set()
         for i in present[:r]:
-            occs[i] = self._occurrences(ids_of[i], fileset)
+            occs[i] = self._occurrences(ids_of[i], fileset, on_bytes=retrieval(i))
+            if stop():
+                return res
+            done_cost += cost[i]
+            rep(0.08 + 0.38 * done_cost / total_cost, "שולף מופעים")
             keys |= set(occs[i])
         for i in present[r:]:
             if not keys:
                 break
-            occs[i] = self._occurrences(ids_of[i], fileset, keys)
+            occs[i] = self._occurrences(ids_of[i], fileset, keys, on_bytes=retrieval(i))
+            if stop():
+                return res
+            done_cost += cost[i]
+            rep(0.08 + 0.38 * done_cost / total_cost, "שולף מופעים")
             if k == n:
                 keys &= set(occs[i])
                 fileset = {f for f, _ in keys}
-            if cancelled and cancelled():
-                res.message = "החיפוש בוטל."
-                return res
         if k < n:
             keys = {key for key in keys if sum(key in occ for occ in occs.values()) >= k}
         for t in neg_terms:
             if keys and t.words:
                 occ = self._occurrences([vocab_ids[w] for w in t.words], {f for f, _ in keys}, keys)
                 keys -= set(occ)
+        if stop():
+            return res
 
         scorer = Scorer(pos_terms)
         gap = None if opts.whole_paragraph else max(0, opts.max_gap)
+        phrase = n >= 2 and k == n and opts.ordered and gap == 0      # צירוף צמוד לפי הסדר – מסלול מהיר
         per_file = Counter()
         best_in_file = {}
         hits = []
         empty = {}
-        for key in keys:
+        keys = list(keys)
+        total_keys = max(1, len(keys))
+        for idx, key in enumerate(keys):
+            if idx & 1023 == 0:
+                rep(0.47 + 0.45 * idx / total_keys, "בודק התאמות בין המילים")
+                if stop():
+                    return res
             maps = [occs.get(i, empty).get(key, empty) for i in range(n)]
             if n == 1:
-                chains = [[(p, 0)] for p in maps[0]]
+                found = [((p,), (w,), (0,)) for p, w in sorted(maps[0].items())]
+            elif phrase:
+                found = _phrase_matches(maps)
             else:
-                chains = find_spans([sorted(m) for m in maps], gap, opts.ordered, k)
-            if not chains:
+                found = []
+                for chain in find_spans([sorted(m) for m in maps], gap, opts.ordered, k):
+                    found.append((tuple(p for p, _ in chain), tuple(maps[t][p] for p, t in chain),
+                                  tuple(t for _, t in chain)))
+            if not found:
                 continue
             fid, para = key
-            per_file[fid] += len(chains)
-            for chain in chains:
-                span = tuple(p for p, _ in chain)
-                terms_at = [t for _, t in chain]
-                words = tuple(maps[t][p] for p, t in chain)
+            per_file[fid] += len(found)
+            path = file_ids[fid]
+            for span, words, terms_at in found:
                 score, exact = scorer.score(span, words, terms_at)
-                hits.append(Hit(fid, file_ids[fid], para, span, words, score=score, exact=exact,
+                hits.append(Hit(fid, path, para, span, words, score=score, exact=exact,
                                 covered=len(set(terms_at))))
                 if score > best_in_file.get(fid, -1):
                     best_in_file[fid] = score
 
+        rep(0.93, "מדרג את התוצאות")
         res.total = len(hits)
-        for h in hits:
-            res.forms.update(restore_finals(w) for w in h.words)
+        raw_forms = Counter(w for h in hits for w in h.words)
+        for w, c in raw_forms.items():
+            res.forms[restore_finals(w)] += c
         res.highlight = set().union(*(t.words for t in pos_terms))
         # מסמכים: הטוב ביותר קודם (הציון הגבוה, ואז מספר התוצאות)
         res.files = sorted(((f, file_ids[f], c) for f, c in per_file.items()),
@@ -348,6 +446,7 @@ class Searcher:
             if sub.total:
                 res.near_miss = (n - 1, sub.total)
         res.elapsed = time.perf_counter() - t0
+        rep(0.97, "מכין את התצוגה")
         return res
 
     # ---------- שלב 5: קטע תצוגה ----------

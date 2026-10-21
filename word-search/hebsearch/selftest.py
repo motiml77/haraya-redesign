@@ -100,24 +100,52 @@ def run(argv):
 
     def gui():
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtCore import QSettings
+        from PySide6.QtGui import QPalette
         from PySide6.QtWidgets import QApplication
+        from .gui import icons, pdf_viewer
         from .gui.main_window import MainWindow, prepare_app
         from .paths import default_db_path
         app = QApplication.instance() or QApplication(sys.argv[:1])
-        prepare_app(app)
-        win = MainWindow(default_db_path())
+        settings = QSettings(os.path.join(tmp, "selftest-settings.ini"), QSettings.IniFormat)
+        prepare_app(app, settings)
+        win = MainWindow(default_db_path(), settings)
         win.show()
-        for _ in range(30):
-            app.processEvents()
-            time.sleep(0.02)
-        from .gui import pdf_viewer
+
+        def settle(limit=40):
+            t0 = time.time()
+            while time.time() - t0 < limit:
+                app.processEvents()
+                if not (win._scan_job or win._search_job or win._search_waiting_scan or win.results.overlay.is_active()):
+                    break
+                time.sleep(0.01)
+            for _ in range(10):
+                app.processEvents()
+                time.sleep(0.01)
+
+        settle()
+        # מידות: החלון נכנס במסך ושדה החיפוש קומפקטי (ולא ענק כמו בגרסה הראשונה)
+        avail = app.primaryScreen().availableGeometry()
+        assert win.width() <= avail.width() and win.height() <= avail.height(), (win.size(), avail)
+        assert win.search_edit.height() <= 40, f"שדה החיפוש גבוה מדי: {win.search_edit.height()}"
+        assert app.palette().color(QPalette.Window).lightness() > 200, "הערכה הכהה של המערכת לא נוטרלה"
+        # חיפוש אמיתי דרך עבודות הרקע של החלון, כולל ציור התוצאות
+        win.baskets.add_paths([docs])
+        settle()
+        win.search_edit.setText("ויאמר משה אל העם")
+        win.run_search()
+        settle()
+        assert win.result is not None and win.result.total == 1, getattr(win.result, "message", "אין תוצאה")
+        assert win.results.list.model().rowCount() == 1, "התוצאה לא הוצגה ברשימה"
         assert pdf_viewer.AVAILABLE, "מודול ה-PDF של Qt לא נטען"
         from PySide6.QtPdf import QPdfDocument
         pdf = QPdfDocument()
         pdf.load(os.path.join(docs, "test.pdf"))
         assert pdf.pageCount() == 1, f"QtPdf לא קרא את הקובץ (עמודים: {pdf.pageCount()})"
         assert not app.windowIcon().isNull(), "הלוגו לא נטען"
-        info = {"qt_platform": app.platformName(), "pdf_pages": pdf.pageCount()}
+        info = {"qt_platform": app.platformName(), "pdf_pages": pdf.pageCount(),
+                "window": [win.width(), win.height()], "search_field_height": win.search_edit.height(),
+                "system_icons": icons.describe_system_icons()}
         win.close()
         return info
 

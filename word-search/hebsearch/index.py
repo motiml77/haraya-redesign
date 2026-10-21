@@ -67,8 +67,18 @@ def is_excluded(path, excluded, root=None) -> bool:
     return False
 
 
-def resolve_basket(items):
+def _walk_folder(path):
+    found = []
+    for root, dirs, names in os.walk(path):
+        dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+        found.extend(os.path.join(root, n) for n in sorted(names) if is_supported(n))
+    return found
+
+
+def resolve_basket(items, cache=None):
     """פריטי סל → (רשומות, קבצים).
+
+    cache: מילון {נתיב_תיקייה: [קבצים]} – אם ניתן, תיקיות שכבר נסרקו לא נסרקות שוב (מתעדכן במקום).
 
     items: [(נתיב, סוג)] כשסוג הוא folder / file / exclude (מסמך או תת-תיקייה שהוחרגו).
     רשומות: [(נתיב, סוג, [כל המסמכים שתחתיו])] – לתצוגת תוכן הסל.
@@ -81,9 +91,12 @@ def resolve_basket(items):
             continue
         found = []
         if kind == "folder":
-            for root, dirs, names in os.walk(path):
-                dirs[:] = sorted(d for d in dirs if not d.startswith("."))
-                found.extend(os.path.join(root, n) for n in sorted(names) if is_supported(n))
+            if cache is not None and path in cache:
+                found = cache[path]
+            else:
+                found = _walk_folder(path)
+                if cache is not None:
+                    cache[path] = found
         elif is_supported(path) and os.path.isfile(path):
             found.append(os.path.abspath(path))
         entries.append((path, kind, found))
@@ -147,11 +160,36 @@ def process_file(path: str) -> dict:
     return res
 
 
+def _lower_priority():
+    """מופעל בתחילת כל תהליך אינדוקס: עדיפות נמוכה, כדי שהמחשב וחלון התוכנה ימשיכו להגיב."""
+    try:
+        if os.name == "nt":
+            import ctypes
+            kernel = ctypes.windll.kernel32
+            kernel.SetPriorityClass(kernel.GetCurrentProcess(), 0x00004000)   # BELOW_NORMAL_PRIORITY_CLASS
+        else:
+            os.nice(8)
+    except Exception:
+        pass
+
+
+def default_workers() -> int:
+    """מספר תהליכי אינדוקס: חצי מהליבות (עד 4) – לא ממצים את המעבד."""
+    return max(1, min(4, (os.cpu_count() or 2) // 2))
+
+
 class IndexDB:
-    def __init__(self, path: str):
+    def __init__(self, path: str, ensure_schema: bool = True):
+        """ensure_schema=False: חיבור קריאה בלבד וקל לתהליכוני חיפוש (בלי יצירת טבלאות/מיגרציה)."""
         self.path = path
+        self._vocab = None
         self.conn = sqlite3.connect(path, timeout=30)
         c = self.conn
+        if not ensure_schema:
+            c.execute("PRAGMA cache_size=-32768")
+            c.execute("PRAGMA temp_store=MEMORY")
+            c.execute("PRAGMA query_only=ON")
+            return
         c.execute("PRAGMA journal_mode=WAL")
         c.execute("PRAGMA synchronous=NORMAL")
         c.execute("PRAGMA cache_size=-65536")
@@ -372,8 +410,8 @@ class IndexDB:
 
         try:
             if len(docx_paths) > 8:
-                n = workers or max(1, (os.cpu_count() or 2) - 1)
-                with ProcessPoolExecutor(max_workers=n) as pool:
+                n = workers or default_workers()
+                with ProcessPoolExecutor(max_workers=n, initializer=_lower_priority) as pool:
                     for res in pool.map(process_file, docx_paths, chunksize=4):
                         handle(res)
                         if cancelled and cancelled():
