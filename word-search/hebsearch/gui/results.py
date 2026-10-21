@@ -39,6 +39,14 @@ def ltr(s: str) -> str:
     return f"‪{s}‬"
 
 
+def bidi_name(name: str) -> str:
+    """שם קובץ/תיקייה לתצוגה בתוך ממשק עברי: שם בלי אותיות עבריות (‎.cargo, Visual Studio)
+    נעוץ בכיוון שמאל-לימין, אחרת הנקודה המובילה "קופצת" לסוף השם."""
+    if any("\u0590" <= c <= "\u05ff" for c in name):
+        return name
+    return "\u200e" + name
+
+
 def doc_name(path: str) -> str:
     """שם המסמך בלי סיומת – הסיומת הלטינית משבשת את כיווניות השם."""
     return os.path.splitext(os.path.basename(path))[0]

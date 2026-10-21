@@ -28,7 +28,7 @@ from .file_browser import BrowserDialog, FileBrowser
 from .icons import doc_kind, ui_icon
 from .results import doc_name, ltr
 from .theme import C, T
-from .widgets import Combo, ElidedLabel, icon_button
+from .widgets import Combo, ElidedLabel, WrapLabel, icon_button
 
 
 class BasketTree(QTreeView):
@@ -163,10 +163,9 @@ class BasketPanel(QFrame):
         t.setObjectName("title")
         t.setAlignment(Qt.AlignCenter)
         el.addWidget(t)
-        d = QLabel("הוסיפו תיקיות או מסמכי Word ו-PDF. אפשר גם לגרור אותם לכאן מהסייר.")
+        d = WrapLabel("הוסיפו תיקיות או מסמכי Word ו-PDF. אפשר גם לגרור אותם לכאן מהסייר.")
         d.setObjectName("muted")
         d.setAlignment(Qt.AlignCenter)
-        d.setWordWrap(True)
         el.addWidget(d)
         b1 = QPushButton("בחירה מהמחשב")
         b1.setObjectName("primary")
@@ -188,9 +187,8 @@ class BasketPanel(QFrame):
         self.tabs.addTab(self.browser, ui_icon("search"), "בחירה מהמחשב")
 
         # ---- שוליים: סיכום + עדכון/התקדמות ----
-        self.summary = QLabel()
+        self.summary = WrapLabel()
         self.summary.setObjectName("caption")
-        self.summary.setWordWrap(True)
         self.summary.setTextFormat(Qt.RichText)
         self.summary.linkActivated.connect(lambda _: self._show_problems())
         lay.addWidget(self.summary)

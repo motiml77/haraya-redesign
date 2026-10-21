@@ -35,12 +35,16 @@ def reveal_in_folder(path: str):
 
 
 def word_automation_available() -> bool:
+    """חלונות עם וורד מותקן (רישום ה-COM של Word.Application) וספריית pywin32."""
     if sys.platform != "win32":
         return False
     try:
+        import winreg
+
         import win32com.client  # noqa: F401
+        winreg.CloseKey(winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, "Word.Application"))
         return True
-    except ImportError:
+    except (ImportError, OSError):
         return False
 
 

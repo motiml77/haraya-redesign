@@ -40,6 +40,8 @@ _SVG = {
     "minus": '<path d="M5 12h14"/>',
     "chevron-down": '<path d="M6.5 9.5l5.5 5.5 5.5-5.5"/>',
     "chevron-up": '<path d="M6.5 14.5l5.5-5.5 5.5 5.5"/>',
+    "chevron-left": '<path d="M14.5 6.5L9 12l5.5 5.5"/>',
+    "chevron-right": '<path d="M9.5 6.5l5.5 5.5-5.5 5.5"/>',
     "x": '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
     "arrow-up": '<path d="M12 19V5.5M6 11.5l6-6 6 6"/>',
     "eye": '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>',
@@ -144,10 +146,16 @@ def _image(icon: QIcon, size: int = 32) -> QImage:
     return icon.pixmap(QSize(size, size)).toImage()
 
 
-def _generic_image() -> QImage:
+def _generic_images() -> list:
+    """הסמלים ה"כלליים" של המערכת: קובץ בלי סוג, וקובץ עם סיומת שאין לה תוכנה משויכת.
+    (בחלונות בלי וורד, ‎.docx מקבל את הדף הריק הכללי – אז עדיף הסמל המצויר שלנו.)"""
     global _generic
     if _generic is None:
-        _generic = _image(_prov().icon(QFileIconProvider.File))
+        _generic = [_image(_prov().icon(QFileIconProvider.File))]
+        try:
+            _generic.append(_image(_prov().icon(QFileInfo(_probe_path(".hebdoc-unknown-type")))))
+        except Exception:
+            pass
     return _generic
 
 
@@ -179,9 +187,8 @@ def system_file_icon(ext: str) -> QIcon | None:
         icon = _prov().icon(QFileInfo(_probe_path(ext)))
         if not icon.isNull():
             img = _image(icon)
-            generic = _generic_image()
-            # סמל זהה לסמל ה"קובץ" הכללי = למערכת אין סמל ייחודי לסוג הזה
-            if not img.isNull() and (generic.isNull() or img != generic):
+            # סמל זהה לאחד הסמלים הכלליים = למערכת אין סמל ייחודי לסוג הזה
+            if not img.isNull() and all(g.isNull() or img != g for g in _generic_images()):
                 result = icon
     except Exception:
         result = None

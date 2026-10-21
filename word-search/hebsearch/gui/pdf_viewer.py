@@ -3,6 +3,7 @@
 import os
 
 from PySide6.QtCore import QModelIndex, QPointF, QTimer
+from PySide6.QtGui import QColor, QPalette
 
 from ..opener import open_pdf_external, reveal_in_folder
 from .viewer_base import HitViewer
@@ -28,6 +29,9 @@ class PdfViewer(HitViewer):
         self.doc = QPdfDocument(self)
         self.doc.load(self.path)
         self.view = QPdfView(self)
+        pal = self.view.palette()
+        pal.setColor(QPalette.Dark, QColor("#d9dee8"))           # רקע אפור בהיר מאחורי הדפים (ברירת המחדל כהה)
+        self.view.setPalette(pal)
         self.view.setDocument(self.doc)
         self.view.setPageMode(QPdfView.PageMode.MultiPage)
         self.view.setZoomMode(QPdfView.ZoomMode.FitToWidth)

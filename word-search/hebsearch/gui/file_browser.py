@@ -12,7 +12,7 @@ import os
 from PySide6.QtCore import QDir, QSize, QStandardPaths, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QCompleter, QDialog, QFileDialog, QFileSystemModel, QHBoxLayout, QLabel, QLineEdit,
+    QAbstractItemView, QApplication, QCompleter, QDialog, QFileDialog, QFileSystemModel, QHBoxLayout, QLineEdit,
     QMenu, QPushButton, QToolButton, QTreeView, QVBoxLayout, QWidget,
 )
 
@@ -20,9 +20,9 @@ from ..basket import CHECKED, PARTIAL
 from ..index import SUPPORTED_EXTS
 from ..opener import open_default
 from .icons import file_icon, folder_icon, ui_icon
-from .results import ltr, short_path
+from .results import bidi_name, ltr, short_path
 from .theme import T
-from .widgets import icon_button
+from .widgets import WrapLabel, icon_button
 
 _STATE = {CHECKED: Qt.Checked, PARTIAL: Qt.PartiallyChecked}
 NAME_FILTERS = [f"*{e}" for e in sorted(SUPPORTED_EXTS)] + [f"*{e.upper()}" for e in sorted(SUPPORTED_EXTS)]
@@ -59,8 +59,11 @@ class CheckableFsModel(QFileSystemModel):
                     return file_icon(self.filePath(index))      # הסמל של מערכת ההפעלה לסוג הקובץ
                 icon = super().data(index, role)                # תיקיות וכוננים: הסמלים של המערכת
                 return icon if isinstance(icon, QIcon) and not icon.isNull() else folder_icon()
-            if role == Qt.DisplayRole and not self.isDir(index):
-                return os.path.splitext(self.fileName(index))[0]  # בלי הסיומת הלטינית (משבשת שמות בעברית)
+            if role == Qt.DisplayRole:
+                if not self.isDir(index):
+                    return bidi_name(os.path.splitext(self.fileName(index))[0])   # בלי הסיומת הלטינית
+                text = super().data(index, role)
+                return bidi_name(text) if isinstance(text, str) else text
             if role == Qt.ToolTipRole:
                 return ltr(self.filePath(index))
         return super().data(index, role)
@@ -137,9 +140,8 @@ class FileBrowser(QWidget):
         self.view.verticalScrollBar().actionTriggered.connect(lambda _: setattr(self, "_target", ""))
         lay.addWidget(self.view, 1)
 
-        hint = QLabel("סמנו ✓ ליד תיקייה (כולל כל תתי־התיקיות שבה) או ליד מסמך כדי להוסיף לסל. ביטול הסימון מוציא מהסל.")
+        hint = WrapLabel("סמנו ✓ ליד תיקייה (כולל כל תתי־התיקיות שבה) או ליד מסמך כדי להוסיף לסל. ביטול הסימון מוציא מהסל.")
         hint.setObjectName("caption")
-        hint.setWordWrap(True)
         lay.addWidget(hint)
 
         completer = QCompleter(self)

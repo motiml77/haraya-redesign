@@ -1,9 +1,10 @@
 """בסיס משותף למציגי המסמכים: סרגל עם מיקום, מעבר בין תוצאות ופעולות."""
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QPushButton, QVBoxLayout, QWidget
 
+from .icons import ui_icon
 from .results import doc_name
 from .theme import T, fit_geometry
 from .widgets import ElidedLabel
@@ -39,12 +40,16 @@ class HitViewer(QMainWindow):
         nav.setSpacing(T.gap)
         self.where = ElidedLabel("", Qt.ElideRight)
         self.where.setObjectName("muted")
-        self.prev_btn = QPushButton("הקודמת ▶")
+        # בממשק מימין לשמאל "הקודמת" היא לכיוון ימין ו"הבאה" לכיוון שמאל
+        self.prev_btn = QPushButton(ui_icon("chevron-right"), "הקודמת")
         self.prev_btn.setToolTip("התוצאה הקודמת במסמך (Shift+F3)")
         self.prev_btn.clicked.connect(lambda: self.go(self.index - 1))
-        self.next_btn = QPushButton("◀ הבאה")
+        self.next_btn = QPushButton(ui_icon("chevron-left"), "הבאה")
+        self.next_btn.setLayoutDirection(Qt.LeftToRight)         # הסמל משמאל לטקסט
         self.next_btn.setToolTip("התוצאה הבאה במסמך (F3)")
         self.next_btn.clicked.connect(lambda: self.go(self.index + 1))
+        for b in (self.prev_btn, self.next_btn):
+            b.setIconSize(QSize(T.icon, T.icon))
         nav.addWidget(self.where, 1)
         nav.addWidget(self.prev_btn)
         nav.addWidget(self.next_btn)

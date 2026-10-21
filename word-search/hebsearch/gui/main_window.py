@@ -9,8 +9,9 @@
 from __future__ import annotations
 
 import sys
+import time
 
-from PySide6.QtCore import QRect, QSettings, QSize, QStringListModel, Qt, QTimer, Slot
+from PySide6.QtCore import QEvent, QRect, QSettings, QSize, QStringListModel, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QGuiApplication, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QCompleter, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow,
@@ -48,6 +49,8 @@ def _card() -> QFrame:
 
 
 class MainWindow(QMainWindow):
+    statusMessage = Signal(str)          # מתהליכון רקע (פתיחה בוורד) אל שורת המצב
+
     def __init__(self, db_path, settings=None):
         super().__init__()
         self.db_path = db_path
@@ -55,6 +58,7 @@ class MainWindow(QMainWindow):
         self.searcher = Searcher(self.db)             # לשימוש בחוט הראשי בלבד: איתור מיקום, מציגים
         self.settings = settings or QSettings("HebWordSearch", "app")
         self._closing = False
+        self._last_scan_done = 0.0
         self.scan = None
         self.scan_cache = {}
         self._scan_job = None
@@ -75,6 +79,7 @@ class MainWindow(QMainWindow):
         self.search_ids = None if saved is None else {int(x) for x in (saved if isinstance(saved, list) else [saved])}
 
         from .. import APP_NAME
+        self.statusMessage.connect(self._show_status)
         self.setWindowTitle(f"{APP_NAME} – Word ו-PDF")
         self._place_window()
         self._build()
@@ -437,15 +442,19 @@ class MainWindow(QMainWindow):
         self._scan_job = None
         self._scan_ui_timer.stop()
         self.baskets.hide_progress()
+        self._last_scan_done = time.monotonic()
+        note = ""
         if outcome.error:
-            self.statusBar().showMessage("שגיאה בסריקה: " + outcome.error.strip().splitlines()[-1], 15000)
+            note = "שגיאה בסריקה: " + outcome.error.strip().splitlines()[-1]
         elif outcome.result is not None:
             self.scan = outcome.result
             self.baskets.set_scan(self.scan)
             self._update_chip_counts()
             if outcome.result.indexed:
-                self.statusBar().showMessage(f"המפה עודכנה: נקראו {outcome.result.indexed:,} מסמכים", 6000)
+                note = f"המפה עודכנה: נקראו {outcome.result.indexed:,} מסמכים"
         self._refresh_stats()
+        if note:
+            self.statusBar().showMessage(note, 8000)
         if self._scan_pending:
             self._scan_pending = False
             self.start_scan()
@@ -453,7 +462,26 @@ class MainWindow(QMainWindow):
         if self._search_waiting_scan:
             self._search_waiting_scan = False
             self.results.busy_end()
-            self.run_search()
+            if self.scan is None:           # הסריקה נכשלה או בוטלה – לא מנסים שוב ושוב
+                self.results.show_message(message_html(
+                    "לא ניתן היה לעדכן את הסלים לחיפוש", note or "הסריקה בוטלה. אפשר ללחוץ על 'עדכון מפת החיפוש'.", C.warn))
+            else:
+                self.run_search()
+
+    @Slot(str)
+    def _show_status(self, msg):
+        if not self._closing:
+            self.statusBar().showMessage(msg, 10000)
+
+    def _maybe_rescan(self):
+        """חזרה לחלון אחרי זמן: בודקים ברקע אם נוספו מסמכים לתיקיות הסלים (בלי לחסום)."""
+        if self.scan is not None and self._scan_job is None and time.monotonic() - self._last_scan_done > 45:
+            self.start_scan(force=True)
+
+    def event(self, e):
+        if e.type() == QEvent.WindowActivate and not self._closing:
+            QTimer.singleShot(250, self._maybe_rescan)
+        return super().event(e)
 
     def _cancel_scan(self):
         if self._scan_job is not None:
@@ -482,11 +510,12 @@ class MainWindow(QMainWindow):
         self.history_model.setStringList(self.history)
         self.settings.setValue("history", self.history)
         self._cancel_search(quiet=True)
-        if self.scan is None:
-            # הסריקה הראשונית עדיין רצה – מחכים לה (עם התקדמות) ואז מחפשים
+        if self.scan is None or self._scan_job is not None:
+            # הסריקה רצה (ראשונית, או אחרי שינוי בסל) – מחכים לה, עם התקדמות, ואז מחפשים
             self._search_waiting_scan = True
             self.results.busy_begin("מכין את הסלים לחיפוש…")
-            self.start_scan()
+            if self._scan_job is None:
+                self.start_scan()
             return
         opts = self.options.options()
         from dataclasses import replace
@@ -710,16 +739,13 @@ class MainWindow(QMainWindow):
 
     def open_in_word(self, hit):
         cands, ratio = self.searcher.locate(hit)
-        if open_at(hit.path, cands, hit.kind, hit.note, ratio, on_status=lambda m: self._status_later(m)):
+        if open_at(hit.path, cands, hit.kind, hit.note, ratio, on_status=self.statusMessage.emit):
             self.statusBar().showMessage(f"פותח את '{doc_name(hit.path)}' בוורד – {hit.location}…", 6000)
         else:
             QApplication.clipboard().setText(hit.needle)
             self.statusBar().showMessage(
                 f"'{doc_name(hit.path)}' נפתח ({hit.location}). הטקסט שנמצא הועתק – "
                 "Ctrl+F ואז Ctrl+V כדי להגיע אליו.", 12000)
-
-    def _status_later(self, msg):
-        QTimer.singleShot(0, lambda: self.statusBar().showMessage(msg, 10000))
 
     def preview_hit(self, hit):
         """פותח (או מעדכן) מציג מובנה של המסמך, גלול למקום התוצאה."""

@@ -14,7 +14,7 @@ from PySide6.QtGui import QBrush, QColor
 
 from ..basket import CHECKED, PARTIAL
 from .icons import file_icon, folder_icon
-from .results import doc_name
+from .results import bidi_name, doc_name
 from .theme import C
 
 KIND_ROLE = Qt.UserRole + 1
@@ -233,7 +233,7 @@ class BasketModel(QAbstractItemModel):
         col = index.column()
         if col == 0:
             if role == Qt.DisplayRole:
-                return node.name
+                return bidi_name(node.name)
             if role == Qt.DecorationRole:
                 return folder_icon() if node.kind in ("top", "dir") else file_icon(node.path)
             if role == Qt.CheckStateRole and node.kind in ("dir", "file"):

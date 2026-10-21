@@ -37,7 +37,7 @@ def main():
     tmp = tempfile.mkdtemp(prefix="hebshots-")
     os.environ["HEBSEARCH_DATA"] = os.path.join(tmp, "data")
 
-    from PySide6.QtCore import QRect, QSettings, QSysInfo, Qt, QTimer, qVersion
+    from PySide6.QtCore import QRect, QSettings, QSysInfo, QTimer, qVersion
     from PySide6.QtGui import QFont, QGuiApplication, QImage, QPageSize, QPdfWriter, QTextDocument
     from PySide6.QtWidgets import QApplication
 
@@ -94,7 +94,11 @@ def main():
     if args.screen:
         sw, sh = (int(x) for x in args.screen.lower().split("x"))
         mw.MainWindow._screen_rect = lambda self: QRect(0, 0, sw, sh)
+    hints = app.styleHints()
+    report["os_color_scheme"] = str(hints.colorScheme()) if hasattr(hints, "colorScheme") else "n/a"   # לפני שהתוכנה קובעת ערכה בהירה
+    report["os_palette_window_lightness"] = app.palette().color(app.palette().ColorRole.Window).lightness()
     mw.prepare_app(app, settings)
+    report["app_palette_window_lightness"] = app.palette().color(app.palette().ColorRole.Window).lightness()
     scr = QGuiApplication.primaryScreen()
     report["screen"] = {"geometry": list(scr.geometry().getRect()), "available": list(scr.availableGeometry().getRect()),
                         "dpr": scr.devicePixelRatio(), "logical_dpi": scr.logicalDotsPerInch(), "platform": app.platformName()}

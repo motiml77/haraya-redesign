@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import (
     QEasingCurve, QEvent, QObject, QPoint, QPropertyAnimation, QRect, QRectF, QSize, Qt, QTimer, Signal,
 )
-from PySide6.QtGui import QColor, QFontMetrics, QIcon, QPainter, QPen
+from PySide6.QtGui import QColor, QFontMetrics, QIcon, QPainter, QPen, QTextDocument
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QProgressBar, QPushButton, QSizePolicy,
     QStyle, QStyleOptionComboBox, QToolButton, QVBoxLayout, QWidget,
@@ -177,6 +177,40 @@ class ElidedLabel(QLabel):
 
     def minimumSizeHint(self):
         return QSize(24, super().minimumSizeHint().height())
+
+
+class WrapLabel(QLabel):
+    """תווית עם גלישת שורות שגובהה נגזר מהרוחב בפועל. בתוך לשוניות QLabel רגיל שומר מקום
+    ליותר שורות משצריך (גובה-לפי-רוחב לא עובר דרך QTabWidget), ונוצר רווח ריק."""
+
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self.setWordWrap(True)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self._fit()
+
+    def setText(self, text):
+        super().setText(text)
+        self._fit()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._fit()
+
+    def _fit(self):
+        width = max(60, self.width())
+        if self.textFormat() == Qt.RichText or (self.textFormat() == Qt.AutoText and "<" in self.text()):
+            doc = QTextDocument()
+            doc.setDefaultFont(self.font())
+            doc.setTextWidth(width)
+            doc.setHtml(self.text())
+            h = int(doc.size().height())
+        else:
+            h = QFontMetrics(self.font()).boundingRect(0, 0, width, 100_000, Qt.TextWordWrap, self.text()).height()
+        h += 2
+        if h != self.minimumHeight():
+            self.setMinimumHeight(h)
+            self.setMaximumHeight(h)
 
 
 # ---------------------------------------------------------------- פריסה זורמת (עוברת שורה)
