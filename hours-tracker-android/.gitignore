@@ -9,3 +9,4 @@ local.properties
 signing/
 *.keystore
 *.jks
+app/screenshots/

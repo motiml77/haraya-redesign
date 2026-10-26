@@ -1,6 +1,7 @@
 package com.hourstracker.app.export
 
 import android.content.ActivityNotFoundException
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -16,9 +17,8 @@ import com.hourstracker.app.report.reportValues
 import java.time.LocalDate
 import java.time.YearMonth
 
-/** Writes the monthly Word report to Documents/דוחות שעות/, one file per month (re-exporting replaces it). */
+/** Writes the monthly Word report to the phone's Download folder, one file per month (re-exporting replaces it). */
 object ReportExporter {
-    const val FOLDER = "דוחות שעות"
     private const val DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
     fun fileName(month: YearMonth) = "דוח שעות ${month.key()}.docx"
@@ -32,24 +32,25 @@ object ReportExporter {
             today = LocalDate.now(),
         )
         val resolver = context.contentResolver
-        val relativePath = Environment.DIRECTORY_DOCUMENTS + "/" + FOLDER + "/"
+        val relativePath = Environment.DIRECTORY_DOWNLOADS + "/"
         val name = fileName(month)
-        val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
 
+        // Only files this app created are visible here, so an older copy is replaced in place.
         val existing = resolver.query(
             collection,
             arrayOf(MediaStore.MediaColumns._ID),
             "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME}=?",
             arrayOf(relativePath, name),
             null,
-        )?.use { c -> if (c.moveToFirst()) Uri.withAppendedPath(collection, c.getLong(0).toString()) else null }
+        )?.use { c -> if (c.moveToFirst()) ContentUris.withAppendedId(collection, c.getLong(0)) else null }
 
         val uri = existing ?: resolver.insert(collection, ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, name)
             put(MediaStore.MediaColumns.MIME_TYPE, DOCX_MIME)
             put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
             put(MediaStore.MediaColumns.IS_PENDING, 1)
-        }) ?: error("לא ניתן ליצור קובץ בתיקיית המסמכים")
+        }) ?: error("לא ניתן ליצור קובץ בתיקיית ההורדות")
 
         resolver.openOutputStream(uri, "wt")!!.use { out ->
             context.assets.open("report_template.docx").use { template ->

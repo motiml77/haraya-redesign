@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -29,7 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.hourstracker.app.export.ReportExporter
+import androidx.compose.ui.unit.sp
 import com.hourstracker.app.report.Profile
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,7 +45,7 @@ fun SettingsScreen(profile: Profile, onSave: (Profile) -> Unit, onBack: () -> Un
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("פרטי העובד") },
+                title = { Text("פרטים בטופס", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "חזרה") }
                 },
@@ -65,20 +66,23 @@ fun SettingsScreen(profile: Profile, onSave: (Profile) -> Unit, onBack: () -> Un
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "הפרטים האלה ממולאים בראש טופס ה-Word של כל חודש.",
+                "מה שתכתבו כאן יירשם בראש טופס ה-Word של כל חודש. אפשר לשנות בכל זמן, והשינוי ייכנס לטופס הבא שתיצרו.",
                 style = MaterialTheme.typography.bodyMedium,
             )
-            Field("שם העובד", name) { name = it }
-            Field("ת״ז", idNumber, KeyboardType.Number) { idNumber = it }
-            Field("כתובת מגורים", address) { address = it }
-            Field("תפקיד", role) { role = it }
-            Field("מקום עבודה", workplace) { workplace = it }
+            Field("שם העובד", name, hint = "למשל: ישראל ישראלי") { name = it }
+            Field("ת״ז", idNumber, KeyboardType.Number, hint = "9 ספרות") { idNumber = it }
+            Field("כתובת מגורים", address, hint = "רחוב, מספר, יישוב") { address = it }
+            Field("תפקיד", role, hint = "למשל: מדריך/ה") { role = it }
+            Field("מקום עבודה / בית ספר", workplace, hint = "שם בית הספר או המוסד") { workplace = it }
             Button(
                 onClick = { onSave(Profile(name.trim(), idNumber.trim(), address.trim(), role.trim(), workplace.trim())) },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("שמירה") }
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+            ) { Text("שמירה", fontSize = 18.sp) }
             Text(
-                "הדוחות נשמרים בטלפון בתיקייה: Documents/${ReportExporter.FOLDER}",
+                "הטפסים נשמרים בתיקיית ההורדות (Download) בטלפון.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -87,11 +91,18 @@ fun SettingsScreen(profile: Profile, onSave: (Profile) -> Unit, onBack: () -> Un
 }
 
 @Composable
-private fun Field(label: String, value: String, keyboard: KeyboardType = KeyboardType.Text, onChange: (String) -> Unit) {
+private fun Field(
+    label: String,
+    value: String,
+    keyboard: KeyboardType = KeyboardType.Text,
+    hint: String = "",
+    onChange: (String) -> Unit,
+) {
     OutlinedTextField(
         value = value,
         onValueChange = onChange,
         label = { Text(label) },
+        placeholder = { Text(hint) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = keyboard),
         modifier = Modifier.fillMaxWidth(),

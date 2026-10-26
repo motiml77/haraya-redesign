@@ -3,7 +3,7 @@
     android:description="@string/widget_description"
     android:initialLayout="@layout/widget_timer"
     android:minWidth="250dp"
-    android:minHeight="110dp"
+    android:minHeight="100dp"
     android:minResizeWidth="180dp"
     android:minResizeHeight="70dp"
     android:previewLayout="@layout/widget_timer"

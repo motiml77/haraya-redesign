@@ -47,6 +47,17 @@ jobs:
           ./gradlew --no-daemon testDebugUnitTest assembleRelease
           cp app/build/outputs/apk/release/app-release.apk HoursTracker.apk
 
+      - name: Publish screenshots to the hours-tracker-screenshots branch
+        if: always()
+        run: |
+          [ -d app/screenshots ] || exit 0
+          cd app/screenshots
+          git init -q
+          git checkout -q -b hours-tracker-screenshots
+          git add .
+          git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" commit -qm "Screenshots for ${GITHUB_SHA}"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" hours-tracker-screenshots
+
       - uses: actions/upload-artifact@v4
         with:
           name: HoursTracker-apk
