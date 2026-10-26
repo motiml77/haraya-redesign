@@ -201,7 +201,12 @@ fun SessionEditScreen(
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                     when {
                         invalid -> Text("שעת הסיום זהה לשעת ההתחלה", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                         minutes == null || end == null -> Text("המשמרת עדיין פעילה — אפשר לקבוע שעת סיום למעלה", color = GreenDark)

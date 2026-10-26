@@ -275,6 +275,9 @@ fun newSession(date: LocalDate): WorkSession {
     return WorkSession(id = 0, start = start, end = end)
 }
 
+/** Keeps times and file names in left-to-right order inside Hebrew text ("08:00 – 13:30"). */
+fun ltr(s: String) = "\u2066$s\u2069"
+
 private fun formatElapsed(ms: Long): String {
     val s = (ms / 1000).coerceAtLeast(0)
     return "%d:%02d:%02d".format(s / 3600, (s % 3600) / 60, s % 60)
@@ -426,7 +429,7 @@ private fun DayRow(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            "${formatClock(s.start)} – ${s.end?.let { formatClock(it) } ?: "עכשיו"}",
+                            ltr("${formatClock(s.start)} – ${s.end?.let { formatClock(it) } ?: "עכשיו"}"),
                             fontSize = 16.sp,
                             color = if (s.isRunning) GreenDark else Color(0xFF1C2430),
                             fontWeight = if (s.isRunning) FontWeight.Bold else FontWeight.Normal,
@@ -515,7 +518,7 @@ private fun ExportCard(
             }
             Text(
                 if (alreadyExported) "כבר נוצר טופס לחודש הזה. יצירה מחדש תחליף את הקובץ בתיקיית ההורדות."
-                else "הקובץ יישמר בתיקיית ההורדות (Download) בשם \"${ReportExporter.fileName(month)}\".",
+                else "הקובץ יישמר בתיקיית ההורדות (Download):\n${ltr(ReportExporter.fileName(month))}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
