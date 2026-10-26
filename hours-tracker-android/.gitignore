@@ -1,0 +1,11 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.kotlin/
+# the Word template ships with the app (root .gitignore ignores *.docx)
+!app/src/main/assets/report_template.docx
+signing/
+*.keystore
+*.jks

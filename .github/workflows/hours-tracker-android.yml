@@ -1,0 +1,64 @@
+name: Hours Tracker Android
+
+on:
+  push:
+    paths:
+      - "hours-tracker-android/**"
+      - ".github/workflows/hours-tracker-android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hours-tracker-android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Optional: repository secrets HOURS_KEYSTORE_BASE64 + HOURS_KEYSTORE_PASSWORD give every build the
+      # same signing key, so updates install over the existing app and keep its data.
+      - name: Restore signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.HOURS_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.HOURS_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/hours.keystore"
+            echo "HOURS_KEYSTORE_FILE=$RUNNER_TEMP/hours.keystore" >> "$GITHUB_ENV"
+            echo "HOURS_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No signing secrets set; the APK is signed with a temporary debug key."
+          fi
+
+      - name: Test and build APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk HoursTracker.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HoursTracker-apk
+          path: hours-tracker-android/HoursTracker.apk
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: hours-tracker-v1.0.${{ github.run_number }}
+          name: דיווח שעות 1.0.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            אפליקציית דיווח שעות לאנדרואיד. להורדה בטלפון: לחצו על HoursTracker.apk והתקינו.
+          files: hours-tracker-android/HoursTracker.apk
+          make_latest: true

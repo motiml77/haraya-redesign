@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">דיווח שעות</string>
+    <string name="widget_name">שעון משמרת</string>
+    <string name="widget_description">התחלה וסיום משמרת בלחיצה (עם אישור)</string>
+</resources>
