@@ -1,7 +1,7 @@
 package com.hourstracker.app
 
 import android.app.Application
-import com.hourstracker.app.data.Store
+import com.hourstracker.app.storage.Store
 
 class HoursApp : Application() {
     override fun onCreate() {

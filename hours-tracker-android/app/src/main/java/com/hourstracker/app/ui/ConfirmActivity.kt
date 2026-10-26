@@ -4,7 +4,7 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import com.hourstracker.app.data.Store
+import com.hourstracker.app.storage.Store
 import com.hourstracker.app.report.formatClock
 import com.hourstracker.app.report.formatMinutes
 

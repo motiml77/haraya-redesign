@@ -10,7 +10,7 @@ import android.os.SystemClock
 import android.view.View
 import android.widget.RemoteViews
 import com.hourstracker.app.R
-import com.hourstracker.app.data.Store
+import com.hourstracker.app.storage.Store
 import com.hourstracker.app.report.daySummaries
 import com.hourstracker.app.report.formatClock
 import com.hourstracker.app.report.formatMinutes
