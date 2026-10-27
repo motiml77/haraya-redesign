@@ -2,6 +2,7 @@ package com.hourstracker.app.ui
 
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
@@ -35,6 +37,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -47,6 +51,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,16 +64,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.hourstracker.app.R
 import com.hourstracker.app.export.ReportExporter
 import com.hourstracker.app.report.DaySummary
 import com.hourstracker.app.report.HEBREW_MONTHS
 import com.hourstracker.app.report.Profile
 import com.hourstracker.app.report.WorkSession
+import com.hourstracker.app.report.date
 import com.hourstracker.app.report.daySummaries
 import com.hourstracker.app.report.formatClock
 import com.hourstracker.app.report.formatMinutes
@@ -85,6 +93,7 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.YearMonth
 import java.time.ZoneId
+import java.time.ZoneOffset
 
 private val SHORT_DAYS = listOf("ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳", "א׳")
 
@@ -103,6 +112,7 @@ fun HomeScreen(
     var confirmToggle by remember { mutableStateOf(false) }
     var confirmExport by remember { mutableStateOf(false) }
     var exported by remember { mutableStateOf<Uri?>(null) }
+    var showCalendar by remember { mutableStateOf(false) }
 
     val today = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).toLocalDate()
     val days = daySummaries(state.sessions, month)
@@ -112,7 +122,19 @@ fun HomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("דיווח שעות", fontWeight = FontWeight.Bold) },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Image(
+                            painter = painterResource(R.drawable.ic_logo),
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(9.dp)),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text("דיווח שעות", fontWeight = FontWeight.Bold)
+                    }
+                },
                 actions = {
                     IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Badge, contentDescription = "פרטים בטופס") }
                 },
@@ -164,6 +186,20 @@ fun HomeScreen(
             }
 
             item {
+                OutlinedButton(
+                    onClick = { showCalendar = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Icon(Icons.Filled.CalendarMonth, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("בחירת יום בלוח שנה (כל תאריך)")
+                }
+            }
+
+            item {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = Color.White),
                     shape = RoundedCornerShape(20.dp),
@@ -203,6 +239,28 @@ fun HomeScreen(
                 )
             }
         }
+    }
+
+    if (showCalendar) {
+        val initial = if (YearMonth.from(today) == month) today else month.atDay(1)
+        val pickerState = rememberDatePickerState(
+            initialSelectedDateMillis = initial.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
+        )
+        DatePickerDialog(
+            onDismissRequest = { showCalendar = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { ms ->
+                        val picked = Instant.ofEpochMilli(ms).atZone(ZoneOffset.UTC).toLocalDate()
+                        onMonthChange(YearMonth.from(picked))
+                        val existing = state.sessions.filter { it.date() == picked }.minByOrNull { it.start }
+                        onEdit(existing ?: newSession(picked))
+                    }
+                    showCalendar = false
+                }) { Text("המשך לעריכה") }
+            },
+            dismissButton = { TextButton(onClick = { showCalendar = false }) { Text("ביטול") } },
+        ) { DatePicker(state = pickerState) }
     }
 
     if (confirmToggle) {

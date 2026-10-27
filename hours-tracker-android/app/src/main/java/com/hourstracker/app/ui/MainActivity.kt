@@ -17,7 +17,9 @@ import androidx.compose.runtime.setValue
 import com.hourstracker.app.report.WorkSession
 import com.hourstracker.app.storage.Store
 import kotlinx.coroutines.delay
+import java.time.Instant
 import java.time.YearMonth
+import java.time.ZoneId
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,7 +45,12 @@ class MainActivity : ComponentActivity() {
                         BackHandler { editing = null }
                         SessionEditScreen(
                             session = current,
-                            onSave = { Store.upsert(it); editing = null },
+                            onSave = { saved ->
+                                Store.upsert(saved)
+                                // Follow the shift if its date was moved to another month.
+                                month = YearMonth.from(Instant.ofEpochMilli(saved.start).atZone(ZoneId.systemDefault()))
+                                editing = null
+                            },
                             onDelete = if (current.id == 0L) null else ({ Store.delete(current.id); editing = null }),
                             onBack = { editing = null },
                         )

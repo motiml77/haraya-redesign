@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Clock face with hands and a check mark, drawn inside the 66dp adaptive-icon safe zone. -->
+<!-- Clock whose ring fills up in green (hours adding up). Kept inside the 66dp adaptive-icon safe zone. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -7,23 +7,22 @@
     android:viewportHeight="108">
     <path
         android:fillColor="#00000000"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="5"
-        android:pathData="M54,28a26,26 0,1 1,0 52a26,26 0,1 1,0 -52z" />
+        android:pathData="M54,28a26,26 0,1 1,0 52a26,26 0,1 1,0 -52z"
+        android:strokeColor="#4DFFFFFF"
+        android:strokeWidth="7" />
     <path
         android:fillColor="#00000000"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="5"
+        android:pathData="M54,28A26,26 0,1 1,28 54"
+        android:strokeColor="#3DDC97"
         android:strokeLineCap="round"
-        android:pathData="M54,38L54,54L66,61" />
-    <path
-        android:fillColor="#2EA66B"
-        android:pathData="M72,64a10,10 0,1 1,0 20a10,10 0,1 1,0 -20z" />
+        android:strokeWidth="7" />
     <path
         android:fillColor="#00000000"
+        android:pathData="M54,54L54,39M54,54L65,61"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="3"
         android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M67.5,74L70.5,77L76.5,71" />
+        android:strokeWidth="4.5" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,50a4,4 0,1 1,0 8a4,4 0,1 1,0 -8z" />
 </vector>

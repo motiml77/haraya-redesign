@@ -2,7 +2,14 @@ package com.hourstracker.app.ui
 
 import android.content.Context
 import android.widget.FrameLayout
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
+import com.hourstracker.app.R
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -104,6 +111,20 @@ class ScreenshotTest {
             HoursTheme { Box(Modifier.fillMaxSize().background(Color(0xFFF4F6FA))) { ToggleConfirmDialog(null, {}, {}) } }
         }
         captureScreenRoboImage("screenshots/6_confirm_start.png")
+    }
+
+    @Test
+    fun logo() {
+        compose.setContent {
+            Box(Modifier.fillMaxSize().background(Color.White), contentAlignment = Alignment.Center) {
+                Image(
+                    painter = painterResource(R.drawable.ic_logo),
+                    contentDescription = null,
+                    modifier = Modifier.size(300.dp).clip(RoundedCornerShape(64.dp)),
+                )
+            }
+        }
+        compose.onRoot().captureRoboImage("screenshots/8_logo.png")
     }
 
     @Test
