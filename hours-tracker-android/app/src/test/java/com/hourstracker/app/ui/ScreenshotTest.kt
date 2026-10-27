@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.github.takahirom.roborazzi.ExperimentalRoborazziApi
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.github.takahirom.roborazzi.captureScreenRoboImage
 import com.hourstracker.app.report.Profile
@@ -33,6 +34,7 @@ import java.time.YearMonth
 import java.time.ZoneId
 
 /** Renders the main screens and the widget with sample data into app/screenshots/. */
+@OptIn(ExperimentalRoborazziApi::class)
 @RunWith(AndroidJUnit4::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w400dp-h860dp-xxhdpi")
@@ -109,6 +111,8 @@ class ScreenshotTest {
         compose.setContent {
             HoursTheme { Box(Modifier.fillMaxSize().background(Color(0xFFF4F6FA))) { ToggleConfirmDialog(running, {}, {}) } }
         }
+        // The note field's blinking cursor animates forever; freeze the clock so the screen can settle.
+        compose.mainClock.autoAdvance = false
         captureScreenRoboImage("screenshots/7_confirm_stop.png")
     }
 
