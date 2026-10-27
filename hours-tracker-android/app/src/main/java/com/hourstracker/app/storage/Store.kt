@@ -3,6 +3,7 @@ package com.hourstracker.app.storage
 import android.content.Context
 import com.hourstracker.app.report.Profile
 import com.hourstracker.app.report.WorkSession
+import com.hourstracker.app.report.roundToFiveMinutes
 import com.hourstracker.app.widget.TimerWidget
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,17 +43,18 @@ object Store {
         _state.value = load()
     }
 
-    fun startNow(): WorkSession? = mutate { s ->
+    /** Starts a shift at [at] (the moment the button was pressed), rounded to 5 minutes. */
+    fun startNow(at: Long = System.currentTimeMillis()): WorkSession? = mutate { s ->
         if (s.running != null) s
-        else s.copy(sessions = s.sessions + WorkSession(newId(s), System.currentTimeMillis(), null))
+        else s.copy(sessions = s.sessions + WorkSession(newId(s), roundToFiveMinutes(at), null))
     }.running
 
     /** Stops the running session and returns it (finished), or null if nothing was running. */
-    fun stopNow(note: String = ""): WorkSession? {
+    fun stopNow(note: String = "", at: Long = System.currentTimeMillis()): WorkSession? {
         var stopped: WorkSession? = null
         mutate { s ->
             val running = s.running ?: return@mutate s
-            val done = running.copy(end = System.currentTimeMillis(), note = note.trim().ifEmpty { running.note })
+            val done = running.copy(end = maxOf(roundToFiveMinutes(at), running.start), note = note.trim().ifEmpty { running.note })
             stopped = done
             s.copy(sessions = s.sessions.map { if (it.id == running.id) done else it })
         }

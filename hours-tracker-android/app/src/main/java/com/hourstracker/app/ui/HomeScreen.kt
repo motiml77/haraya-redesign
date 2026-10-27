@@ -266,8 +266,8 @@ fun HomeScreen(
     if (confirmToggle) {
         ToggleConfirmDialog(
             running = state.running,
-            onConfirm = { note ->
-                if (state.running == null) Store.startNow() else Store.stopNow(note)
+            onConfirm = { note, at ->
+                if (state.running == null) Store.startNow(at) else Store.stopNow(note, at)
                 confirmToggle = false
             },
             onDismiss = { confirmToggle = false },

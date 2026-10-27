@@ -18,11 +18,11 @@ class ConfirmActivity : ComponentActivity() {
             HoursTheme {
                 ToggleConfirmDialog(
                     running = running,
-                    onConfirm = { note ->
+                    onConfirm = { note, at ->
                         if (running == null) {
-                            Store.startNow()?.let { toast("המשמרת התחילה ב-${formatClock(it.start)}") }
+                            Store.startNow(at)?.let { toast("המשמרת התחילה ב-${formatClock(it.start)}") }
                         } else {
-                            Store.stopNow(note)?.let { toast("המשמרת נשמרה: ${formatMinutes(it.minutes())} שעות") }
+                            Store.stopNow(note, at)?.let { toast("המשמרת נשמרה: ${formatMinutes(it.minutes())} שעות") }
                         }
                         finish()
                     },

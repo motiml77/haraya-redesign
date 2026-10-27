@@ -29,6 +29,19 @@ class ReportTest {
     )
 
     @Test
+    fun roundsToFiveMinutes() {
+        fun hm(h: Int, m: Int, s: Int = 0) = LocalDateTime.of(2026, 10, 5, h, m, s).atZone(zone).toInstant().toEpochMilli()
+        fun shown(ms: Long) = formatClock(roundToFiveMinutes(ms), zone)
+        assertEquals("07:30", shown(hm(7, 32, 29)))
+        assertEquals("07:35", shown(hm(7, 32, 30)))
+        assertEquals("07:35", shown(hm(7, 35)))
+        assertEquals("07:35", shown(hm(7, 37, 29)))
+        assertEquals("07:40", shown(hm(7, 38)))
+        assertEquals("08:00", shown(hm(7, 57, 30)))
+        assertEquals("00:00", shown(hm(23, 58)))
+    }
+
+    @Test
     fun formatsMinutes() {
         assertEquals("0:00", formatMinutes(0))
         assertEquals("7:32", formatMinutes(452))

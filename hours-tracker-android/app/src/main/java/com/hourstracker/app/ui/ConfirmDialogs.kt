@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import com.hourstracker.app.report.WorkSession
 import com.hourstracker.app.report.formatClock
 import com.hourstracker.app.report.formatMinutes
+import com.hourstracker.app.report.roundToFiveMinutes
 
 /**
  * Confirmation before starting or stopping the timer, so a stray tap never changes anything.
@@ -28,20 +29,23 @@ import com.hourstracker.app.report.formatMinutes
 @Composable
 fun ToggleConfirmDialog(
     running: WorkSession?,
-    onConfirm: (note: String) -> Unit,
+    onConfirm: (note: String, at: Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var note by remember { mutableStateOf("") }
-    val now = System.currentTimeMillis()
+    // The moment the button was pressed, rounded to 5 minutes; this exact time is what gets recorded.
+    val at = remember { roundToFiveMinutes(System.currentTimeMillis()) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (running == null) "להתחיל משמרת?" else "לסיים את המשמרת?") },
         text = {
             Column {
                 if (running == null) {
-                    Text("שעת התחלה: ${formatClock(now)}")
+                    Text("שעת התחלה: ${formatClock(at)}")
                 } else {
-                    Text("התחלת ב-${formatClock(running.start)}, עד עכשיו ${formatMinutes(running.minutes(now))} שעות.")
+                    val end = maxOf(at, running.start)
+                    Text("התחלת ב-${formatClock(running.start)}, מסיים ב-${formatClock(end)}")
+                    Text("סה״כ ${formatMinutes(WorkSession(0, running.start, end).minutes())} שעות")
                     Spacer(Modifier.height(12.dp))
                     OutlinedTextField(
                         value = note,
@@ -54,7 +58,7 @@ fun ToggleConfirmDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onConfirm(note) },
+                onClick = { onConfirm(note, at) },
                 colors = ButtonDefaults.buttonColors(containerColor = if (running == null) Green else Red),
             ) { Text(if (running == null) "כן, להתחיל" else "כן, לסיים") }
         },

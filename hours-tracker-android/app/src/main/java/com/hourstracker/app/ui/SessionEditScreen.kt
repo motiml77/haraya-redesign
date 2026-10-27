@@ -174,23 +174,23 @@ fun SessionEditScreen(
                 }
             }
 
-            SectionTitle("שעות")
+            SectionTitle("שעות (בקפיצות של 5 דקות)")
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TimeBox(
                     label = "התחלה",
                     time = start.format(TIME_FORMAT),
                     modifier = Modifier.weight(1f),
                     onClick = { pickStart = true },
-                    onMinus = { start = start.minusMinutes(15) },
-                    onPlus = { start = start.plusMinutes(15) },
+                    onMinus = { start = start.stepFive(-1) },
+                    onPlus = { start = start.stepFive(1) },
                 )
                 TimeBox(
                     label = "סיום",
                     time = end?.format(TIME_FORMAT) ?: "עדיין פעילה",
                     modifier = Modifier.weight(1f),
                     onClick = { pickEnd = true },
-                    onMinus = { end = (end ?: LocalTime.now().withSecond(0).withNano(0)).minusMinutes(15) },
-                    onPlus = { end = (end ?: LocalTime.now().withSecond(0).withNano(0)).plusMinutes(15) },
+                    onMinus = { end = (end ?: LocalTime.now()).stepFive(-1) },
+                    onPlus = { end = (end ?: LocalTime.now()).stepFive(1) },
                 )
             }
 
@@ -263,6 +263,21 @@ fun SessionEditScreen(
     }
 }
 
+private const val DAY_MINUTES = 24 * 60
+
+/** Nearest multiple of 5 minutes (wraps at midnight). */
+private fun LocalTime.snapFive(): LocalTime {
+    val minutes = (hour * 60 + minute + 2) / 5 * 5
+    return LocalTime.ofSecondOfDay((minutes % DAY_MINUTES) * 60L)
+}
+
+/** Next (dir = 1) or previous (dir = -1) multiple of 5 minutes, so "+5" from 07:32 gives 07:35. */
+private fun LocalTime.stepFive(dir: Int): LocalTime {
+    val m = hour * 60 + minute
+    val next = if (dir > 0) (m / 5 + 1) * 5 else (m - 1).floorDiv(5) * 5
+    return LocalTime.ofSecondOfDay(Math.floorMod(next, DAY_MINUTES) * 60L)
+}
+
 @Composable
 private fun SectionTitle(text: String) {
     Text(text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -300,8 +315,8 @@ private fun TimeBox(
             // Keep "−15 / +15" in reading order regardless of RTL.
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    SmallStep("−15", onMinus, Modifier.weight(1f))
-                    SmallStep("+15", onPlus, Modifier.weight(1f))
+                    SmallStep("−5", onMinus, Modifier.weight(1f))
+                    SmallStep("+5", onPlus, Modifier.weight(1f))
                 }
             }
         }
@@ -322,10 +337,11 @@ private fun SmallStep(text: String, onClick: () -> Unit, modifier: Modifier) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TimePickDialog(initial: LocalTime, onPicked: (LocalTime) -> Unit, onDismiss: () -> Unit) {
-    val state = rememberTimePickerState(initialHour = initial.hour, initialMinute = initial.minute, is24Hour = true)
+    val start = initial.snapFive()
+    val state = rememberTimePickerState(initialHour = start.hour, initialMinute = start.minute, is24Hour = true)
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = { onPicked(LocalTime.of(state.hour, state.minute)) }) { Text("אישור") } },
+        confirmButton = { TextButton(onClick = { onPicked(LocalTime.of(state.hour, state.minute).snapFive()) }) { Text("אישור") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("ביטול") } },
         text = {
             // The clock face reads left-to-right (hours:minutes).

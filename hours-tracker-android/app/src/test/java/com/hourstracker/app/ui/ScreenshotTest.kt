@@ -108,7 +108,7 @@ class ScreenshotTest {
     @Test
     fun confirmStart() {
         compose.setContent {
-            HoursTheme { Box(Modifier.fillMaxSize().background(Color(0xFFF4F6FA))) { ToggleConfirmDialog(null, {}, {}) } }
+            HoursTheme { Box(Modifier.fillMaxSize().background(Color(0xFFF4F6FA))) { ToggleConfirmDialog(null, { _, _ -> }, {}) } }
         }
         captureScreenRoboImage("screenshots/6_confirm_start.png")
     }
