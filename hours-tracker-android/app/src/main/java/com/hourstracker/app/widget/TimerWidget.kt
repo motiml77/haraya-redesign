@@ -21,7 +21,7 @@ import java.time.Instant
 import java.time.YearMonth
 import java.time.ZoneId
 
-/** Home-screen widget: live timer plus one round start/stop button. The button always asks for confirmation first. */
+/** Compact one-row home-screen widget: live timer plus one round start/stop button. The button always asks for confirmation first. */
 class TimerWidget : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
@@ -47,26 +47,26 @@ class TimerWidget : AppWidgetProvider() {
             val monthMinutes = days.sumOf { it.totalMinutes(now) }
 
             val views = RemoteViews(context.packageName, R.layout.widget_timer)
-            views.setTextViewText(R.id.widget_month_total, "החודש ${formatMinutes(monthMinutes)} · ${days.size} ימי עבודה")
+            val monthText = "החודש ${formatMinutes(monthMinutes)}"
             if (running != null) {
                 views.setInt(R.id.widget_root, "setBackgroundResource", R.drawable.widget_bg_running)
-                views.setTextViewText(R.id.widget_status, "● במשמרת מאז ${formatClock(running.start)}")
                 views.setViewVisibility(R.id.widget_chrono, View.VISIBLE)
                 views.setViewVisibility(R.id.widget_today, View.GONE)
                 views.setChronometer(R.id.widget_chrono, SystemClock.elapsedRealtime() - (now - running.start), null, true)
-                views.setInt(R.id.widget_button_circle, "setBackgroundResource", R.drawable.widget_button_stop)
+                views.setTextViewText(R.id.widget_sub, "במשמרת מאז ${formatClock(running.start)} · $monthText")
+                views.setInt(R.id.widget_button, "setBackgroundResource", R.drawable.widget_button_stop)
                 views.setImageViewResource(R.id.widget_button_icon, R.drawable.ic_stop)
-                views.setTextViewText(R.id.widget_button_label, "סיום")
+                views.setContentDescription(R.id.widget_button, "סיום משמרת")
             } else {
                 views.setInt(R.id.widget_root, "setBackgroundResource", R.drawable.widget_bg)
-                views.setTextViewText(R.id.widget_status, "לא במשמרת")
                 views.setViewVisibility(R.id.widget_chrono, View.GONE)
                 views.setViewVisibility(R.id.widget_today, View.VISIBLE)
                 views.setChronometer(R.id.widget_chrono, SystemClock.elapsedRealtime(), null, false)
                 views.setTextViewText(R.id.widget_today, "היום ${formatMinutes(todayMinutes)}")
-                views.setInt(R.id.widget_button_circle, "setBackgroundResource", R.drawable.widget_button_start)
+                views.setTextViewText(R.id.widget_sub, "לא במשמרת · $monthText")
+                views.setInt(R.id.widget_button, "setBackgroundResource", R.drawable.widget_button_start)
                 views.setImageViewResource(R.id.widget_button_icon, R.drawable.ic_play)
-                views.setTextViewText(R.id.widget_button_label, "התחלה")
+                views.setContentDescription(R.id.widget_button, "התחלת משמרת")
             }
 
             val confirm = PendingIntent.getActivity(
