@@ -18,6 +18,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.github.takahirom.roborazzi.captureScreenRoboImage
 import com.hourstracker.app.report.Profile
 import com.hourstracker.app.report.WorkSession
 import com.hourstracker.app.storage.AppState
@@ -93,6 +94,22 @@ class ScreenshotTest {
             HoursTheme { SettingsScreen(profile, {}, {}) }
         }
         compose.onRoot().captureRoboImage("screenshots/4_form_details.png")
+    }
+
+    @Test
+    fun confirmStart() {
+        compose.setContent {
+            HoursTheme { Box(Modifier.fillMaxSize().background(Color(0xFFF4F6FA))) { ToggleConfirmDialog(null, {}, {}) } }
+        }
+        captureScreenRoboImage("screenshots/6_confirm_start.png")
+    }
+
+    @Test
+    fun confirmStop() {
+        compose.setContent {
+            HoursTheme { Box(Modifier.fillMaxSize().background(Color(0xFFF4F6FA))) { ToggleConfirmDialog(running, {}, {}) } }
+        }
+        captureScreenRoboImage("screenshots/7_confirm_stop.png")
     }
 
     @Test
