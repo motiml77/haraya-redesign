@@ -8,9 +8,9 @@
     android:layoutDirection="rtl"
     android:orientation="horizontal"
     android:paddingStart="16dp"
-    android:paddingTop="8dp"
+    android:paddingTop="6dp"
     android:paddingEnd="10dp"
-    android:paddingBottom="8dp">
+    android:paddingBottom="6dp">
 
     <!-- Info side (right in RTL); tapping it opens the app. -->
     <LinearLayout
@@ -55,14 +55,14 @@
     <!-- Start / stop button (left in RTL). Always asks for confirmation. -->
     <FrameLayout
         android:id="@+id/widget_button"
-        android:layout_width="52dp"
-        android:layout_height="52dp"
+        android:layout_width="46dp"
+        android:layout_height="46dp"
         android:background="@drawable/widget_button_start">
 
         <ImageView
             android:id="@+id/widget_button_icon"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
             android:layout_gravity="center"
             android:contentDescription="@null"
             android:src="@drawable/ic_play" />

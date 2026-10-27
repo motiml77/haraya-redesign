@@ -142,8 +142,8 @@ class ScreenshotTest {
                             factory = { ctx -> TimerWidget.buildViews(context, state, now).apply(ctx, FrameLayout(ctx)) },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(70.dp)
-                                .padding(bottom = 16.dp),
+                                .padding(bottom = 16.dp)
+                                .height(62.dp),
                         )
                     }
                 }
