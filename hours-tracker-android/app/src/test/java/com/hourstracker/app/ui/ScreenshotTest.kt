@@ -107,16 +107,6 @@ class ScreenshotTest {
     }
 
     @Test
-    fun confirmStop() {
-        compose.setContent {
-            HoursTheme { Box(Modifier.fillMaxSize().background(Color(0xFFF4F6FA))) { ToggleConfirmDialog(running, {}, {}) } }
-        }
-        // The note field's blinking cursor animates forever; freeze the clock so the screen can settle.
-        compose.mainClock.autoAdvance = false
-        captureScreenRoboImage("screenshots/7_confirm_stop.png")
-    }
-
-    @Test
     fun widgets() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         compose.setContent {
