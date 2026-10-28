@@ -100,4 +100,48 @@ class ReportTest {
         assertTrue(xml.contains("לילה &amp; &lt;חירום&gt;"))
         assertTrue(xml.contains("17:40"))
     }
+
+    private fun zipEntries(bytes: ByteArray): Map<String, ByteArray> {
+        val out = linkedMapOf<String, ByteArray>()
+        ZipInputStream(ByteArrayInputStream(bytes)).use { z ->
+            while (true) {
+                val e = z.nextEntry ?: break
+                out[e.name] = z.readBytes()
+            }
+        }
+        return out
+    }
+
+    @Test
+    fun addsSignatureWhenSet() {
+        val template = File("src/main/assets/report_template.docx").readBytes()
+        val values = reportValues(Profile("ישראל ישראלי"), YearMonth.of(2026, 10), emptyList(), "", LocalDate.of(2026, 11, 1), zone)
+        val png = System.getProperty("signaturePng")?.let { File(it).readBytes() } ?: byteArrayOf(1, 2, 3)
+        val out = ByteArrayOutputStream()
+        DocxFiller.fill(ByteArrayInputStream(template), values, out, signaturePng = png)
+        System.getProperty("docxSignedOut")?.let { File(it).writeBytes(out.toByteArray()) }
+
+        val parts = zipEntries(out.toByteArray())
+        assertTrue(png.contentEquals(parts.getValue("word/media/signature.png")))
+        val xml = parts.getValue("word/document.xml").toString(Charsets.UTF_8)
+        assertFalse(xml.contains("{{"))
+        assertTrue(xml.contains("""r:embed="rIdSignature""""))
+        assertTrue(parts.getValue("word/_rels/document.xml.rels").toString(Charsets.UTF_8).contains("""Id="rIdSignature""""))
+        assertTrue(parts.getValue("[Content_Types].xml").toString(Charsets.UTF_8).contains("""Extension="png""""))
+        // the labels around the signature are untouched
+        assertTrue(xml.contains("חתימת העובד/ת"))
+        assertTrue(xml.contains("חתימת מנהל"))
+    }
+
+    @Test
+    fun keepsBlankSignatureLineWithoutSignature() {
+        val template = File("src/main/assets/report_template.docx").readBytes()
+        val out = ByteArrayOutputStream()
+        DocxFiller.fill(ByteArrayInputStream(template), emptyMap(), out)
+        val parts = zipEntries(out.toByteArray())
+        assertFalse(parts.containsKey("word/media/signature.png"))
+        val xml = parts.getValue("word/document.xml").toString(Charsets.UTF_8)
+        assertFalse(xml.contains("rIdSignature"))
+        assertTrue(xml.contains(" ___________ "))
+    }
 }

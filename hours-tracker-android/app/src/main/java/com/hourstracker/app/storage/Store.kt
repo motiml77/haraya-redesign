@@ -19,6 +19,8 @@ data class AppState(
     /** Months for which a Word report was created, keyed by "yyyy-MM". */
     val exported: Set<String> = emptySet(),
     val profile: Profile = Profile(),
+    /** When the worker's signature image was last saved (0 = none). The image itself is a file next to hours.json. */
+    val signatureAt: Long = 0L,
 ) {
     val running: WorkSession? get() = sessions.firstOrNull { it.isRunning }
 }
@@ -76,6 +78,16 @@ object Store {
 
     fun setProfile(profile: Profile) = mutate { s -> s.copy(profile = profile) }
 
+    /** The drawn signature (transparent PNG) that is put into every Word report, or null when none is set. */
+    fun signaturePng(): ByteArray? = signatureFile().takeIf { it.exists() }?.readBytes()
+
+    fun setSignature(png: ByteArray?) {
+        if (png == null) signatureFile().delete() else signatureFile().writeBytes(png)
+        mutate { s -> s.copy(signatureAt = if (png == null) 0L else System.currentTimeMillis()) }
+    }
+
+    private fun signatureFile() = File(appContext.filesDir, "signature.png")
+
     private fun newId(s: AppState): Long = (s.sessions.maxOfOrNull { it.id } ?: 0L) + 1
 
     @Synchronized
@@ -118,6 +130,7 @@ object Store {
                     role = p?.optString("role").orEmpty(),
                     workplace = p?.optString("workplace").orEmpty(),
                 ),
+                signatureAt = if (File(appContext.filesDir, "signature.png").exists()) root.optLong("signatureAt", 1L) else 0L,
             )
         } catch (e: Exception) {
             // Keep the unreadable file aside instead of overwriting it.
@@ -140,6 +153,7 @@ object Store {
         })
         root.put("travel", JSONObject().apply { s.travel.forEach { (k, v) -> put(k, v) } })
         root.put("exported", JSONArray().apply { s.exported.forEach { put(it) } })
+        root.put("signatureAt", s.signatureAt)
         root.put("profile", JSONObject().apply {
             put("name", s.profile.name)
             put("idNumber", s.profile.idNumber)

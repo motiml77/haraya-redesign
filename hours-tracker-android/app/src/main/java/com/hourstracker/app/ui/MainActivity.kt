@@ -59,6 +59,9 @@ class MainActivity : ComponentActivity() {
                         BackHandler { showSettings = false }
                         SettingsScreen(
                             profile = state.profile,
+                            signature = remember(state.signatureAt) { Store.signaturePng() },
+                            onSignatureSaved = { Store.setSignature(it) },
+                            onSignatureCleared = { Store.setSignature(null) },
                             onSave = { Store.setProfile(it); showSettings = false },
                             onBack = { showSettings = false },
                         )

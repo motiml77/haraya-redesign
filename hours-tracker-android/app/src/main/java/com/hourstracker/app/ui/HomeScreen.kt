@@ -234,6 +234,7 @@ fun HomeScreen(
                     month = month,
                     profile = state.profile,
                     alreadyExported = month.key() in state.exported,
+                    hasSignature = state.signatureAt > 0,
                     onEditDetails = onOpenSettings,
                     onExport = { confirmExport = true },
                 )
@@ -284,6 +285,7 @@ fun HomeScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("סה״כ ${formatMinutes(finishedMinutes)} שעות ב-${days.size} ימים.")
                     if (running) Text("משמרת שעדיין פעילה לא תיכלל בטופס.", color = MaterialTheme.colorScheme.error)
+                    if (state.signatureAt > 0) Text("החתימה שלך תתווסף אוטומטית לטופס.")
                     Text("הקובץ יישמר בתיקיית ההורדות (Download).", style = MaterialTheme.typography.bodySmall)
                 }
             },
@@ -536,6 +538,7 @@ private fun ExportCard(
     month: YearMonth,
     profile: Profile,
     alreadyExported: Boolean,
+    hasSignature: Boolean,
     onEditDetails: () -> Unit,
     onExport: () -> Unit,
 ) {
@@ -557,6 +560,7 @@ private fun ExportCard(
                 DetailLine("כתובת מגורים", profile.address)
                 DetailLine("תפקיד", profile.role)
                 DetailLine("מקום עבודה", profile.workplace)
+                DetailLine("חתימה", if (hasSignature) "תתווסף אוטומטית" else "", empty = "לא הוגדרה (אפשר לחתום בכתב יד)")
             }
             OutlinedButton(onClick = onEditDetails, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -585,11 +589,11 @@ private fun ExportCard(
 }
 
 @Composable
-private fun DetailLine(label: String, value: String) {
+private fun DetailLine(label: String, value: String, empty: String = "לא מולא") {
     Row {
         Text("$label: ", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
         Text(
-            value.ifBlank { "לא מולא" },
+            value.ifBlank { empty },
             fontSize = 14.sp,
             fontWeight = if (value.isBlank()) FontWeight.Normal else FontWeight.Bold,
             color = if (value.isBlank()) MaterialTheme.colorScheme.error else Color(0xFF1C2430),

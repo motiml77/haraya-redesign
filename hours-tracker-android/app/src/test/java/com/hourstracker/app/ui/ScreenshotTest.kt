@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -100,7 +101,7 @@ class ScreenshotTest {
     @Test
     fun formDetails() {
         compose.setContent {
-            HoursTheme { SettingsScreen(profile, {}, {}) }
+            HoursTheme { SettingsScreen(profile, null, {}, {}, {}, {}) }
         }
         compose.onRoot().captureRoboImage("screenshots/4_form_details.png")
     }
@@ -111,6 +112,28 @@ class ScreenshotTest {
             HoursTheme { Box(Modifier.fillMaxSize().background(Color(0xFFF4F6FA))) { ToggleConfirmDialog(null, { _, _ -> }, {}) } }
         }
         captureScreenRoboImage("screenshots/6_confirm_start.png")
+    }
+
+    private val sampleStrokes: Strokes = listOf(
+        (0..40).map { i -> val t = i / 40f; Offset(60f + 540f * t, 110f + 70f * kotlin.math.sin(t * 9f) - 40f * t) },
+        (0..12).map { i -> val t = i / 12f; Offset(300f + 180f * t, 40f + 120f * t) },
+    )
+
+    @Test
+    fun signaturePad() {
+        compose.setContent {
+            HoursTheme { SignaturePadContent(onSave = {}, onCancel = {}, initialStrokes = sampleStrokes) }
+        }
+        compose.onRoot().captureRoboImage("screenshots/9_signature_pad.png")
+    }
+
+    @Test
+    fun settingsWithSignature() {
+        val png = renderSignaturePng(sampleStrokes, 660f, PEN_COLORS[2].color)
+        compose.setContent {
+            HoursTheme { SettingsScreen(profile, png, {}, {}, {}, {}) }
+        }
+        compose.onRoot().captureRoboImage("screenshots/10_form_details_signature.png")
     }
 
     @Test

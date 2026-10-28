@@ -10,6 +10,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.widget.Toast
 import com.hourstracker.app.storage.AppState
+import com.hourstracker.app.storage.Store
 import com.hourstracker.app.storage.key
 import com.hourstracker.app.report.DocxFiller
 import com.hourstracker.app.report.daySummaries
@@ -31,6 +32,7 @@ object ReportExporter {
             travel = state.travel[month.key()].orEmpty(),
             today = LocalDate.now(),
         )
+        val signaturePng = if (state.signatureAt > 0) Store.signaturePng() else null
         val resolver = context.contentResolver
         val relativePath = Environment.DIRECTORY_DOWNLOADS + "/"
         val name = fileName(month)
@@ -54,7 +56,7 @@ object ReportExporter {
 
         resolver.openOutputStream(uri, "wt")!!.use { out ->
             context.assets.open("report_template.docx").use { template ->
-                DocxFiller.fill(template, values, out)
+                DocxFiller.fill(template, values, out, signaturePng)
             }
         }
         if (existing == null) {
