@@ -90,18 +90,21 @@ fun reportValues(
     )
     // Running sessions are not reported until they are stopped.
     var total = 0L
+    var reportedDays = 0
     for (day in days) {
         val finished = day.sessions.filter { !it.isRunning }
         if (finished.isEmpty()) continue
         val summary = DaySummary(day.date, finished)
         val minutes = summary.totalMinutes()
         total += minutes
+        reportedDays++
         val d = day.date.dayOfMonth
         values["S$d"] = formatClock(summary.firstStart, zone)
         values["E$d"] = summary.lastEnd?.let { formatClock(it, zone) } ?: ""
         values["T$d"] = formatMinutes(minutes)
         values["N$d"] = summary.notesText(zone)
     }
-    values["TOTAL_HOURS"] = formatMinutes(total)
+    // A month with nothing recorded yet gives a completely blank form (no "0:00").
+    values["TOTAL_HOURS"] = if (reportedDays == 0) "" else formatMinutes(total)
     return values
 }

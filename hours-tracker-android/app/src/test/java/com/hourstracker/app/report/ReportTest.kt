@@ -41,6 +41,50 @@ class ReportTest {
         assertEquals("00:00", shown(hm(23, 58)))
     }
 
+    /** Text of every cell of the form's 31 day rows: [month label, day, start, end, total, notes]. */
+    private fun dayRows(docx: ByteArray): List<List<String>> {
+        val xml = zipEntries(docx).getValue("word/document.xml").toString(Charsets.UTF_8)
+        val table = xml.substring(xml.indexOf("<w:tbl>"), xml.indexOf("</w:tbl>"))
+        val rows = Regex("""<w:tr[ >].*?</w:tr>""", RegexOption.DOT_MATCHES_ALL).findAll(table).map { it.value }.toList()
+        return rows.drop(1).map { row ->
+            Regex("""<w:tc>.*?</w:tc>""", RegexOption.DOT_MATCHES_ALL).findAll(row).map { cell ->
+                Regex("""<w:t[^>]*>([^<]*)</w:t>""").findAll(cell.value).joinToString("") { it.groupValues[1] }
+            }.toList()
+        }
+    }
+
+    private fun fillMonth(month: YearMonth, all: List<WorkSession>): ByteArray {
+        val template = File("src/main/assets/report_template.docx").readBytes()
+        val values = reportValues(Profile(), month, daySummaries(all, month, zone), "", LocalDate.of(2026, 11, 1), zone)
+        val out = ByteArrayOutputStream()
+        DocxFiller.fill(ByteArrayInputStream(template), values, out)
+        return out.toByteArray()
+    }
+
+    @Test
+    fun newMonthStartsWithAllDataCellsEmpty() {
+        // October has data, November has none: the November form must not show anything from October.
+        val novemberDocx = fillMonth(YearMonth.of(2026, 11), sessions)
+        System.getProperty("docxEmptyOut")?.let { File(it).writeBytes(novemberDocx) }
+        val november = dayRows(novemberDocx)
+        assertEquals(31, november.size)
+        november.forEachIndexed { i, cells ->
+            assertEquals("day number of row ${i + 1}", (i + 1).toString(), cells[1])
+            assertEquals("start/end/total/notes of day ${i + 1} must be empty", listOf("", "", "", ""), cells.subList(2, 6))
+        }
+        val xml = zipEntries(fillMonth(YearMonth.of(2026, 11), sessions)).getValue("word/document.xml").toString(Charsets.UTF_8)
+        assertFalse(xml.contains("0:00"))
+        assertFalse(xml.contains("17:40"))
+    }
+
+    @Test
+    fun onlyDaysOfTheRequestedMonthAreFilled() {
+        val october = dayRows(fillMonth(YearMonth.of(2026, 10), sessions))
+        val filled = october.withIndex().filter { it.value[2].isNotEmpty() }.map { it.index + 1 }
+        // 5, 12 and 31 are finished shifts in October; 26 is still running and is left out; the September one is not October's
+        assertEquals(listOf(5, 12, 31), filled)
+    }
+
     @Test
     fun formatsMinutes() {
         assertEquals("0:00", formatMinutes(0))
