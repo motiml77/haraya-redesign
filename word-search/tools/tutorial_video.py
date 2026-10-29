@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.join(ROOT, "tests"))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 W, H, FPS = 1920, 1080, 30
+TOTAL_FRAMES = 1900      # אומדן אורך הסרטון (לפס ההתקדמות)
 
 
 def main():
@@ -122,6 +123,11 @@ def main():
             self.caption = ("", "", "")   # (מספר, כותרת, הסבר)
             self.caption_since = 0
             self.keycap = None
+            self.cam_z, self.cam_zt = 1.0, 1.0          # מצלמה: זום נוכחי / יעד
+            self.cam_f, self.cam_ft = QPointF(W / 2, H / 2), QPointF(W / 2, H / 2)
+            self.trail = []                              # זנב לסמן
+            self.intro = 0.0                             # אנימציית כניסה של החלון (0..1)
+            self.progress = 0.0
             self.refresh()
 
         # ----- תמונת החלון -----
@@ -145,6 +151,25 @@ def main():
             p = QPainter(img)
             p.setRenderHint(QPainter.Antialiasing)
             p.setRenderHint(QPainter.SmoothPixmapTransform)
+            # מצלמה: זום חלק אל נקודת העניין
+            self.cam_z += (self.cam_zt - self.cam_z) * 0.14
+            self.cam_f = QPointF(self.cam_f.x() + (self.cam_ft.x() - self.cam_f.x()) * 0.14,
+                                 self.cam_f.y() + (self.cam_ft.y() - self.cam_f.y()) * 0.14)
+            z = self.cam_z
+            a = 0.0 if self.cam_zt <= 1.001 and z <= 1.001 else min(1.0, (z - 1) / max(0.05, max(self.cam_zt, 1.4) - 1))
+            center = QPointF(W / 2, H / 2 - 40)
+            p.save()
+            tx = (center.x() - z * self.cam_f.x()) * a
+            ty = (center.y() - z * self.cam_f.y()) * a
+            p.translate(max(W * (1 - z), min(0.0, tx)), max(H * (1 - z), min(0.0, ty)))   # הקנבס תמיד ממלא את המסך
+            p.scale(z, z)
+            if self.intro < 1.0:                       # כניסת החלון: קפיצה קלה פנימה + דעיכה
+                e = 1 - (1 - self.intro) ** 3
+                p.translate(W / 2, H / 2)
+                p.scale(0.9 + 0.1 * e, 0.9 + 0.1 * e)
+                p.translate(-W / 2, -H / 2 + (1 - e) * 40)
+                p.setOpacity(e)
+                self.intro = min(1.0, self.intro + 1 / (0.7 * FPS))
             sw, sh = self.win_img.width(), self.win_img.height()
             frame = QRectF(self.origin.x(), self.origin.y() - 40, sw, sh + 40)
             # צל
@@ -181,9 +206,6 @@ def main():
                 p.setBrush(Qt.NoBrush)
                 p.drawRect(r)
             p.setClipping(False)
-            self._draw_caption(p)
-            if self.keycap:
-                self._draw_keycap(p, self.keycap)
             for pos, start in list(self.ripples):
                 t = (self.frames - start) / (0.55 * FPS)
                 if t > 1:
@@ -196,8 +218,34 @@ def main():
                 p.setBrush(QColor(37, 99, 235, int(60 * (1 - t))))
                 rad = 10 + 34 * (1 - (1 - t) ** 3)
                 p.drawEllipse(c, rad, rad)
+                p.setBrush(Qt.NoBrush)
+                col.setAlpha(int(110 * (1 - t)))
+                p.setPen(QPen(col, 2))
+                p.drawEllipse(c, rad * 1.7, rad * 1.7)
             if self.cursor_visible:
-                self._draw_cursor(p, self.to_canvas(self.cursor))
+                cur = self.to_canvas(self.cursor)
+                self.trail.append(QPointF(cur))
+                del self.trail[:-12]
+                for i, tp in enumerate(self.trail[:-1]):
+                    col = QColor(147, 197, 253, int(90 * i / len(self.trail)))
+                    p.setPen(Qt.NoPen)
+                    p.setBrush(col)
+                    p.drawEllipse(tp, 3 + i * 0.6, 3 + i * 0.6)
+                self._draw_cursor(p, cur)
+            p.restore()
+            # שכבת ממשק (לא מושפעת מהזום): כיתובית, מקשים, פס התקדמות
+            self._draw_caption(p)
+            if self.keycap:
+                self._draw_keycap(p, self.keycap)
+            p.setOpacity(1)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(255, 255, 255, 40))
+            p.drawRect(0, 0, W, 6)
+            grad = QLinearGradient(0, 0, W, 0)
+            grad.setColorAt(0, QColor("#60a5fa"))
+            grad.setColorAt(1, QColor("#a78bfa"))
+            p.setBrush(grad)
+            p.drawRect(0, 0, int(W * self.progress), 6)
             p.end()
             return img
 
@@ -258,6 +306,7 @@ def main():
 
         # ----- זמן -----
         def emit(self, img=None):
+            self.progress = min(1.0, self.frames / TOTAL_FRAMES)
             img = img or self.render()
             self.ffmpeg.stdin.write(bytes(img.constBits()))
             self.frames += 1
@@ -301,9 +350,59 @@ def main():
                 for _ in range(max(1, int(per_char * FPS))):
                     self.emit()
 
+        def zoom_to(self, pt, z=1.45):
+            self.cam_zt = z
+            self.cam_ft = self.to_canvas(pt)
+
+        def zoom_reset(self):
+            self.cam_zt = 1.0
+            self.cam_ft = QPointF(W / 2, H / 2)
+
         def set_caption(self, num, title, text):
+            if num and num != self.caption[0]:
+                self.transition(num, title)
             self.caption = (num, title, text)
             self.caption_since = self.frames
+
+        def transition(self, num, title):
+            """מעבר בין שלבים: פאנל צבעוני שנע על המסך עם מספר השלב והכותרת, וחושף את השלב הבא."""
+            n = int(1.1 * FPS)
+            self.zoom_reset()
+            for i in range(n):
+                t = i / (n - 1)
+                base = self.render()
+                p = QPainter(base)
+                p.setRenderHint(QPainter.Antialiasing)
+                # שתי מחצות: כניסה (0..0.45), החזקה, יציאה (0.6..1)
+                if t < 0.45:
+                    x = W * (1 - (1 - t / 0.45) ** 3 * 1.0) - W
+                    x = -W + W * (1 - (1 - t / 0.45) ** 3)
+                elif t < 0.6:
+                    x = 0
+                else:
+                    k = (t - 0.6) / 0.4
+                    x = W * (k ** 3)
+                skew = 180
+                poly = QPolygonF([QPointF(x - skew, 0), QPointF(x + W, 0), QPointF(x + W - skew, H), QPointF(x - 2 * skew, H)])
+                g = QLinearGradient(x, 0, x + W, H)
+                g.setColorAt(0, QColor("#1d4ed8"))
+                g.setColorAt(1, QColor("#7c3aed"))
+                p.setPen(Qt.NoPen)
+                p.setBrush(g)
+                p.drawPolygon(poly)
+                if 0.12 < t < 0.9:
+                    a = min(1.0, (t - 0.12) / 0.2) * min(1.0, (0.9 - t) / 0.15)
+                    p.setOpacity(a)
+                    p.setPen(QColor(255, 255, 255, 60))
+                    p.setFont(font(420, True))
+                    p.drawText(QRectF(0, 40, W, 560), Qt.AlignCenter, num)
+                    p.setPen(QColor("white"))
+                    p.setFont(font(76, True))
+                    opt = QTextOption(Qt.AlignCenter)
+                    opt.setTextDirection(Qt.RightToLeft)
+                    p.drawText(QRectF(0, H / 2 + 60 + (1 - a) * 24, W, 110), title, opt)
+                p.end()
+                self.emit(base)
 
         def wait_jobs(self, limit=20):
             t0 = time.time()
@@ -326,7 +425,14 @@ def main():
                 p.setRenderHint(QPainter.SmoothPixmapTransform)
                 p.setOpacity(e)
                 size = 220
-                p.drawImage(QRectF(W / 2 - size / 2, 250 - (1 - t) * 30, size, size), logo)
+                glow = QRadialGradient(W / 2, 360, 330 + 30 * math.sin(i / 9))
+                glow.setColorAt(0, QColor(96, 165, 250, int(110 * e)))
+                glow.setColorAt(1, QColor(96, 165, 250, 0))
+                p.setBrush(glow)
+                p.setPen(Qt.NoPen)
+                p.drawEllipse(QPointF(W / 2, 360), 330, 330)
+                bounce = math.sin(min(1.0, t) * math.pi * 1.5) * (1 - t) * 40
+                p.drawImage(QRectF(W / 2 - size / 2, 250 - (1 - t) * 60 - bounce, size, size), logo)
                 opt = QTextOption(Qt.AlignCenter)
                 opt.setTextDirection(Qt.RightToLeft)
                 p.setPen(QColor("white"))
@@ -360,6 +466,7 @@ def main():
 
     # ============================================================ פתיחה
     st.card("חיפוש במסמכים", "מדריך קצר · חיפוש מהיר וגמיש בתוך מסמכי Word ו-PDF")
+    st.intro = 0.0
     st.refresh()
     st.cursor = QPointF(560, 360)
 
@@ -405,7 +512,9 @@ def main():
         app.processEvents()
         show_dialog()
 
+    st.zoom_to(QPointF(dlg_pos.x() + 250, dlg_pos.y() + 240), 1.3)
     st.click(dialog_point(check), tick, after=1.4)
+    st.zoom_reset()
     done = next(b for b in dlg.findChildren(QPushButton) if b.text() == "סיום")
     done_pt = done.mapTo(dlg, done.rect().center())
 
@@ -420,8 +529,10 @@ def main():
 
     # ============================================================ 2. חיפוש
     st.set_caption("2", "מחפשים", "מקלידים מילה או כמה מילים ולוחצים Enter – ניקוד, גרשיים ואותיות סופיות לא משנים")
+    st.zoom_to(center_of(win.search_edit, 0), 1.5)
     st.click(center_of(win.search_edit, 120), lambda: win.search_edit.setFocus(), after=0.2)
     st.type(win.search_edit, "הלך")
+    st.zoom_reset()
     st.click(center_of(win.search_btn), win.run_search, after=0.1)
     st.wait_jobs()
     st.set_caption("2", "התוצאות – הכי מדויקות ראשונות",
@@ -444,6 +555,7 @@ def main():
         pop_pos["p"] = QPointF(max(8, min(x, win.width() - win.options.width() - 8)), below.y())
         st.overlays = [(win.options.grab().toImage(), pop_pos["p"], 1.0)]
 
+    st.zoom_to(center_of(win.options_btn, -120, 120), 1.35)
     st.click(center_of(win.options_btn), open_options, after=0.8)
     cb = win.options.cb_inflect
     cb_pt = cb.mapTo(win.options, QPoint(cb.width() - 12, cb.height() // 2))
@@ -460,6 +572,7 @@ def main():
         win.options.close()
         st.overlays = []
 
+    st.zoom_reset()
     st.click(center_of(win.results, -150, 120), close_options, after=0.3)
     st.hold(2.4, live=True)
 
@@ -536,7 +649,10 @@ def main():
     def uncheck():
         model.setData(model.basket_index(new_bid["b"]), Qt.Unchecked, Qt.CheckStateRole)
 
+    st.zoom_to(pt, 1.45)
     st.click(pt, uncheck, after=0.3)
+    st.hold(0.5)
+    st.zoom_reset()
     st.wait_jobs()
     st.move(center_of(win.scope_label, 60), 0.9)
     st.hold(2.2, live=True)
