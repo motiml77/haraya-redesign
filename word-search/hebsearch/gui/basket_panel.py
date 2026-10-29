@@ -1,44 +1,49 @@
-"""לוח הסלים (סרגל הצד).
+"""סרגל הסלים: כל הסלים ברשימה אחת (כמו תיקיות סביבת עבודה ב-VS Code או אוספים ב-Logos).
 
-מבנה (העץ תופס את כל הגובה הפנוי; כל השאר קומפקטי):
-    [ בורר הסל ▾ ] [＋] [⋯]
-    ┌ תוכן הסל │ בחירה מהמחשב ┐
-    │  עץ מלא בגובה הסרגל      │
-    └───────────────────────────┘
-    שורת סיכום · כפתור עדכון / התקדמות
+    הסלים                              [+ סל חדש]
+    [ סינון לפי שם… ]
+    ☑ ▾ שיעורים                        1,240     ← הסימון = מחפשים בסל הזה
+          ▸ 📁 שיעורי הרב               820
+          ＋ הוספה לסל…            ← פותח את עץ המחשב בחלון
+    ☐ ▸ תורה                            312
+    ───────────────────────────────────────
+    ✓ בחיפוש: 1,552 מסמכים · עדכון        (או: מעדכן… 45%  [עצור])
 
+אין בחירה כפולה (סל לעריכה + סלים לחיפוש): כל סל ערוך במקומו, והסימון שלו קובע אם מחפשים בו.
 """
 
 from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import QSettings, QSize, QTimer, Qt, Signal
+from PySide6.QtCore import QSettings, QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QAbstractItemView, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMenu,
-    QMessageBox, QProgressBar, QPushButton, QSizePolicy, QStackedWidget, QTabWidget, QToolButton, QTreeView,
-    QVBoxLayout, QWidget,
+    QAbstractItemView, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox,
+    QProgressBar, QPushButton, QStackedWidget, QTreeView, QVBoxLayout, QWidget,
 )
 
-from ..basket import BasketEditor
 from ..index import is_supported
 from ..opener import open_default, reveal_in_folder
 from .basket_model import BasketModel
-from .file_browser import BrowserDialog, FileBrowser
+from .file_browser import BrowserDialog
 from .icons import doc_kind, ui_icon
 from .results import doc_name, ltr
 from .theme import C, T
-from .widgets import Combo, ElidedLabel, WrapLabel, icon_button
+from .widgets import ElidedLabel, WrapLabel, text_icon_button
 
 
 class BasketTree(QTreeView):
-    """עץ תוכן הסל; מקבל גרירת קבצים ותיקיות מהסייר."""
-    dropped = Signal(list)
+    """עץ הסלים; מקבל גרירת קבצים ותיקיות מהסייר אל הסל שמתחת לעכבר."""
+    dropped = Signal(list, object)       # נתיבים, מזהה הסל (או None)
 
     def __init__(self):
         super().__init__()
         self.setAcceptDrops(True)
         self.setDragDropMode(QAbstractItemView.DropOnly)
+
+    def _basket_at(self, pos):
+        node = self.model().node_at(self.indexAt(pos))
+        return node.bid if node is not None else None
 
     def dragEnterEvent(self, e):
         if e.mimeData().hasUrls():
@@ -51,13 +56,14 @@ class BasketTree(QTreeView):
     def dropEvent(self, e):
         paths = [u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()]
         if paths:
-            self.dropped.emit(paths)
+            e.acceptProposedAction()
+            self.dropped.emit(paths, self._basket_at(e.position().toPoint()))
 
 
 class BasketPanel(QFrame):
     contentsChanged = Signal()      # תוכן סל השתנה – צריך לסרוק/לעדכן מפה
     basketsChanged = Signal()       # סל נוסף / נמחק / שונה שמו
-    currentChanged = Signal(int)
+    scopeChanged = Signal()         # השתנו הסלים שמחפשים בהם
     updateRequested = Signal()
     cancelRequested = Signal()
 
@@ -66,55 +72,37 @@ class BasketPanel(QFrame):
         self.setObjectName("panel")
         self.db, self.settings = db, settings
         self.scan = None
-        self.editor = BasketEditor(db, None)
-        self.model = BasketModel(self.editor, self._status_of)
-        self.model.toggled.connect(self._tree_toggled)
-        self._signature = None
-        self._expanded = {}
         self._dialog = None
+        self._expanded = None
+        self._signature = None
+        saved = settings.value("search_baskets", None)
+        if saved is None:
+            self.search_ids = None                       # בפעם הראשונה – כל הסלים
+        else:
+            vals = saved if isinstance(saved, list) else [saved]
+            self.search_ids = {int(x) for x in vals if str(x).strip().lstrip("-").isdigit()}
+        self.model = BasketModel(db, self._status_of)
+        self.model.toggled.connect(self._tree_toggled)
+        self.model.searchToggled.connect(self._search_toggled)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(T.pad, T.pad, T.pad, T.pad)
         lay.setSpacing(T.gap)
 
-        # ---- בורר הסל ----
-        row = QHBoxLayout()
-        row.setSpacing(4)
-        self.basket_combo = Combo()
-        self.basket_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.basket_combo.setToolTip("הסל שעורכים כעת (לבחירת סלים לחיפוש – השתמשו בתגיות שליד שורת החיפוש)")
-        self.basket_combo.currentIndexChanged.connect(self._basket_changed)
-        self.new_btn = icon_button("plus", "סל חדש", bordered=True)
+        # ---- כותרת ----
+        head = QHBoxLayout()
+        head.setSpacing(4)
+        title = QLabel("הסלים")
+        title.setObjectName("title")
+        self.new_btn = text_icon_button("plus", " סל חדש", "יצירת סל חדש (למשל: שיעורים, תורה, מכתבים)")
+        self.new_btn.setObjectName("bordered")
         self.new_btn.clicked.connect(self.new_basket)
-        self.more_btn = icon_button("more", "שינוי שם / מחיקת הסל", bordered=True)
-        menu = QMenu(self)
-        menu.addAction(ui_icon("pencil"), "שינוי שם הסל…", self.rename_basket)
-        menu.addAction(ui_icon("trash"), "מחיקת הסל…", self.delete_basket)
-        self.more_btn.setMenu(menu)
-        self.more_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        row.addWidget(self.basket_combo, 1)
-        row.addWidget(self.new_btn)
-        row.addWidget(self.more_btn)
-        lay.addLayout(row)
+        head.addWidget(title, 1)
+        head.addWidget(self.new_btn)
+        lay.addLayout(head)
 
-        # ---- לשוניות ----
-        self.tabs = QTabWidget()
-        self.tabs.setDocumentMode(True)
-        bar = self.tabs.tabBar()
-        bar.setExpanding(True)                  # שתי הלשוניות מתחלקות ברוחב הסרגל, בלי כפתורי גלילה
-        bar.setUsesScrollButtons(False)
-        bar.setElideMode(Qt.ElideRight)
-        lay.addWidget(self.tabs, 1)
-
-        # תוכן הסל
-        contents = QWidget()
-        cl = QVBoxLayout(contents)
-        cl.setContentsMargins(0, T.gap, 0, 0)
-        cl.setSpacing(T.gap)
-        tool = QHBoxLayout()
-        tool.setSpacing(4)
         self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText("סינון לפי שם…")
+        self.filter_edit.setPlaceholderText("סינון לפי שם תיקייה או מסמך…")
         self.filter_edit.addAction(ui_icon("search", C.muted, C.muted), QLineEdit.LeadingPosition)
         self.filter_edit.setClearButtonEnabled(True)
         T.sized(self.filter_edit, h="h_ctl")
@@ -122,18 +110,9 @@ class BasketPanel(QFrame):
         self._filter_timer.setSingleShot(True)
         self._filter_timer.timeout.connect(self._apply_filter)
         self.filter_edit.textChanged.connect(lambda _: self._filter_timer.start(180))
-        self.add_folder_btn = icon_button("folder-plus", "הוספת תיקייה לסל", bordered=True)
-        self.add_folder_btn.clicked.connect(self.add_folder)
-        self.add_files_btn = icon_button("file-plus", "הוספת מסמכים לסל", bordered=True)
-        self.add_files_btn.clicked.connect(self.add_files)
-        self.remove_btn = icon_button("trash", "הסרת הפריטים המסומנים מהסל", bordered=True)
-        self.remove_btn.clicked.connect(self.remove_selected)
-        tool.addWidget(self.filter_edit, 1)
-        tool.addWidget(self.add_folder_btn)
-        tool.addWidget(self.add_files_btn)
-        tool.addWidget(self.remove_btn)
-        cl.addLayout(tool)
+        lay.addWidget(self.filter_edit)
 
+        # ---- העץ / מצב ריק ----
         self.stack = QStackedWidget()
         self.tree = BasketTree()
         self.tree.setModel(self.model)
@@ -144,73 +123,42 @@ class BasketPanel(QFrame):
         self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.tree.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.tree.setTextElideMode(Qt.ElideMiddle)
+        self.tree.setExpandsOnDoubleClick(False)
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._context_menu)
+        self.tree.clicked.connect(self._clicked)
         self.tree.doubleClicked.connect(self._double_clicked)
-        self.tree.dropped.connect(self.add_paths)
+        self.tree.dropped.connect(lambda paths, bid: self.add_paths(paths, bid))
         hdr = self.tree.header()
         hdr.setStretchLastSection(False)
         hdr.setSectionResizeMode(0, hdr.ResizeMode.Stretch)
         hdr.setSectionResizeMode(1, hdr.ResizeMode.Fixed)
-        hdr.resizeSection(1, T.pad * 7)
+        hdr.resizeSection(1, T.pad * 9)
         self.stack.addWidget(self.tree)
+        self.stack.addWidget(self._empty_page())
+        lay.addWidget(self.stack, 1)
 
-        empty = QWidget()
-        el = QVBoxLayout(empty)
-        el.setContentsMargins(T.pad, T.pad * 2, T.pad, T.pad)
-        el.addStretch(1)
-        ic = QLabel()
-        ic.setPixmap(ui_icon("folder-plus", C.border_strong).pixmap(48, 48))
-        ic.setAlignment(Qt.AlignCenter)
-        el.addWidget(ic)
-        t = QLabel("הסל ריק")
-        t.setObjectName("title")
-        t.setAlignment(Qt.AlignCenter)
-        el.addWidget(t)
-        d = WrapLabel("הוסיפו תיקיות או מסמכי Word ו-PDF. אפשר גם לגרור אותם לכאן מהסייר.")
-        d.setObjectName("muted")
-        d.setAlignment(Qt.AlignCenter)
-        el.addWidget(d)
-        b1 = QPushButton("בחירה מהמחשב")
-        b1.setObjectName("primary")
-        b1.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
-        b2 = QPushButton("הוספת תיקייה…")
-        b2.clicked.connect(self.add_folder)
-        el.addWidget(b1, 0, Qt.AlignHCenter)
-        el.addWidget(b2, 0, Qt.AlignHCenter)
-        el.addStretch(2)
-        self.empty_page = empty
-        self.stack.addWidget(empty)
-        cl.addWidget(self.stack, 1)
-        self.tabs.addTab(contents, ui_icon("folder"), "תוכן הסל")
-
-        # בחירה מהמחשב
-        self.browser = FileBrowser(lambda p, d: self.editor.state(p, d), settings)
-        self.browser.toggled.connect(self._browser_toggled)
-        self.browser.expandRequested.connect(self._open_dialog)
-        self.tabs.addTab(self.browser, ui_icon("search"), "בחירה מהמחשב")
-
-        # ---- שוליים: סיכום + עדכון/התקדמות ----
-        self.summary = WrapLabel()
-        self.summary.setObjectName("caption")
-        self.summary.setTextFormat(Qt.RichText)
-        self.summary.linkActivated.connect(lambda _: self._show_problems())
-        lay.addWidget(self.summary)
+        # ---- שורת מצב קטנה בתחתית ----
+        sep = QFrame()
+        sep.setObjectName("separator")
+        lay.addWidget(sep)
         self.bottom = QStackedWidget()
-        self.update_btn = QPushButton(" עדכון מפת החיפוש")
-        self.update_btn.setIcon(ui_icon("refresh"))
-        self.update_btn.setToolTip("קורא מחדש מסמכים שנוספו או השתנו (בדרך כלל זה קורה לבד)")
-        self.update_btn.clicked.connect(self.updateRequested)
-        self.bottom.addWidget(self.update_btn)
+        self.status = WrapLabel("")
+        self.status.setObjectName("caption")
+        self.status.setTextFormat(Qt.RichText)
+        self.status.linkActivated.connect(self._status_link)
+        self.bottom.addWidget(self.status)
         prog = QWidget()
         pl = QVBoxLayout(prog)
         pl.setContentsMargins(0, 0, 0, 0)
         pl.setSpacing(3)
         top = QHBoxLayout()
-        self.progress_title = QLabel("")
-        self.progress_title.setObjectName("summary")
+        self.progress_title = ElidedLabel("", Qt.ElideRight)
+        self.progress_title.setObjectName("caption")
         self.cancel_btn = QPushButton("עצור")
         self.cancel_btn.setObjectName("flat")
+        self.cancel_btn.setCursor(Qt.PointingHandCursor)
+        T.sized(self.cancel_btn, h="h_chip")
         self.cancel_btn.clicked.connect(self.cancelRequested)
         top.addWidget(self.progress_title, 1)
         top.addWidget(self.cancel_btn)
@@ -227,110 +175,160 @@ class BasketPanel(QFrame):
 
         self.reload_baskets()
 
+    def _empty_page(self):
+        empty = QWidget()
+        el = QVBoxLayout(empty)
+        el.setContentsMargins(T.pad, T.pad * 2, T.pad, T.pad)
+        el.addStretch(1)
+        ic = QLabel()
+        ic.setPixmap(ui_icon("folder-plus", C.border_strong).pixmap(48, 48))
+        ic.setAlignment(Qt.AlignCenter)
+        el.addWidget(ic)
+        t = QLabel("הסל ריק")
+        t.setObjectName("title")
+        t.setAlignment(Qt.AlignCenter)
+        el.addWidget(t)
+        d = WrapLabel("הוסיפו תיקיות או מסמכי Word ו-PDF. אפשר גם לגרור אותם לכאן מהסייר.")
+        d.setObjectName("muted")
+        d.setAlignment(Qt.AlignCenter)
+        el.addWidget(d)
+        b1 = QPushButton("בחירה מהמחשב…")
+        b1.setObjectName("primary")
+        b1.setCursor(Qt.PointingHandCursor)
+        b1.clicked.connect(lambda: self.open_browser(self._first_basket()))
+        b2 = QPushButton("הוספת תיקייה…")
+        b2.setCursor(Qt.PointingHandCursor)
+        b2.clicked.connect(lambda: self.add_folder(self._first_basket()))
+        el.addWidget(b1, 0, Qt.AlignHCenter)
+        el.addWidget(b2, 0, Qt.AlignHCenter)
+        el.addStretch(2)
+        self.empty_page = empty
+        return empty
+
     # ================================================================ מצב
     def _status_of(self, path):
         return self.scan.status.get(path) if self.scan else None
 
-    @property
-    def current_id(self):
-        return self.basket_combo.currentData()
-
-    def basket_items(self):
-        return self.db.basket_items(self.current_id) if self.current_id is not None else []
+    def _first_basket(self):
+        baskets = self.db.baskets()
+        return baskets[0][0] if baskets else None
 
     def retheme(self):
         self.tree.setIndentation(T.icon + 2)
         self.tree.setIconSize(QSize(T.icon, T.icon))
-        self.tree.header().resizeSection(1, T.pad * 7)
-        self.browser.retheme()
+        self.tree.header().resizeSection(1, T.pad * 9)
+
+    def scope(self):
+        """[(מזהה, שם, מספר מסמכים)] של הסלים שמחפשים בהם."""
+        out = []
+        for bid, name, count in self.db.baskets():
+            if bid in self.search_ids:
+                files = self.scan.files.get(bid) if self.scan else None
+                out.append((bid, name, len(files) if files is not None else count))
+        return out
 
     # ================================================================ סלים
-    def reload_baskets(self, select_id=None):
+    def reload_baskets(self):
         baskets = self.db.baskets()
         if not baskets:
             self.db.create_basket("הסל שלי")
             baskets = self.db.baskets()
-        if select_id is None:
-            select_id = self.current_id or int(self.settings.value("basket", baskets[0][0]))
-        self.basket_combo.blockSignals(True)
-        self.basket_combo.clear()
-        row = 0
-        for i, (bid, name, count) in enumerate(baskets):
-            label = f"{name}  ·  {count:,}" if count else name
-            self.basket_combo.addItem(label, bid)
-            self.basket_combo.setItemData(i, name, Qt.UserRole + 1)
-            if bid == select_id:
-                row = i
-        self.basket_combo.setCurrentIndex(row)
-        self.basket_combo.blockSignals(False)
-        self.editor.basket_id = self.current_id
+        ids = {b[0] for b in baskets}
+        if self.search_ids is None:
+            self.search_ids = set(ids)
+        self.search_ids &= ids
+        self.model.search_ids = set(self.search_ids)
         self._refresh(force=True)
 
-    def _basket_name(self):
-        return self.basket_combo.currentData(Qt.UserRole + 1) or ""
+    def _save_scope(self):
+        self.settings.setValue("search_baskets", sorted(self.search_ids))
+        self.model.set_search_ids(self.search_ids)
+        self._update_status()
+        self.scopeChanged.emit()
 
-    def _basket_changed(self):
-        if self.current_id is None:
-            return
-        self.settings.setValue("basket", self.current_id)
-        self.editor.basket_id = self.current_id
+    def set_search_ids(self, ids):
+        self.search_ids = set(ids)
+        self._save_scope()
+
+    def _search_toggled(self, bid, on):
+        (self.search_ids.add if on else self.search_ids.discard)(bid)
+        self._save_scope()
+
+    def create_basket(self, name):
+        """יוצר סל (שנכלל בחיפוש מיד). מחזיר את המזהה, או None אם השם תפוס."""
+        try:
+            bid = self.db.create_basket(name)
+        except Exception:
+            return None
+        self.search_ids.add(bid)
+        self.settings.setValue("search_baskets", sorted(self.search_ids))
+        self.model.search_ids = set(self.search_ids)
         self._refresh(force=True)
-        self.currentChanged.emit(self.current_id)
+        self.basketsChanged.emit()
+        self.scopeChanged.emit()
+        return bid
 
     def new_basket(self):
         name, ok = QInputDialog.getText(self, "סל חדש", "שם הסל (למשל: שיעורים, תורה, מכתבים):")
-        if ok and name.strip():
-            try:
-                bid = self.db.create_basket(name.strip())
-            except Exception:
-                QMessageBox.warning(self, "סל חדש", "כבר קיים סל בשם הזה.")
-                return
-            self.reload_baskets(bid)
-            self.basketsChanged.emit()
-            self.tabs.setCurrentIndex(1)
-
-    def rename_basket(self):
-        if self.current_id is None:
+        if not (ok and name.strip()):
             return
-        name, ok = QInputDialog.getText(self, "שינוי שם", "שם חדש לסל:", text=self._basket_name())
-        if ok and name.strip():
+        bid = self.create_basket(name.strip())
+        if bid is None:
+            QMessageBox.warning(self, "סל חדש", "כבר קיים סל בשם הזה.")
+            return
+        self.open_browser(bid)
+
+    def rename_basket(self, bid):
+        old = self._name(bid)
+        name, ok = QInputDialog.getText(self, "שינוי שם", "שם חדש לסל:", text=old)
+        if ok and name.strip() and name.strip() != old:
             try:
-                self.db.rename_basket(self.current_id, name.strip())
+                self.db.rename_basket(bid, name.strip())
             except Exception:
                 QMessageBox.warning(self, "שינוי שם", "כבר קיים סל בשם הזה.")
                 return
-            self.reload_baskets(self.current_id)
+            self._refresh(force=True)
             self.basketsChanged.emit()
 
-    def delete_basket(self):
-        if self.current_id is None:
+    def delete_basket(self, bid):
+        if QMessageBox.question(self, "מחיקת סל", f"למחוק את הסל '{self._name(bid)}'?\n"
+                                "(המסמכים עצמם לא יימחקו)") != QMessageBox.Yes:
             return
-        if QMessageBox.question(self, "מחיקת סל", f"למחוק את הסל '{self._basket_name()}'?\n"
-                                "(המסמכים עצמם לא יימחקו)") == QMessageBox.Yes:
-            self.db.delete_basket(self.current_id)
-            self.basket_combo.setCurrentIndex(-1)
-            self.reload_baskets()
-            self.basketsChanged.emit()
+        self.db.delete_basket(bid)
+        self.search_ids.discard(bid)
+        self.reload_baskets()
+        self.basketsChanged.emit()
+        self.scopeChanged.emit()
+
+    def _name(self, bid):
+        return next((n for b, n, _c in self.db.baskets() if b == bid), "")
 
     # ================================================================ הוספה והסרה
-    def add_folder(self):
-        d = QFileDialog.getExistingDirectory(self, "בחירת תיקייה לסל", self.settings.value("last_dir", ""))
+    def add_folder(self, bid):
+        if bid is None:
+            return
+        d = QFileDialog.getExistingDirectory(self, f"הוספת תיקייה לסל '{self._name(bid)}'",
+                                             self.settings.value("last_dir", ""))
         if d:
-            self.add_paths([d])
+            self.add_paths([d], bid)
 
-    def add_files(self):
+    def add_files(self, bid):
+        if bid is None:
+            return
         files, _ = QFileDialog.getOpenFileNames(
-            self, "בחירת מסמכים לסל", self.settings.value("last_dir", ""),
+            self, f"הוספת מסמכים לסל '{self._name(bid)}'", self.settings.value("last_dir", ""),
             "מסמכים (*.docx *.docm *.dotx *.doc *.rtf *.pdf);;מסמכי וורד (*.docx *.doc);;PDF (*.pdf)")
         if files:
-            self.add_paths(files)
+            self.add_paths(files, bid)
 
     def _remember_dir(self, d):
         recent = [x for x in (self.settings.value("recent_dirs", [], list) or []) if x != d]
         self.settings.setValue("recent_dirs", [d] + recent[:9])
         self.settings.setValue("last_dir", d)
 
-    def add_paths(self, paths):
+    def add_paths(self, paths, bid=None):
+        if bid is None:
+            bid = self._target_basket()
         items = []
         for p in paths:
             if os.path.isdir(p):
@@ -342,53 +340,88 @@ class BasketPanel(QFrame):
         if not items:
             QMessageBox.information(self, "הוספה לסל", "לא נמצאו מסמכי וורד או PDF להוספה.")
             return
-        self.db.add_basket_items(self.current_id, items)
+        self.db.add_basket_items(bid, items)
         self._changed(structure=True)
+        idx = self.model.basket_index(bid)
+        if idx.isValid():
+            self.tree.expand(idx)
+
+    def _target_basket(self):
+        """הסל שמסומן בעץ, ואם אין – הראשון שמחפשים בו, ואם אין – הראשון."""
+        node = self.model.node_at(self.tree.currentIndex())
+        if node is not None:
+            return node.bid
+        for bid, _n, _c in self.db.baskets():
+            if bid in self.search_ids:
+                return bid
+        return self._first_basket()
 
     def remove_selected(self):
         """פריטי סל מוסרים; מסמך או תת-תיקייה שבתוך תיקייה – מוחרגים."""
         nodes = [self.model.node_at(i) for i in self.tree.selectionModel().selectedRows(0)]
         nodes = [n for n in nodes if n is not None]
-        tops = [n.path for n in nodes if n.kind in ("top", "single")]
-        if tops:
-            self.db.remove_basket_items(self.current_id, tops)
-        self.editor.reload()
+        tops = {}
         for n in nodes:
-            if n.kind in ("dir", "file"):
-                self.editor.set_checked(n.path, n.kind == "dir", False)
-        self._changed(structure=bool(tops))
+            if n.kind in ("top", "single"):
+                tops.setdefault(n.bid, []).append(n.path)
+        for bid, paths in tops.items():
+            self.db.remove_basket_items(bid, paths)
+        inner = [n for n in nodes if n.kind in ("dir", "file")]
+        for n in inner:
+            editor = self.model.editors[n.bid]
+            editor.reload()
+            editor.set_checked(n.path, n.kind == "dir", False)
+        if tops or inner:
+            self._changed(structure=bool(tops))
 
-    def _tree_toggled(self, path, is_dir, checked):
-        self.editor.set_checked(path, is_dir, checked)
+    def _tree_toggled(self, bid, path, is_dir, checked):
+        editor = self.model.editors[bid]
+        editor.reload()
+        editor.set_checked(path, is_dir, checked)
         self._changed()
 
-    def _browser_toggled(self, path, is_dir, checked):
+    def _browser_toggled(self, bid, path, is_dir, checked):
         if checked and is_dir and os.path.dirname(path.rstrip("\\/")) == path.rstrip("\\/"):
             if QMessageBox.question(self, "כונן שלם", "זה יוסיף לסל את כל הכונן, ועלול לקחת זמן רב וליצור מפה גדולה מאוד.\n"
                                     "להמשיך?") != QMessageBox.Yes:
-                self.browser.refresh()
+                if self._dialog is not None:
+                    self._dialog.browser.refresh()
                 return
-        self.editor.set_checked(path, is_dir, checked)
+        editor = self.model.editors[bid]
+        editor.reload()
+        editor.set_checked(path, is_dir, checked)
         if checked and is_dir:
             self._remember_dir(path)
         self._changed(structure=True)
+        idx = self.model.basket_index(bid)
+        if idx.isValid():
+            self.tree.expand(idx)
 
     def _changed(self, structure=False):
-        """שינוי בתוכן הסל. structure=True: נוספו/הוסרו פריטים בסל (צריך לבנות את העץ מחדש)."""
-        self.editor.reload()
+        """שינוי בתוכן סל. structure=True: נוספו/הוסרו פריטים (צריך לבנות את העץ מחדש)."""
         self._refresh(force=structure)
-        self.browser.refresh()
         if self._dialog is not None:
             self._dialog.browser.refresh()
         self.contentsChanged.emit()
 
-    def _open_dialog(self):
-        self._dialog = BrowserDialog(lambda p, d: self.editor.state(p, d), self.settings, self.window())
-        self._dialog.browser.toggled.connect(self._browser_toggled)
-        self._dialog.browser.reveal(self.browser.current or self.settings.value("browse_dir", ""))
-        self._dialog.exec()
-        self._dialog = None
-        self.browser.refresh()
+    def open_browser(self, bid, modal=True):
+        """עץ המחשב בחלון (כמו "שינוי" במיקומי האינדוקס של חלונות): ✓ מוסיף לסל, ביטול מוציא."""
+        if bid is None:
+            return None
+        editor = self.model.editors.get(bid)
+        if editor is None:
+            self._refresh(force=True)
+            editor = self.model.editors[bid]
+        dlg = BrowserDialog(lambda p, d: editor.state(p, d), self.settings, self.window())
+        dlg.setWindowTitle(f"בחירת תיקיות ומסמכים לסל '{self._name(bid)}'")
+        dlg.browser.toggled.connect(lambda p, d, c: self._browser_toggled(bid, p, d, c))
+        self._dialog = dlg
+        if modal:
+            dlg.exec()
+            self._dialog = None
+        else:
+            dlg.show()
+        return dlg
 
     # ================================================================ תצוגה
     def set_scan(self, scan):
@@ -399,86 +432,83 @@ class BasketPanel(QFrame):
         text = self.filter_edit.text()
         self.model.apply_filter(text)
         if text.strip():
-            self.tree.expandToDepth(3 if self.model.rowCount() < 40 else 1)
+            self.tree.expandToDepth(4 if sum(len(b.vkids) for b in self.model.root.kids) < 60 else 1)
         else:
-            self._restore_expanded()
-
-    def _save_expanded(self):
-        bid = self.current_id
-        if bid is not None and self.model.root.kids:
-            self._expanded[bid] = self.model.expanded_keys(self.tree)
-
-    def _restore_expanded(self):
-        keys = self._expanded.get(self.current_id)
-        total = sum(k.total for k in self.model.root.kids)
-        if keys is None and total <= 80:
-            self.tree.expandAll()
-            return
-        self.model.restore_expanded(self.tree, keys or set(), default_open_tops=keys is None)
+            self.model.restore_expanded(self.tree, self._expanded)
 
     def _refresh(self, force=False):
-        bid = self.current_id
-        if bid is None:
-            return
-        self.editor.basket_id = bid
-        self.editor.reload()
-        items = self.db.basket_items(bid)
-        entries = self.scan.entries.get(bid, []) if self.scan else []
-        signature = (bid, tuple(items), tuple((p, len(files)) for p, _k, files in entries))
+        baskets = self.db.baskets()
+        items_of = {bid: self.db.basket_items(bid) for bid, _n, _c in baskets}
+        entries_of = {bid: self.scan.entries.get(bid, []) for bid, _n, _c in baskets} if self.scan else {}
+        files_of = {bid: self.scan.files.get(bid) for bid, _n, _c in baskets} if self.scan else {}
+        signature = (tuple((b, n) for b, n, _c in baskets), tuple((b, tuple(v)) for b, v in items_of.items()),
+                     tuple((b, tuple((p, len(f)) for p, _k, f in e)) for b, e in entries_of.items()))
         if force or signature != self._signature:
-            if self._signature and self._signature[0] == bid:
-                self._save_expanded()
+            if self._signature is not None:
+                self._expanded = self.model.expanded_keys(self.tree)
             self._signature = signature
-            self.model.load(items, entries)
-            if not self.filter_edit.text().strip():
-                self._restore_expanded()
+            self.model.search_ids = set(self.search_ids)
+            self.model.load(baskets, items_of, entries_of, files_of)
+            if self.filter_edit.text().strip():
+                self._apply_filter()
             else:
-                self.tree.expandToDepth(3 if self.model.rowCount() < 40 else 1)
+                self.model.restore_expanded(self.tree, self._expanded)
         else:
+            self.model.files_of = files_of
             self.model.refresh()
-        has_items = any(k != "exclude" for _p, k in items)
-        self.stack.setCurrentWidget(self.tree if has_items else self.empty_page)
-        self.filter_edit.setEnabled(has_items)
-        self.remove_btn.setEnabled(has_items)
-        self._update_summary(items, entries)
-        # הסל בבורר: מספר המסמכים מתעדכן אחרי סריקה
-        if self.scan is not None:
-            for i, (b, name, count) in enumerate(self.db.baskets()):
-                label = f"{name}  ·  {count:,}" if count else name
-                if self.basket_combo.itemText(i) != label:
-                    self.basket_combo.setItemText(i, label)
+        has_items = self.model.has_items()
+        self.stack.setCurrentWidget(self.tree if has_items or len(baskets) > 1 else self.empty_page)
+        self.filter_edit.setVisible(has_items)
+        self._update_status()
 
-    def _update_summary(self, items, entries):
-        if not any(k != "exclude" for _p, k in items):
-            self.summary.setText("")
+    def _update_status(self):
+        if self.bottom.currentIndex() == 1:
             return
-        files = self.scan.files.get(self.current_id) if self.scan else None
-        if files is None:
-            self.summary.setText("סורק את הסל…")
+        if not self.model.has_items():
+            self.status.setText("")
             return
-        status = self.scan.status
-        counts = {"ok": 0, "pending": 0, "bad": 0}
+        if self.scan is None:
+            self.status.setText("סורק את הסלים…")
+            return
+        scope = self.scope()
+        if not scope:
+            self.status.setText(f'<span style="color:{C.warn}">לא סומן אף סל לחיפוש</span>')
+            return
+        files = list(dict.fromkeys(f for bid, _n, _c in scope for f in (self.scan.files.get(bid) or [])))
         kinds = {"word": 0, "pdf": 0, "doc": 0}
+        pending = bad = 0
         for f in files:
-            st = status.get(f)
-            counts["pending" if st is None else ("ok" if st[0] == "ok" else "bad")] += 1
             kinds[doc_kind(f)] += 1
-        total_found = sum(len(found) for _p, _k, found in entries)
-        excluded = max(0, total_found - len(files))
-        parts = [f"<b>{len(files):,}</b> מסמכים"]
+            st = self.scan.status.get(f)
+            if st is None:
+                pending += 1
+            elif st[0] != "ok":
+                bad += 1
         names = {"word": "וורד", "pdf": "PDF", "doc": "doc ישן"}
+        parts = [f'<span style="color:{C.ok}">✓</span> בחיפוש: <b>{len(files):,}</b> מסמכים']
         parts += [f"{n:,} {ltr(names[k])}‏" for k, n in kinds.items() if n]
-        if excluded:
-            parts.append(f"{excluded:,} מוחרגים")
-        if counts["pending"]:
-            parts.append(f"{counts['pending']:,} ממתינים")
-        if counts["bad"]:
-            parts.append(f'<a href="p" style="color:{C.warn}">{counts["bad"]:,} לא נקראו</a>')
-        self.summary.setText(" · ".join(parts))
+        if pending:
+            parts.append(f"{pending:,} ממתינים")
+        if bad:
+            parts.append(f'<a href="problems" style="color:{C.warn}">{bad:,} לא נקראו</a>')
+        parts.append(f'<a href="update" style="color:{C.accent}">עדכון</a>')
+        self.status.setText(" · ".join(parts))
 
-    def _show_problems(self):
-        files = self.scan.files.get(self.current_id, []) if self.scan else []
-        bad = [(f, self.scan.status[f][1]) for f in files if f in self.scan.status and self.scan.status[f][0] != "ok"]
+    def _status_link(self, link):
+        if link == "problems":
+            self._show_problems()
+        elif link == "update":
+            self.updateRequested.emit()
+
+    def _show_problems(self, bid=None):
+        if not self.scan:
+            return
+        files = []
+        for b, _n, _c in self.db.baskets():
+            if (bid is None and b in self.search_ids) or b == bid:
+                files += self.scan.files.get(b) or []
+        bad = [(f, self.scan.status[f][1]) for f in dict.fromkeys(files)
+               if f in self.scan.status and self.scan.status[f][0] != "ok"]
         lines = [f"• {doc_name(p)} – {m}" for p, m in bad[:40]]
         if len(bad) > 40:
             lines.append(f"… ועוד {len(bad) - 40}")
@@ -488,7 +518,7 @@ class BasketPanel(QFrame):
     def show_progress(self, frac, text=""):
         title, _, detail = text.partition("\n")
         pct = f"{int(frac * 100)}% · " if frac is not None and frac >= 0 else ""
-        self.progress_title.setText(pct + (title or "מעדכן…"))
+        self.progress_title.setFullText(pct + (title or "מעדכן…"))
         self.progress_detail.setFullText(detail)
         if frac is None or frac < 0:
             self.progress.setRange(0, 0)
@@ -499,29 +529,68 @@ class BasketPanel(QFrame):
 
     def hide_progress(self):
         self.bottom.setCurrentIndex(0)
+        self._update_status()
 
     # ================================================================ אינטראקציה
+    def _clicked(self, index):
+        node = self.model.node_at(index)
+        if node is not None and node.kind == "add":
+            self.open_browser(node.bid)
+
     def _double_clicked(self, index):
         node = self.model.node_at(index)
-        if node is not None and node.kind in ("file", "single"):
+        if node is None:
+            return
+        if node.kind == "basket":
+            self.set_search_ids({node.bid})          # חיפוש רק בסל הזה
+        elif node.kind in ("file", "single"):
             open_default(node.path)
+        elif node.kind != "add":
+            self.tree.setExpanded(index, not self.tree.isExpanded(index))
+
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key_Delete:
+            self.remove_selected()
+            return
+        super().keyPressEvent(e)
 
     def _context_menu(self, pos):
         index = self.tree.indexAt(pos)
         node = self.model.node_at(index)
-        if node is None:
-            return
         menu = QMenu(self)
-        if node.kind in ("file", "single"):
-            menu.addAction(ui_icon("external"), "פתח את המסמך", lambda: open_default(node.path))
-        menu.addAction(ui_icon("folder"), "הצג בתיקייה", lambda: reveal_in_folder(node.path))
-        menu.addSeparator()
-        if node.kind in ("dir", "file"):
-            on = self.editor.is_included(node.path) if node.kind == "file" else self.model.included_count(node) > 0
-            what = "התיקייה" if node.kind == "dir" else "המסמך"
-            menu.addAction(ui_icon("x") if on else ui_icon("check"),
-                           f"החרג את {what} מהחיפוש" if on else f"החזר את {what} לחיפוש",
-                           lambda: self._tree_toggled(node.path, node.kind == "dir", not on))
+        if node is None:
+            menu.addAction(ui_icon("plus"), "סל חדש…", self.new_basket)
+            menu.exec(self.tree.viewport().mapToGlobal(pos))
+            return
+        bid = node.bid
+        if node.kind in ("basket", "add"):
+            menu.addAction(ui_icon("search"), "בחירה מהמחשב…", lambda: self.open_browser(bid))
+            menu.addAction(ui_icon("folder-plus"), "הוספת תיקייה…", lambda: self.add_folder(bid))
+            menu.addAction(ui_icon("file-plus"), "הוספת מסמכים…", lambda: self.add_files(bid))
+            menu.addSeparator()
+            menu.addAction(ui_icon("check"), "חיפוש רק בסל הזה", lambda: self.set_search_ids({bid}))
+            all_ids = {b for b, _n, _c in self.db.baskets()}
+            if self.search_ids != all_ids:
+                menu.addAction("חיפוש בכל הסלים", lambda: self.set_search_ids(all_ids))
+            if node.kind == "basket" and self.model.problems(node):
+                menu.addAction(ui_icon("warning"), "מסמכים שלא נקראו…", lambda: self._show_problems(bid))
+            menu.addAction(ui_icon("refresh"), "עדכון מפת החיפוש", self.updateRequested)
+            menu.addSeparator()
+            menu.addAction(ui_icon("pencil"), "שינוי שם…", lambda: self.rename_basket(bid))
+            menu.addAction(ui_icon("trash"), "מחיקת הסל…", lambda: self.delete_basket(bid))
         else:
-            menu.addAction(ui_icon("trash"), "הסר מהסל", self.remove_selected)
+            if node.kind in ("file", "single"):
+                menu.addAction(ui_icon("external"), "פתח את המסמך", lambda: open_default(node.path))
+            menu.addAction(ui_icon("folder"), "הצג בתיקייה", lambda: reveal_in_folder(node.path))
+            menu.addSeparator()
+            if node.kind in ("dir", "file"):
+                on = self.model.included_count(node) > 0
+                what = "התיקייה" if node.kind == "dir" else "המסמך"
+                menu.addAction(ui_icon("x") if on else ui_icon("check"),
+                               f"החרג את {what} מהחיפוש" if on else f"החזר את {what} לחיפוש",
+                               lambda: self._tree_toggled(bid, node.path, node.kind == "dir", not on))
+            else:
+                if not self.tree.selectionModel().isSelected(index):
+                    self.tree.setCurrentIndex(index)
+                menu.addAction(ui_icon("trash"), "הסר מהסל (Delete)", self.remove_selected)
         menu.exec(self.tree.viewport().mapToGlobal(pos))

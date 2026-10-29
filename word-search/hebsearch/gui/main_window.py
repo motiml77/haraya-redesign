@@ -29,7 +29,7 @@ from .icons import file_icon, ui_icon
 from .options import OptionsPopup
 from .results import ResultsView, doc_name, form_of, ltr, message_html, syntax_table
 from .theme import C, T
-from .widgets import Chip, Combo, FlowLayout, SearchField, icon_button, text_icon_button
+from .widgets import Combo, SearchField, icon_button, text_icon_button
 from .workers import ScanJob, SearchJob
 
 SORT_CHOICES = [("relevance", "הכי מדויק קודם"), ("document", "לפי מסמך ומיקום")]
@@ -75,8 +75,6 @@ class MainWindow(QMainWindow):
         self.form_filter = None
         self.viewers = []
         self.history = self.settings.value("history", [], list) or []
-        saved = self.settings.value("search_baskets", None)
-        self.search_ids = None if saved is None else {int(x) for x in (saved if isinstance(saved, list) else [saved])}
 
         from .. import APP_NAME
         self.statusMessage.connect(self._show_status)
@@ -87,7 +85,7 @@ class MainWindow(QMainWindow):
         self.options_btn_text()
         self.sort_combo.setCurrentIndex(int(self.settings.value("sort", 0)))
         self.results.configure(self.db_path, 20)
-        self._refresh_chips()
+        self._update_scope()
         self._refresh_stats()
         self._restore_layout_state()
         QTimer.singleShot(150, lambda: self.start_scan())
@@ -127,7 +125,7 @@ class MainWindow(QMainWindow):
         self.baskets.setMinimumWidth(T.pad * 24)
         self.baskets.contentsChanged.connect(lambda: self.start_scan())
         self.baskets.basketsChanged.connect(self._baskets_changed)
-        self.baskets.currentChanged.connect(self._basket_selected)
+        self.baskets.scopeChanged.connect(self._scope_changed)
         self.baskets.updateRequested.connect(lambda: self.start_scan(force=True))
         self.baskets.cancelRequested.connect(self._cancel_scan)
         self.splitter.addWidget(self.baskets)
@@ -192,11 +190,12 @@ class MainWindow(QMainWindow):
         T.sized(self.sidebar_btn, h="h_search", min_w="h_search")
         cl.addLayout(row)
 
-        # תגיות הסלים לחיפוש (שורה אחת קומפקטית; מוסתרת כשיש סל אחד)
-        self.chips_host = QWidget()
-        self.chips_flow = FlowLayout(self.chips_host, hspacing=6, vspacing=4)
-        cl.addWidget(self.chips_host)
-        self.chips = {}
+        # במה מחפשים: "חיפוש ב: שיעורים, הלכה (1,328 מסמכים) · שינוי"
+        self.scope_label = QLabel("")
+        self.scope_label.setObjectName("caption")
+        self.scope_label.setTextFormat(Qt.RichText)
+        self.scope_label.linkActivated.connect(self._scope_link)
+        cl.addWidget(self.scope_label)
         lay.addWidget(card)
 
         # ---- כרטיס התוצאות ----
@@ -296,6 +295,7 @@ class MainWindow(QMainWindow):
 
     def _sidebar_toggled(self, on):
         self.baskets.setVisible(on)
+        self._update_scope()
 
     def _focus_search(self):
         self.search_edit.setFocus()
@@ -310,76 +310,42 @@ class MainWindow(QMainWindow):
         if state:
             self.splitter.restoreState(state)
 
-    # ================================================================ תגיות הסלים
-    def _refresh_chips(self):
-        flow = self.chips_flow
-        while flow.count():
-            item = flow.takeAt(0)
-            if item.widget():
-                item.widget().hide()
-                item.widget().deleteLater()
-        self.chips = {}
-        baskets = self.db.baskets()
-        ids = {b[0] for b in baskets}
-        if self.search_ids is None:
-            self.search_ids = set(ids)
-        self.search_ids &= ids
-        label = QLabel("חיפוש בסלים:")
-        label.setObjectName("caption")
-        flow.addWidget(label)
-        for bid, name, count in baskets:
-            chip = Chip(f"{name}  {count:,}" if count else name)
-            chip.setChecked(bid in self.search_ids)
-            chip.setToolTip("לחיצה: הכללה/הוצאה של הסל מהחיפוש\nלחיצה כפולה: חיפוש רק בסל הזה")
-            chip.toggled.connect(lambda on, bid=bid: self._chip_toggled(bid, on))
-            chip.doubleClicked.connect(lambda bid=bid: self._set_search_ids({bid}))
-            self.chips[bid] = chip
-            flow.addWidget(chip)
-        if len(baskets) > 1:
-            all_btn = QPushButton("כל הסלים")
-            all_btn.setObjectName("flat")
-            all_btn.setCursor(Qt.PointingHandCursor)
-            T.sized(all_btn, h="h_chip")
-            all_btn.clicked.connect(lambda: self._set_search_ids(set(ids)))
-            flow.addWidget(all_btn)
-        self.chips_host.setVisible(len(baskets) > 1)
-        self.chips_host.updateGeometry()
+    # ================================================================ במה מחפשים
+    @property
+    def search_ids(self):
+        return self.baskets.search_ids
 
-    def _set_search_ids(self, ids):
-        self.search_ids = set(ids)
-        for bid, chip in self.chips.items():
-            chip.blockSignals(True)
-            chip.setChecked(bid in self.search_ids)
-            chip.blockSignals(False)
-        self._search_ids_changed()
+    def _update_scope(self):
+        scope = self.baskets.scope()
+        all_count = len(self.db.baskets())
+        if not self.baskets.model.has_items():
+            self.scope_label.setText("")
+            self.scope_label.hide()
+            return
+        self.scope_label.show()
+        if not scope:
+            text = f'<span style="color:{C.warn}">לא סומן אף סל לחיפוש</span> · <a href="show">בחירת סלים</a>'
+        else:
+            docs = sum(c for _b, _n, c in scope)
+            names = "כל הסלים" if len(scope) == all_count and all_count > 1 else ", ".join(n for _b, n, _c in scope)
+            link = '<a href="show">שינוי</a>' if all_count > 1 or not self.baskets.isVisible() else ""
+            text = f'חיפוש ב: <b>{names}</b> <span style="color:{C.muted}">({docs:,} מסמכים)</span>'
+            if link:
+                text += " · " + link
+        self.scope_label.setText(text)
 
-    def _chip_toggled(self, bid, on):
-        (self.search_ids.add if on else self.search_ids.discard)(bid)
-        self._search_ids_changed()
+    def _scope_link(self, _link):
+        self.sidebar_btn.setChecked(True)
+        self.baskets.tree.setFocus()
 
-    def _search_ids_changed(self):
-        self.settings.setValue("search_baskets", sorted(self.search_ids))
+    def _scope_changed(self):
+        self._update_scope()
         if self.result is not None and self.search_edit.text().strip():
             self.run_search()
 
     def _baskets_changed(self):
-        known = set(self.chips)
-        new = {b[0] for b in self.db.baskets()} - known
-        if self.search_ids is not None:
-            self.search_ids |= new          # סל חדש נכלל בחיפוש מיד
-            self.settings.setValue("search_baskets", sorted(self.search_ids))
-        self._refresh_chips()
+        self._update_scope()
         self.start_scan()
-
-    def _basket_selected(self, bid):
-        if self.scan is None or bid not in self.scan.entries:
-            self.start_scan()
-
-    def _update_chip_counts(self):
-        for bid, name, count in self.db.baskets():
-            chip = self.chips.get(bid)
-            if chip:
-                chip.setText(f"{name}  {count:,}" if count else name)
 
     # ================================================================ אפשרויות
     def _show_options(self):
@@ -449,7 +415,7 @@ class MainWindow(QMainWindow):
         elif outcome.result is not None:
             self.scan = outcome.result
             self.baskets.set_scan(self.scan)
-            self._update_chip_counts()
+            self._update_scope()
             if outcome.result.indexed:
                 note = f"המפה עודכנה: נקראו {outcome.result.indexed:,} מסמכים"
         self._refresh_stats()
@@ -501,7 +467,7 @@ class MainWindow(QMainWindow):
         if not q:
             return
         if not self.search_ids:
-            self.results.show_message(message_html("בחרו לפחות סל אחד לחיפוש", "מעל התוצאות – תגיות הסלים", C.warn))
+            self.results.show_message(message_html("לא סומן אף סל לחיפוש", "סמנו ✓ ליד סל בסרגל הסלים", C.warn))
             return
         if q in self.history:
             self.history.remove(q)

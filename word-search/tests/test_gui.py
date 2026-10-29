@@ -131,14 +131,13 @@ class LayoutTest(GuiBase):
         win = self.new_window()
         win.baskets.add_paths([self.docs])
         settle(win)
-        win.baskets.tabs.setCurrentIndex(0)
         APP.processEvents()
         share = win.baskets.tree.height() / win.height()
-        self.assertGreaterEqual(share, 0.45, f"עץ הסל נמוך מדי: {win.baskets.tree.height()} מתוך {win.height()}")
-        browser = win.baskets.browser.view
-        win.baskets.tabs.setCurrentIndex(1)
+        self.assertGreaterEqual(share, 0.5, f"עץ הסלים נמוך מדי: {win.baskets.tree.height()} מתוך {win.height()}")
+        dlg = win.baskets.open_browser(win.db.baskets()[0][0], modal=False)
+        self.addCleanup(dlg.close)
         APP.processEvents()
-        self.assertGreaterEqual(browser.height() / win.height(), 0.45, "עץ הבחירה מהמחשב נמוך מדי")
+        self.assertGreaterEqual(dlg.browser.view.height() / dlg.height(), 0.6, "עץ הבחירה מהמחשב נמוך מדי")
 
     def test_zoom_scales_everything_together(self):
         win = self.new_window()
@@ -252,7 +251,7 @@ class SearchFlowTest(GuiBase):
         win.search_edit.setText("   ")
         win.run_search()                    # לא קורס ולא מחפש
         self.assertIsNone(win._search_job)
-        win.search_ids = set()
+        win.baskets.set_search_ids(set())
         win.search_edit.setText("הלך")
         win.run_search()
         self.assertIsNone(win._search_job)
@@ -273,18 +272,70 @@ class SearchFlowTest(GuiBase):
         win.baskets.add_paths([self.docs])
         settle(win)
         model = win.baskets.model
-        top = model.index(0, 0)
-        node = model.node_at(top)
+        basket = model.node_at(model.index(0, 0))
+        self.assertEqual(basket.kind, "basket")
+        node = basket.kids[0]
+        self.assertEqual(node.kind, "top")
         self.assertEqual(node.total, 3)
         self.assertEqual(model.included_count(node), 3)
         sub = next(k for k in node.kids if k.name == "תורה")
-        win.baskets.editor.set_checked(sub.path, True, False)
-        model.refresh()
+        win.baskets._tree_toggled(basket.bid, sub.path, True, False)          # ביטול הסימון = החרגה
         self.assertEqual(model.included_count(node), 2)
         self.assertEqual(model.included_count(sub), 0)
-        win.baskets.editor.set_checked(sub.path, True, True)
-        model.refresh()
+        win.baskets._tree_toggled(basket.bid, sub.path, True, True)
         self.assertEqual(model.included_count(node), 3)
+        self.assertEqual(basket.kids[-1].kind, "add")                         # שורת "הוספה לסל…"
+
+
+class BasketListTest(GuiBase):
+    """כל הסלים ברשימה אחת: הסימון של סל קובע אם מחפשים בו (בלי בורר סל נפרד ותגיות)."""
+
+    def test_one_list_and_scope(self):
+        win = self.new_window("test_one_list_and_scope.sqlite3")
+        panel = win.baskets
+        first = win.db.baskets()[0][0]
+        panel.add_paths([os.path.join(self.docs, "הלכה")], first)
+        second = panel.create_basket("תורה")
+        panel.add_paths([os.path.join(self.docs, "תורה")], second)
+        settle(win)
+        model = panel.model
+        self.assertEqual([model.node_at(model.index(r, 0)).kind for r in range(model.rowCount())], ["basket", "basket"])
+        self.assertEqual(panel.search_ids, {first, second})                    # סל חדש נכלל בחיפוש מיד
+        self.assertIn("כל הסלים", win.scope_label.text())
+        # ביטול הסימון של סל מוציא אותו מהחיפוש
+        model.setData(model.basket_index(second), Qt.Unchecked, Qt.CheckStateRole)
+        self.assertEqual(panel.search_ids, {first})
+        self.assertNotIn("תורה", win.scope_label.text())
+        win.search_edit.setText("הלך")
+        win.run_search()
+        settle(win)
+        self.assertTrue(all("הלכה" in h.path for h in win.result.hits))
+        # לחיצה כפולה על סל = חיפוש רק בו
+        panel._double_clicked(model.basket_index(second))
+        self.assertEqual(panel.search_ids, {second})
+        settle(win)
+        self.assertTrue(all("תורה" in h.path for h in win.result.hits))
+        # הבחירה נשמרת
+        self.assertEqual(sorted(int(x) for x in self.settings.value("search_baskets")), [second])
+
+    def test_browser_dialog_adds_to_that_basket(self):
+        win = self.new_window("test_browser_dialog_adds_to_that_basket.sqlite3")
+        panel = win.baskets
+        bid = panel.create_basket("מכתבים")
+        letter = os.path.join(self.docs, "מכתב.docx")
+        panel._browser_toggled(bid, letter, False, True)                       # ✓ בעץ המחשב
+        self.assertEqual(win.db.basket_items(bid), [(letter, "file")])
+        panel._browser_toggled(bid, letter, False, False)                      # ביטול = הוצאה מהסל
+        self.assertEqual(win.db.basket_items(bid), [])
+
+    def test_drop_goes_to_the_basket_under_the_mouse(self):
+        win = self.new_window("test_drop_goes_to_the_basket_under_the_mouse.sqlite3")
+        panel = win.baskets
+        first = win.db.baskets()[0][0]
+        second = panel.create_basket("שני")
+        panel.add_paths([os.path.join(self.docs, "מכתב.docx")], second)
+        self.assertEqual(len(win.db.basket_items(second)), 1)
+        self.assertEqual(win.db.basket_items(first), [])
 
 
 class ResponsivenessTest(GuiBase):

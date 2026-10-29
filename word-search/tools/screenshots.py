@@ -168,11 +168,11 @@ def main():
     step("basket", basket)
 
     def browser():
-        win.baskets.tabs.setCurrentIndex(1)
-        win.baskets.browser.reveal(docs)
+        dlg = win.baskets.open_browser(win.db.baskets()[0][0], modal=False)
+        dlg.browser.reveal(docs)
         spin(2.5)
-        shot("browse_tab", note="עץ בחירה מהמחשב: תיקיות, קבצים, סימוני ✓ וסמלי המערכת")
-        win.baskets.tabs.setCurrentIndex(0)
+        shot("browse_dialog", dlg, note="חלון הבחירה מהמחשב: ✓ מוסיף לסל, ביטול מוציא")
+        dlg.close()
     step("browser", browser)
 
     def results():
@@ -227,9 +227,9 @@ def main():
     step("viewers", viewers)
 
     def two_baskets():
-        win.baskets.db.create_basket("שיעורים")
-        win.baskets.reload_baskets()
-        win._baskets_changed()
+        bid = win.baskets.create_basket("שיעורים")
+        win.baskets.add_paths([os.path.join(docs, "תורה")], bid)
+        win.baskets.model.setData(win.baskets.model.basket_index(bid), 0, 10)   # ביטול הסימון: לא מחפשים בו
         idle()
         shot("two_baskets")
     step("two_baskets", two_baskets)
@@ -258,7 +258,7 @@ def main():
     report["metrics"] = {
         "window": geo(win), "search_field": geo(win.search_edit), "search_button": geo(win.search_btn),
         "options_button": geo(win.options_btn), "basket_tree": geo(win.baskets.tree),
-        "browser_tree": geo(win.baskets.browser.view), "results": geo(win.results),
+"results": geo(win.results),
     }
     win.close()
     report["ok"] = not report["errors"]
