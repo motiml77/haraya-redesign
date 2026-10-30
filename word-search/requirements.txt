@@ -1,0 +1,11 @@
+# מחשבי Mac עם מעבד אינטל: ל-PySide6 6.12 ול-PyMuPDF 2.0 אין חבילה מוכנה, ו-pip היה מנסה לבנות אותן
+# מקוד המקור (שעות). לכן שם מקובעות הגרסאות האחרונות שיש להן חבילה מוכנה.
+PySide6>=6.6; sys_platform != "darwin" or platform_machine != "x86_64"
+PySide6>=6.6,<6.12; sys_platform == "darwin" and platform_machine == "x86_64"
+# קריאת קבצי PDF
+pymupdf>=1.24; sys_platform != "darwin" or platform_machine != "x86_64"
+pymupdf>=1.24,<2; sys_platform == "darwin" and platform_machine == "x86_64"
+# בחלונות: קפיצה למקום המדויק בוורד וקריאת קבצי doc ישנים
+pywin32>=306; sys_platform == "win32"
+# יצירת האייקונים (packaging/make_icons.py)
+Pillow>=10
