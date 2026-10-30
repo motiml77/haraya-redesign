@@ -152,12 +152,12 @@ main { max-width: var(--page); margin: 0 auto; padding: 0 2rem; }
 .daf-hero .rashi, .daf-hero .tosafot { margin-top: 3.3rem; }
 .kicker { font: 500 .95rem/1.4 var(--label); color: var(--red); margin-bottom: 1rem; }
 h1 {
-  font-size: clamp(2.5rem, 1.4rem + 3.6vw, 4.1rem);
-  line-height: 1.08;
+  font-size: clamp(2.3rem, 1.2rem + 3vw, 3.55rem);
+  line-height: 1.1;
   letter-spacing: -.005em;
   margin-bottom: 1.4rem;
-  max-width: 13ch;
 }
+@media (max-width: 40rem) { .br-wide { display: none; } }
 .lead { font-size: 1.36rem; line-height: 1.62; color: var(--ink); max-width: 34em; margin-bottom: 1.8rem; }
 
 .cta-row { display: flex; flex-wrap: wrap; align-items: center; gap: .9rem 1.6rem; margin-bottom: .9rem; }
@@ -319,7 +319,6 @@ thead th { font: 500 .82rem/1.4 var(--label); color: var(--ink-3); border-bottom
   .daf-plate > .gemara p { max-width: 38em; }
   .daf-plate.rev > .plate { justify-self: start; }
   .daf-video { grid-template-areas: "gemara"; }
-  h1 { max-width: 16ch; }
 }
 
 @media (max-width: 40rem) {
