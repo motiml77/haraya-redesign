@@ -7,6 +7,9 @@ name: word-search screenshots
 # מופעל ידנית: לשונית Actions ← word-search screenshots ← Run workflow.
 on:
   workflow_dispatch:
+  push:
+    branches: ["ccr-*"]
+    paths: ["word-search/tools/screenshots.py"]
 
 permissions:
   contents: write
