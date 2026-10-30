@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>חיפוש במסמכים · חיפוש בעברית בתוך קובצי וורד ו-PDF</title>
+<meta name="description" content="תוכנה למחשב שמחפשת בתוך אלפי קובצי וורד ו-PDF בעברית, בלי להתחשב בניקוד, בתחיליות ובגרשיים, ופותחת את המסמך במקום שנמצאה בו. הורדה לחלונות, מק ולינוקס.">
+<meta property="og:title" content="חיפוש במסמכים">
+<meta property="og:description" content="חיפוש בעברית בתוך קובצי וורד ו-PDF, והמסמך נפתח במקום שנמצא בו.">
+<meta property="og:image" content="img/og.png">
+<meta property="og:locale" content="he_IL">
+<link rel="icon" href="img/icon.png">
+<link rel="preload" href="fonts/frank-ruhl-libre-hebrew-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="css/site.css">
+</head>
+<body>
+<a class="skip" href="#main">דילוג לתוכן</a>
+
+<header class="top">
+  <a class="name" href="#"><img src="img/icon.png" alt="" width="26" height="26">חיפוש במסמכים</a>
+  <nav aria-label="ניווט ראשי">
+    <a href="#yekholet">יכולות</a>
+    <a href="#salim">סלים</a>
+    <a href="#totsaot">תוצאות</a>
+    <a href="#mehirut">מהירות</a>
+    <a href="#hora-a">הורדה</a>
+    <a href="#shelot">שאלות</a>
+  </nav>
+</header>
+
+<main id="main">
+
+<!-- דף ראשון -->
+<section class="daf daf-hero" aria-labelledby="h-title">
+  <aside class="rashi" aria-label="הערה">
+    <p class="note-label">הערה</p>
+    <p>הכול נשאר במחשב שלכם. המסמכים אינם נשלחים לשום מקום, והתוכנה אינה מתחברת לאינטרנט. מפת החיפוש נשמרת בקובץ אחד בתיקיית הנתונים של המשתמש.</p>
+  </aside>
+
+  <div class="gemara">
+    <p class="kicker">תוכנה למחשב · וורד ו-PDF</p>
+    <h1 id="h-title">למצוא את המקום, בתוך אלפי מסמכים</h1>
+    <p class="lead">מקלידים מילה או כמה מילים, והתוכנה מחפשת בכל הקבצים שבחרתם. הניקוד, הגרשיים והאותיות הסופיות לא משנים, תחיליות והטיות נמצאות, ולחיצה על תוצאה פותחת את המסמך בדיוק במקום שנמצאה בו.</p>
+    <p class="cta-row">
+      <a class="btn" id="dl-main" href="https://github.com/motiml77/haraya-redesign/releases/download/word-search-v1.0.3/HebDocSearch-Setup-1.0.3.exe">הורדה לחלונות <span class="size">48.7MB</span></a>
+      <a class="quiet" href="#hora-a">מק או לינוקס</a>
+    </p>
+    <p class="fine">גרסה 1.0.3 · חלונות 10 ו-11, 64 ביט · בהפעלה הראשונה חלונות עשויה להציג אזהרה, ראו <a href="#shelot">שאלות</a></p>
+  </div>
+
+  <aside class="tosafot" aria-label="דוגמה">
+    <p class="note-label">דוגמה</p>
+    <p>מחפשים <span class="q">הלך</span> עם הטיות ומוצאים:</p>
+    <p class="ex" data-marks>
+      <mark>ההולך</mark> בשבת, ומי <mark>שהלך</mark> בדרך, <mark>והלכה</mark> כרבי יהודה, <mark>ללכת</mark> חוץ לתחום
+    </p>
+    <p class="small">המילים שנמצאו מסומנות בצהוב, והעמוד והפסקה כתובים ליד כל תוצאה.</p>
+  </aside>
+</section>
+
+<hr class="folio-rule" data-folio="ב׳">
+
+<!-- יכולות -->
+<section class="daf daf-wide" id="yekholet" aria-labelledby="h-yekholet">
+  <div class="gemara">
+    <h2 id="h-yekholet">חיפוש שמבין עברית</h2>
+    <dl class="terms">
+      <div>
+        <dt>ניקוד, טעמים וגרשיים</dt>
+        <dd>אינם משנים. <span class="q">בְּרֵאשִׁית</span> זהה ל<span class="q">בראשית</span>, ו<span class="q">רש"י</span> זהה ל<span class="q">רש״י</span> ול<span class="q">רשי</span>. אותיות סופיות גם הן לא מפריעות.</dd>
+      </div>
+      <div>
+        <dt>אותיות שימוש</dt>
+        <dd>חיפוש של <span class="q">דרך</span> מוצא גם <span class="q">בדרך</span>, <span class="q">והדרך</span> ו<span class="q">כשבדרך</span>. אפשר לכבות את זה.</dd>
+      </div>
+      <div>
+        <dt>הטיות</dt>
+        <dd><span class="q">הלך</span> מוצא <span class="q">הלכה</span>, <span class="q">הליכה</span>, <span class="q">הולכים</span>, <span class="q">וילך</span>, <span class="q">ללכת</span>. זה קירוב ולא מילון, ולכן צורות חריגות כמו בית ובתים לא תמיד נמצאות.</dd>
+      </div>
+      <div>
+        <dt>כתיב מלא וחסר</dt>
+        <dd><span class="q">שמרה</span> מוצא גם <span class="q">שמירה</span> ו<span class="q">שומרה</span>, כשהאפשרות פעילה.</dd>
+      </div>
+      <div>
+        <dt>כמה מילים יחד</dt>
+        <dd>קובעים כמה מילים מותר שיפרידו ביניהן (אפס הוא צמוד), האם הסדר חשוב, והאם מספיקות שלוש מתוך ארבע. אפשר לחפש עד שתים עשרה מילים בבת אחת.</dd>
+      </div>
+      <div>
+        <dt>ביטוי מדויק</dt>
+        <dd>שאילתה במירכאות, <span class="q">"איסור ייחוד"</span>, מחפשת את המילים צמודות ובסדר הזה, בלי קשר להגדרות. בנוסף יש כוכבית (<span class="q">הלכ*</span>), סימן שאלה, או (<span class="q">משה|אהרן</span>) ושלילה (<span class="q">שבת -חול</span>).</dd>
+      </div>
+    </dl>
+  </div>
+  <aside class="rashi" aria-label="הערה">
+    <p class="note-label">הערה</p>
+    <p>ההגדרות המדויקות של ההתאמה והדירוג כתובות ב<a href="https://github.com/motiml77/haraya-redesign/blob/ccr-333ca02e-8l2pu3/word-search/docs/SEARCH_RULES.md">מסמך נפרד</a>, עם ההשוואה למנועי חיפוש אחרים.</p>
+  </aside>
+  <aside class="tosafot" aria-label="הערה">
+    <p class="note-label">לא נקראים</p>
+    <p>קובץ PDF שהוא תמונה סרוקה, בלי שכבת טקסט, אינו ניתן לחיפוש. הוא מסומן בסרגל כ"לא נקרא".</p>
+  </aside>
+</section>
+
+<hr class="folio-rule" data-folio="ג׳">
+
+<!-- סלים -->
+<section class="daf daf-plate" id="salim" aria-labelledby="h-salim">
+  <div class="gemara">
+    <h2 id="h-salim">סלים: ספרייה לכל נושא</h2>
+    <p>סל הוא קבוצה בשם, למשל <span class="q">שיעורים</span> או <span class="q">הלכה</span>. מוסיפים אליו תיקיות שלמות, ותתי-התיקיות שבהן נכללות, או מסמכים בודדים. הסימון ליד שם הסל קובע אם מחפשים בו, ולחיצה כפולה מחפשת רק בו.</p>
+    <p>בתוך סל אפשר להחריג מסמך או תיקייה בלי להוציא את כל התיקייה, והמספר ליד התיקייה מראה כמה מסמכים נכללים. הוספה נעשית בחלון שפותח את עץ המחשב, או בגרירה מהסייר.</p>
+  </div>
+  <figure class="plate">
+    <img src="img/shot-baskets.png" width="921" height="648" alt="חלון התוכנה בחלונות: בצד ימין שני סלים, הסל שלי ושיעורים, עם התיקיות ומספר המסמכים בכל אחת, ובמרכז תוצאות חיפוש">
+    <figcaption><span class="fig-n">תמונה א׳</span> שני סלים בצד ימין. <span class="q">הסל שלי</span> מסומן ולכן מחפשים בו, ו<span class="q">שיעורים</span> לא. מעל התוצאות כתוב איפה מחפשים.</figcaption>
+  </figure>
+</section>
+
+<hr class="folio-rule" data-folio="ד׳">
+
+<!-- תוצאות -->
+<section class="daf daf-plate rev" id="totsaot" aria-labelledby="h-totsaot">
+  <div class="gemara">
+    <h2 id="h-totsaot">תוצאות, ופתיחה במקום</h2>
+    <p>כל תוצאה היא קטע של ארבעים מילים, עשרים לפני ועשרים אחרי. המילים שנמצאו מסומנות בצהוב. ליד התוצאה כתוב שם המסמך, העמוד והפסקה, ובקובץ PDF העמוד והשורה.</p>
+    <p>הסדר הוא: קודם התוצאות שיש בהן כל המילים, ובהן הצמודות לפני המרוחקות, והצורה שהוקלדה לפני צורות עם תחילית או הטיה. מעל הרשימה מופיעות כל הצורות שנמצאו, ולחיצה על צורה מסננת לפיה.</p>
+    <p>לחיצה על תוצאה פותחת את המסמך. בחלונות עם וורד מותקן הוא נפתח בוורד, מגיע לשורה והמילים מסומנות. בקובץ PDF נפתח צופה מובנה בעמוד הנכון. בלי וורד, או במק ובלינוקס, נפתח מציג מובנה שגולל למקום.</p>
+  </div>
+  <figure class="plate">
+    <img src="img/shot-results.png" width="616" height="520" alt="תוצאות חיפוש: מעל הרשימה הצורות שנמצאו, ובכל תוצאה קטע טקסט עם מילים מסומנות בצהוב, שם המסמך, העמוד והפסקה. לצד הרשימה סינון לפי מסמך">
+    <figcaption><span class="fig-n">תמונה ב׳</span> חיפוש <span class="q">הלך</span> עם הטיות: 17 תוצאות בארבעה מסמכים. מצולם בחלונות.</figcaption>
+  </figure>
+</section>
+
+<hr class="folio-rule" data-folio="ה׳">
+
+<!-- מהירות -->
+<section class="daf daf-wide" id="mehirut" aria-labelledby="h-mehirut">
+  <div class="gemara">
+    <h2 id="h-mehirut">מהירות</h2>
+    <p>כל מסמך נקרא פעם אחת ונבנית ממנו מפה: לכל מילה, רשימה של המקומות שבהם היא מופיעה. אחר כך החיפוש עובד על המפה ולא על הקבצים, ולכן הוא מהיר גם בספרייה גדולה. כשמסמך משתנה או נוסף נקרא רק הוא.</p>
+    <table class="measure">
+      <caption>נמדד על מחשב בדיקה, 1,000 מסמכי וורד, כ-5 מיליון מילים</caption>
+      <thead><tr><th scope="col">חיפוש</th><th scope="col">זמן</th></tr></thead>
+      <tbody>
+        <tr><td>צירוף מדויק של חמש או שש מילים</td><td>0.04 שניות</td></tr>
+        <tr><td>ארבע מילים, עד שלוש מילים ביניהן</td><td>0.08 עד 0.1 שניות</td></tr>
+        <tr><td>"לפחות שלוש מתוך ארבע"</td><td>0.05 עד 0.2 שניות</td></tr>
+        <tr><td>ארבע מהמילים הנפוצות ביותר (של, את, על, אשר)</td><td>כשנייה</td></tr>
+      </tbody>
+    </table>
+    <p class="small">בניית המפה בפעם הראשונה: כ-15 שניות ל-800 מסמכים. הקריאה רצה ברקע בעדיפות נמוכה, והחלון נשאר זמין. בחיפוש ארוך מוצגים אחוזים וכפתור ביטול.</p>
+  </div>
+  <aside class="rashi" aria-label="הערה">
+    <p class="note-label">גבולות</p>
+    <p>המספרים תלויים במחשב ובתוכן. מסמך בגודל של ספר שלם, או דיסק איטי ברשת, יאריכו את הקריאה הראשונה.</p>
+  </aside>
+</section>
+
+<hr class="folio-rule" data-folio="ו׳">
+
+<!-- סרטון -->
+<section class="daf daf-video" id="sirton" aria-labelledby="h-sirton">
+  <div class="gemara">
+    <h2 id="h-sirton">שימוש בתוכנה, דקה אחת</h2>
+    <figure class="plate wide">
+      <video controls preload="none" poster="img/guide-poster.jpg" width="1920" height="1080">
+        <source src="img/guide.mp4" type="video/mp4">
+        סרטון הדרכה של התוכנה. אם הדפדפן אינו מציג אותו, <a href="img/guide.mp4">אפשר להוריד את הקובץ</a>.
+      </video>
+      <figcaption>הוספת תיקייה לסל, חיפוש, אפשרויות, פתיחת תוצאה, ביטוי במירכאות ובחירת סלים. מוקלט מהתוכנה עצמה, בלי קריינות.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<hr class="folio-rule" data-folio="ז׳">
+
+<!-- הורדה -->
+<section class="daf daf-wide" id="hora-a" aria-labelledby="h-hora">
+  <div class="gemara">
+    <h2 id="h-hora">הורדה</h2>
+    <p>גרסה 1.0.3. אין צורך להתקין פייתון או דבר נוסף, הכול כלול.</p>
+    <table class="files" id="files">
+      <thead><tr><th scope="col">מערכת</th><th scope="col">קובץ</th><th scope="col">גודל</th></tr></thead>
+      <tbody>
+        <tr data-os="win"><th scope="row">חלונות 10 ו-11 (64 ביט)</th><td><a href="https://github.com/motiml77/haraya-redesign/releases/download/word-search-v1.0.3/HebDocSearch-Setup-1.0.3.exe">HebDocSearch-Setup-1.0.3.exe</a></td><td>48.7MB</td></tr>
+        <tr data-os="mac"><th scope="row">מק, שבב Apple (M1 ומעלה)</th><td><a href="https://github.com/motiml77/haraya-redesign/releases/download/word-search-v1.0.3/HebDocSearch-1.0.3-macOS-arm64.dmg">HebDocSearch-1.0.3-macOS-arm64.dmg</a></td><td>64.6MB</td></tr>
+        <tr data-os="mac"><th scope="row">מק, אינטל</th><td><a href="https://github.com/motiml77/haraya-redesign/releases/download/word-search-v1.0.3/HebDocSearch-1.0.3-macOS-x86_64.dmg">HebDocSearch-1.0.3-macOS-x86_64.dmg</a></td><td>69.3MB</td></tr>
+        <tr data-os="linux"><th scope="row">לינוקס (x86-64)</th><td><a href="https://github.com/motiml77/haraya-redesign/releases/download/word-search-v1.0.3/HebDocSearch-1.0.3-linux-x86_64.tar.gz">HebDocSearch-1.0.3-linux-x86_64.tar.gz</a></td><td>153.9MB</td></tr>
+      </tbody>
+    </table>
+    <p class="small"><a href="https://github.com/motiml77/haraya-redesign/releases">כל הגרסאות</a> · <a href="https://github.com/motiml77/haraya-redesign/tree/ccr-333ca02e-8l2pu3/word-search">קוד המקור</a></p>
+  </div>
+  <aside class="rashi" aria-label="הערה">
+    <p class="note-label">התקנה</p>
+    <p>בחלונות: מפעילים את הקובץ, ואשף ההתקנה בעברית מתקין למשתמש הנוכחי, בלי הרשאות מנהל. הסרה מ"אפליקציות מותקנות".</p>
+    <p>בלינוקס: מחלצים ומריצים <code>./install.sh</code>. אם התוכנה לא נפתחת, מתקינים <code>libxcb-cursor0</code>.</p>
+  </aside>
+</section>
+
+<hr class="folio-rule" data-folio="ח׳">
+
+<!-- שאלות -->
+<section class="daf daf-wide" id="shelot" aria-labelledby="h-shelot">
+  <div class="gemara">
+    <h2 id="h-shelot">שאלות</h2>
+    <dl class="qa">
+      <div>
+        <dt>חלונות מציגה "Windows protected your PC"</dt>
+        <dd>ההתקנה אינה חתומה בתעודה מסחרית. לוחצים "More info" ואחר כך "Run anyway". במק לוחצים על התוכנה בכפתור הימני, "Open", ושוב "Open".</dd>
+      </div>
+      <div>
+        <dt>האם צריך וורד?</dt>
+        <dd>לא. קובצי docx נקראים בלי וורד. וורד נחוץ רק לשני דברים בחלונות: לפתוח את המסמך בוורד עצמו, בשורה שנמצאה, ולקרוא קבצי doc ישנים.</dd>
+      </div>
+      <div>
+        <dt>ומה עם PDF סרוק?</dt>
+        <dd>אם אין בקובץ שכבת טקסט, אי אפשר לחפש בו. צריך קודם להעביר אותו זיהוי תווים (OCR), למשל באקרובט. תמיכה בזה אינה כלולה כעת.</dd>
+      </div>
+      <div>
+        <dt>האם החיפוש מדויק בהטיות?</dt>
+        <dd>הוא קירוב. התוכנה אינה משתמשת במילון, ולכן היא עלולה להחמיץ צורה חריגה או למצוא מילה אחרת שדומה באותיותיה. רשימת הצורות שנמצאו מעל התוצאות מאפשרת לראות מה נכלל ולסנן.</dd>
+      </div>
+      <div>
+        <dt>כותרות עליונות ותחתונות</dt>
+        <dd>אינן נכללות בחיפוש. גוף המסמך, טבלאות, תיבות טקסט, הערות שוליים והערות סיום נכללים.</dd>
+      </div>
+      <div>
+        <dt>איפה נשמרים הסלים והמפה?</dt>
+        <dd>בתיקיית הנתונים של המשתמש, בקובץ אחד. ההסרה בחלונות שואלת אם למחוק גם אותו.</dd>
+      </div>
+    </dl>
+  </div>
+</section>
+
+</main>
+
+<footer class="end">
+  <p class="verse">הפוך בה והפוך בה דכולא בה</p>
+  <p class="verse-src">אבות ה, כב</p>
+  <p class="small">חיפוש במסמכים · קוד פתוח ב-<a href="https://github.com/motiml77/haraya-redesign">GitHub</a> · הגופנים: Frank Ruhl Libre, David Libre ו-Heebo ברישיון OFL</p>
+</footer>
+
+<script src="js/site.js" defer></script>
+</body>
+</html>
