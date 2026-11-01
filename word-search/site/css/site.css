@@ -252,6 +252,7 @@ h2 { font-size: clamp(1.75rem, 1.3rem + 1.3vw, 2.3rem); line-height: 1.2; margin
 .daf-plate.rev > .plate { justify-self: center; }
 
 .plate { margin: 0; }
+.options-plate { margin-top: 1.6rem; max-width: 640px; }
 .plate img, .plate video { border: 1px solid var(--ink); background: #fff; }
 .plate figcaption {
   font: 400 1rem/1.55 var(--note);
