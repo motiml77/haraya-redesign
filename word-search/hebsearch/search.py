@@ -6,7 +6,7 @@
  3. שליפת המופעים (פסקה, מיקום) של הצורות מהאינדקס, מהמילה הנדירה לנפוצה,
     וחיתוך ברמת הפסקה.
  4. בדיקת מרחק וסדר בין המילים על המיקומים בלבד – בלי לקרוא טקסט.
- 5. קטע התצוגה (20 מילים לפני ו-20 אחרי) נבנה רק לתוצאות שמוצגות בפועל
+ 5. קטע התצוגה (25 מילים לפני ו-25 אחרי) נבנה רק לתוצאות שמוצגות בפועל
     (materialize), כך שגם חיפוש עם עשרות אלפי תוצאות חוזר מיד.
 """
 
@@ -38,7 +38,7 @@ class SearchOptions:
     min_terms: int = 0           # כמה מילים לפחות צריכות להימצא (0 = כולן)
     whole_paragraph: bool = False
     ordered: bool = True
-    context_words: int = 20      # מילים לפני ואחרי
+    context_words: int = 25      # מילים לפני ואחרי
     max_hits: int = 100000
     sort: str = "relevance"      # relevance | document
 
@@ -244,7 +244,7 @@ def _phrase_matches(maps):
 
 
 class Searcher:
-    def __init__(self, db, context_words=20):
+    def __init__(self, db, context_words=25):
         self.db = db
         self.context_words = context_words
 

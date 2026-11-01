@@ -118,8 +118,8 @@ class SearchTest(unittest.TestCase):
         i = [k for _, k in h.snippet].index(SEG_MATCH)
         before = "".join(t for t, _ in h.snippet[:i]).replace("…", "").split()
         after = "".join(t for t, _ in h.snippet[i + 1:]).replace("…", "").split()
-        self.assertEqual((len(before), len(after)), (20, 20))
-        self.assertEqual(before[0], "מילה11")
+        self.assertEqual((len(before), len(after)), (25, 25))
+        self.assertEqual(before[0], "מילה6")
         self.assertEqual([t for t, k in h.snippet if k == SEG_MATCH], ["משה"])
 
     def test_gap(self):

@@ -50,7 +50,7 @@ class _Theme:
     """מידות לפי זום. אובייקט יחיד (T) שמתעדכן במקום."""
 
     BASE = {
-        "caption": 12, "body": 13, "title": 14, "input": 14, "snippet": 15, "hero": 20,
+        "caption": 12, "body": 13, "title": 14, "input": 14, "snippet": 15, "result": 14, "hero": 20,
         "h_ctl": 28, "h_search": 32, "h_row": 26, "h_chip": 24, "h_tab": 32,
         "pad": 10, "gap": 8, "radius": 6, "radius_lg": 8, "icon": 16,
     }

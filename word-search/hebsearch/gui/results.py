@@ -137,7 +137,7 @@ class HitDelegate(QStyledItemDelegate):
         self.f_meta = ui_font(T.caption)
         self.f_name = ui_font(T.body, 600)
         self.f_hdr = ui_font(T.title, 600)
-        self.f_snip = ui_font(T.snippet)
+        self.f_snip = ui_font(T.result)
         self.fm_meta = QFontMetrics(self.f_meta)
         self.fm_name = QFontMetrics(self.f_name)
         self.fm_hdr = QFontMetrics(self.f_hdr)
@@ -654,7 +654,7 @@ class ResultsView(QWidget):
         self.show_welcome()
 
     # ----- הגדרות -----
-    def configure(self, db_path, context_words=20):
+    def configure(self, db_path, context_words=25):
         self._db_path = db_path
         self._context = context_words
 
