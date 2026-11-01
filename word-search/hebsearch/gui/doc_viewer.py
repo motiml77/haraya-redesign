@@ -18,10 +18,12 @@ class DocViewer(HitViewer):
     def __init__(self, searcher, highlight, hits, index, open_original, parent=None):
         super().__init__(searcher, highlight, hits, index, parent)
         self.fit(900, 900)
+        self.add_action("הצג בתיקייה", lambda: reveal_in_folder(self.path), "פותח את התיקייה ומסמן את הקובץ",
+                        kind="ghost", icon="folder")
         self.add_action("פתח את המסמך המקורי", lambda: open_original(self.hit),
-                        "פותח את הקובץ עצמו (בחלונות עם וורד – גם במקום המדויק)")
-        self.add_action("הצג בתיקייה", lambda: reveal_in_folder(self.path))
+                        "פותח את הקובץ עצמו (בחלונות עם וורד – גם במקום המדויק)", kind="primary", icon="external")
         self.browser = QTextBrowser()
+        self.browser.setObjectName("page")
         self.browser.setOpenLinks(False)
         self.browser.document().setDocumentMargin(T.pad * 2)
         self.layout_.addWidget(self.browser, 1)

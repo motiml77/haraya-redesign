@@ -1,8 +1,13 @@
 """החלון הראשי.
 
-פריסה (מימין לשמאל, כמו בעברית):
-    סרגל הסלים │ שורת חיפוש קומפקטית (שדה · חיפוש · אפשרויות) + תגיות הסלים
-               │ התוצאות – תופסות את כל שאר המקום
+פריסה (מימין לשמאל), כמו בתוכנות עבודה מקצועיות – מסגרת אחת בלי "כרטיסים" צפים:
+    סרגל הסלים │ כותרת: [סרגל] [שדה חיפוש ············] [חיפוש]
+    (רקע מסגרת)│         [חיפוש ב: ⌄] [מילים: ⌄] [מרחק: ⌄]        ברירת מחדל · עזרה
+               ├──────────────────────────────────────────────────
+               │ סיכום התוצאות                                  [מיון ⌄]
+               │ צורות שנמצאו (שבבים)
+               │ התוצאות – בשקע אפור, כל השאר
+    ──────────── שורת מצב: מפת החיפוש · זום · אודות ─────────────
 כל העבודה הכבדה (סריקה, אינדוקס, חיפוש, הכנת קטעים) רצה ברקע, והחלון נשאר חי ומציג אחוזים.
 """
 
@@ -15,21 +20,21 @@ from PySide6.QtCore import QEvent, QRect, QSettings, QSize, QStringListModel, Qt
 from PySide6.QtGui import QAction, QGuiApplication, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QCompleter, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow,
-    QMessageBox, QPushButton, QSplitter, QToolButton, QVBoxLayout, QWidget,
+    QMessageBox, QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
 from .. import __version__
 from ..index import IndexDB
 from ..opener import open_at, open_default, open_pdf_external, reveal_in_folder, word_automation_available
-from ..search import Searcher, parse_query
+from ..search import SearchOptions, Searcher, parse_query, quoted_phrase
 from . import pdf_viewer, theme
 from .basket_panel import BasketPanel
 from .doc_viewer import DocViewer
-from .icons import file_icon, ui_icon
-from .options import OptionsPopup
+from .icons import file_icon
+from .options import DistancePanel, ScopePanel, SearchSettings, WordsPanel
 from .results import ResultsView, doc_name, form_of, ltr, message_html, syntax_table
 from .theme import C, T
-from .widgets import Combo, SearchField, icon_button, text_icon_button
+from .widgets import Combo, FlowLayout, FormChips, OptionChip, SearchField, icon_button, link_button
 from .workers import ScanJob, SearchJob
 
 SORT_CHOICES = [("relevance", "הכי מדויק קודם"), ("document", "לפי מסמך ומיקום")]
@@ -42,9 +47,9 @@ def _alive(widget):
         return False
 
 
-def _card() -> QFrame:
+def _frame(name: str) -> QFrame:
     f = QFrame()
-    f.setObjectName("panel")
+    f.setObjectName(name)
     return f
 
 
@@ -80,11 +85,13 @@ class MainWindow(QMainWindow):
         self.statusMessage.connect(self._show_status)
         self.setWindowTitle(f"{APP_NAME} – Word ו-PDF")
         self._place_window()
-        self._build()
+        self.options = SearchSettings(self)
         self.options.restore(self.settings)
-        self.options_btn_text()
+        self._build()
+        self.options.changed.connect(self._options_changed)
+        self._refresh_chips()
         self.sort_combo.setCurrentIndex(int(self.settings.value("sort", 0)))
-        self.results.configure(self.db_path, 20)
+        self.results.configure(self.db_path, SearchOptions().context_words)
         self._update_scope()
         self._refresh_stats()
         self._restore_layout_state()
@@ -113,11 +120,12 @@ class MainWindow(QMainWindow):
         central.setObjectName("central")
         self.setCentralWidget(central)
         root = QHBoxLayout(central)
-        root.setContentsMargins(T.gap, T.gap, T.gap, T.gap)
+        root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
         self.splitter = QSplitter(Qt.Horizontal)
-        self.splitter.setHandleWidth(T.gap)
+        self.splitter.setObjectName("frame")
+        self.splitter.setHandleWidth(5)
         self.splitter.setChildrenCollapsible(True)
         root.addWidget(self.splitter)
 
@@ -149,19 +157,19 @@ class MainWindow(QMainWindow):
             self.addAction(act)
 
     def _build_main(self) -> QWidget:
-        w = QWidget()
+        w = _frame("content")
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(T.gap)
+        lay.setSpacing(0)
 
-        # ---- כרטיס החיפוש (קומפקטי) ----
-        card = _card()
-        cl = QVBoxLayout(card)
-        cl.setContentsMargins(T.pad, T.gap, T.pad, T.gap)
-        cl.setSpacing(6)
+        # ---- כותרת: שדה החיפוש ושורת השבבים ----
+        header = _frame("header")
+        hl = QVBoxLayout(header)
+        hl.setContentsMargins(T.pad + 2, T.pad, T.pad + 2, 6)
+        hl.setSpacing(4)
         row = QHBoxLayout()
-        row.setSpacing(6)
-        self.sidebar_btn = icon_button("sidebar", "הצגה / הסתרה של סרגל הסלים (Ctrl+B)", checkable=True, bordered=True)
+        row.setSpacing(T.gap)
+        self.sidebar_btn = icon_button("sidebar", "הצגה / הסתרה של סרגל הסלים (Ctrl+B)", checkable=True)
         self.sidebar_btn.setChecked(True)
         self.sidebar_btn.toggled.connect(self._sidebar_toggled)
         self.search_edit = SearchField()
@@ -174,34 +182,60 @@ class MainWindow(QMainWindow):
         self.search_edit.setCompleter(completer)
         self.search_btn = QPushButton("חיפוש")
         self.search_btn.setObjectName("primary")
+        self.search_btn.setToolTip("חיפוש (Enter)")
         self.search_btn.setCursor(Qt.PointingHandCursor)
         self.search_btn.clicked.connect(self.run_search)
-        self.options_btn = text_icon_button("sliders", "אפשרויות", "אפשרויות החיפוש: אותיות שימוש, הטיות, רווח בין מילים ועוד")
-        self.options_btn.setObjectName("bordered")
-        T.sized(self.options_btn, h="h_search")
-        self.options_btn.clicked.connect(self._show_options)
-        self.options = OptionsPopup(self)
-        self.options.changed.connect(self._options_changed)
-        self.options.helpRequested.connect(self._show_syntax)
+        T.sized(self.search_btn, h="h_search")
         row.addWidget(self.sidebar_btn)
         row.addWidget(self.search_edit, 1)
         row.addWidget(self.search_btn)
-        row.addWidget(self.options_btn)
-        T.sized(self.sidebar_btn, h="h_search", min_w="h_search")
-        cl.addLayout(row)
+        T.sized(self.sidebar_btn, h="h_search", w="h_search")
+        hl.addLayout(row)
 
-        # במה מחפשים: "חיפוש ב: שיעורים, הלכה (1,328 מסמכים) · שינוי"
-        self.scope_label = QLabel("")
-        self.scope_label.setObjectName("caption")
-        self.scope_label.setTextFormat(Qt.RichText)
-        self.scope_label.linkActivated.connect(self._scope_link)
-        cl.addWidget(self.scope_label)
-        lay.addWidget(card)
+        # שלוש שאלות: איפה, איך כל מילה, איך המילים יחד. בחלון צר השבבים עוברים שורה
+        chips = QHBoxLayout()
+        chips.setSpacing(4)
+        chips.setContentsMargins(0, 0, 0, 0)
+        chip_box = QWidget()
+        chip_flow = FlowLayout(chip_box, 4, 4)
+        policy = chip_box.sizePolicy()
+        policy.setHorizontalPolicy(policy.Policy.Expanding)
+        policy.setHeightForWidth(True)
+        chip_box.setSizePolicy(policy)
+        self.scope_chip = OptionChip("חיפוש ב:")
+        self.scope_chip.setToolTip("באילו סלים מחפשים")
+        self.words_chip = OptionChip("מילים:")
+        self.words_chip.setToolTip("איך למצוא כל מילה: אותיות שימוש, הטיות, כתיב מלא וחסר")
+        self.dist_chip = OptionChip("מרחק:")
+        self.dist_chip.setToolTip("איך המילים קשורות זו לזו: מרחק, סדר, וכמה מהן חייבות להופיע")
+        self.scope_panel = ScopePanel(self)
+        self.scope_panel.toggled.connect(self._scope_panel_toggled)
+        self.scope_panel.allRequested.connect(self._scope_all)
+        self.scope_panel.manageRequested.connect(self._scope_manage)
+        self.words_panel = WordsPanel(self.options, self)
+        self.dist_panel = DistancePanel(self.options, self)
+        self.dist_panel.unquoteRequested.connect(self._unquote)
+        for chip, panel in ((self.scope_chip, self.scope_panel), (self.words_chip, self.words_panel),
+                            (self.dist_chip, self.dist_panel)):
+            chip.clicked.connect(lambda _=False, c=chip, p=panel: self._toggle_panel(c, p))
+            panel.closed.connect(lambda c=chip: c.setOpen(False))
+            chip_flow.addWidget(chip)
+        chips.addWidget(chip_box, 1)
+        self.reset_btn = link_button("ברירת מחדל", "החזרת אפשרויות החיפוש לברירת המחדל", "reset")
+        self.reset_btn.clicked.connect(self.options.reset)
+        self.help_btn = link_button("עזרה בחיפוש", "סימנים מיוחדים: מירכאות, כוכבית, סימן שאלה, או, שלילה", "help")
+        self.help_btn.clicked.connect(self._show_syntax)
+        for b in (self.reset_btn, self.help_btn):
+            b.full_text = b.text()
+            chips.addWidget(b, 0, Qt.AlignTop)
+        self.chip_box = chip_box
+        hl.addLayout(chips)
+        lay.addWidget(header)
 
-        # ---- כרטיס התוצאות ----
-        res = _card()
-        rl = QVBoxLayout(res)
-        rl.setContentsMargins(T.pad, T.gap, T.pad, T.gap)
+        # ---- ראש התוצאות: סיכום, מיון, צורות ----
+        head_box = _frame("reshead")
+        rl = QVBoxLayout(head_box)
+        rl.setContentsMargins(T.pad + 2, T.gap, T.pad + 2, T.gap)
         rl.setSpacing(4)
         head = QHBoxLayout()
         head.setSpacing(T.gap)
@@ -219,17 +253,19 @@ class MainWindow(QMainWindow):
         self.sort_combo.hide()
         head.addWidget(self.sort_combo, 0, Qt.AlignTop)
         rl.addLayout(head)
-        self.forms_label = QLabel("")
-        self.forms_label.setObjectName("caption")
-        self.forms_label.setTextFormat(Qt.RichText)
-        self.forms_label.setWordWrap(True)
-        self.forms_label.linkActivated.connect(self._summary_link)
-        self.forms_label.hide()
-        rl.addWidget(self.forms_label)
+        self.forms = FormChips()
+        self.forms.clicked.connect(self._form_clicked)
+        self.forms.hide()
+        rl.addWidget(self.forms)
+        self.head_box = head_box
+        head_box.hide()
+        lay.addWidget(head_box)
 
         self.docs_split = QSplitter(Qt.Horizontal)
-        self.docs_split.setHandleWidth(T.gap)
+        self.docs_split.setObjectName("well")
+        self.docs_split.setHandleWidth(1)
         self.file_list = QListWidget()
+        self.file_list.setObjectName("doclist")
         T.sized(self.file_list, min_w=lambda: T.pad * 14, max_w=lambda: T.pad * 34)
         self.file_list.setIconSize(QSize(T.icon, T.icon))
         self.file_list.setTextElideMode(Qt.ElideMiddle)
@@ -250,30 +286,37 @@ class MainWindow(QMainWindow):
         self.docs_split.setCollapsible(1, False)
         self.docs_split.setSizes([T.pad * 22, 800])
         self.file_list.hide()
-        rl.addWidget(self.docs_split, 1)
-        lay.addWidget(res, 1)
+        lay.addWidget(self.docs_split, 1)
         return w
 
     def _build_status_bar(self):
         sb = self.statusBar()
         sb.setSizeGripEnabled(False)
-        self.zoom_label = QLabel("")
-        self.zoom_label.setObjectName("caption")
-        minus = QToolButton()
-        minus.setText("A−")
-        minus.setToolTip("הקטנת התצוגה (Ctrl+מינוס)")
+        # זום: [−] 100% [+] כבקרה אחת, כמו בשורת המצב של Word
+        zoom = _frame("zoombox")
+        zl = QHBoxLayout(zoom)
+        zl.setContentsMargins(0, 0, 0, 0)
+        zl.setSpacing(0)
+        minus = icon_button("zoom-out", "הקטנת התצוגה (Ctrl+מינוס)")
         minus.clicked.connect(lambda: self.set_zoom(T.zoom - 0.1))
-        plus = QToolButton()
-        plus.setText("A+")
-        plus.setToolTip("הגדלת התצוגה (Ctrl+פלוס)")
+        plus = icon_button("zoom-in", "הגדלת התצוגה (Ctrl+פלוס)")
         plus.clicked.connect(lambda: self.set_zoom(T.zoom + 0.1))
-        about = QToolButton()
-        about.setText("אודות")
-        about.setIcon(ui_icon("info"))
-        about.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.zoom_label = QPushButton("")
+        self.zoom_label.setObjectName("zoomvalue")
+        self.zoom_label.setToolTip("חזרה לגודל רגיל (Ctrl+0)")
+        self.zoom_label.setCursor(Qt.PointingHandCursor)
+        self.zoom_label.clicked.connect(lambda: self.set_zoom(1.0))
+        for b in (minus, plus):
+            T.sized(b, h="h_chip", w="h_chip", icon="icon")
+        T.sized(self.zoom_label, h="h_chip")
+        zl.addWidget(minus)                 # כמו ב-Office בעברית: מינוס מימין, פלוס משמאל
+        zl.addWidget(self.zoom_label)
+        zl.addWidget(plus)
+        about = icon_button("info", "אודות התוכנה")
+        T.sized(about, h="h_chip", w="h_chip", icon="icon")
         about.clicked.connect(self._about)
-        for b in (about, plus, self.zoom_label, minus):
-            sb.addPermanentWidget(b)
+        sb.addPermanentWidget(about)
+        sb.addPermanentWidget(zoom)
         self._update_zoom_label()
 
     # ================================================================ תצוגה: זום, סרגל צד, מצב
@@ -285,6 +328,10 @@ class MainWindow(QMainWindow):
         self.settings.setValue("zoom", zoom)
         self.results.retheme()
         self.baskets.retheme()
+        for chip in (self.scope_chip, self.words_chip, self.dist_chip):
+            chip.updateGeometry()
+        self.forms.relayout()
+        self._fit_header()
         self._update_zoom_label()
 
     def _update_zoom_label(self):
@@ -316,25 +363,40 @@ class MainWindow(QMainWindow):
         return self.baskets.search_ids
 
     def _update_scope(self):
+        """השבב "חיפוש ב:" – שמות הסלים ומספר המסמכים, או אזהרה כשלא סומן סל."""
         scope = self.baskets.scope()
         all_count = len(self.db.baskets())
-        if not self.baskets.model.has_items():
-            self.scope_label.setText("")
-            self.scope_label.hide()
+        has_items = self.baskets.model.has_items()
+        self.scope_chip.setVisible(has_items)
+        if not has_items:
             return
-        self.scope_label.show()
         if not scope:
-            text = f'<span style="color:{C.warn}">לא סומן אף סל לחיפוש</span> · <a href="show">בחירת סלים</a>'
+            self.scope_chip.setValue("לא נבחר סל")
+            self.scope_chip.setWarn(True)
+            return
+        self.scope_chip.setWarn(False)
+        docs = sum(c for _b, _n, c in scope)
+        if len(scope) == all_count and all_count > 1:
+            names = "כל הסלים"
+        elif len(scope) <= 2:
+            names = ", ".join(n for _b, n, _c in scope)
         else:
-            docs = sum(c for _b, _n, c in scope)
-            names = "כל הסלים" if len(scope) == all_count and all_count > 1 else ", ".join(n for _b, n, _c in scope)
-            link = '<a href="show">שינוי</a>' if all_count > 1 or not self.baskets.isVisible() else ""
-            text = f'חיפוש ב: <b>{names}</b> <span style="color:{C.muted}">({docs:,} מסמכים)</span>'
-            if link:
-                text += " · " + link
-        self.scope_label.setText(text)
+            names = f"{len(scope)} סלים"
+        if len(names) > 28:
+            names = names[:26] + "…"
+        self.scope_chip.setValue(f"{names} · " + ("מסמך אחד" if docs == 1 else f"{docs:,} מסמכים"))
+        if self.scope_panel.isVisible():
+            self.scope_panel.set_baskets(self.baskets.all_baskets(), self.search_ids)
 
-    def _scope_link(self, _link):
+    def _scope_panel_toggled(self, bid, on):
+        ids = set(self.search_ids)
+        (ids.add if on else ids.discard)(bid)
+        self.baskets.set_search_ids(ids)
+
+    def _scope_all(self):
+        self.baskets.set_search_ids({b for b, _n, _c in self.db.baskets()})
+
+    def _scope_manage(self):
         self.sidebar_btn.setChecked(True)
         self.baskets.tree.setFocus()
 
@@ -347,24 +409,55 @@ class MainWindow(QMainWindow):
         self._update_scope()
         self.start_scan()
 
-    # ================================================================ אפשרויות
-    def _show_options(self):
-        self.options.show_below(self.options_btn)
+    # ================================================================ אפשרויות (שבבים)
+    def _toggle_panel(self, chip, panel):
+        import time
+        if panel.isVisible() or time.monotonic() - panel.closed_at < 0.25:
+            panel.close()                    # לחיצה על השבב של חלונית פתוחה סוגרת אותה
+            return
+        if panel is self.scope_panel:
+            panel.set_baskets(self.baskets.all_baskets(), self.search_ids)
+        else:
+            panel.sync()
+        chip.setOpen(True)
+        panel.show_below(chip)
 
-    def options_btn_text(self):
-        n = self.options.non_default()
-        self.options_btn.setText(f" אפשרויות ({n})" if n else " אפשרויות")
+    def _refresh_chips(self):
+        o = self.options
+        text = self.search_edit.text()
+        quoted = quoted_phrase(text) is not None
+        self.words_chip.setValue(o.words_text())
+        self.words_chip.setOn(not o.words_default())
+        if quoted:
+            self.dist_chip.setValue("ביטוי מדויק (מירכאות)")
+        else:
+            self.dist_chip.setValue(o.distance_text())
+        self.dist_chip.setLocked(quoted)
+        self.dist_chip.setOn(not quoted and not o.distance_default())
+        self.dist_chip.setDim(not quoted and o.n_terms < 2 and bool(text.strip()))
+        self.dist_panel.set_locked(quoted)
+        self.reset_btn.setVisible(not o.is_default())
+        QTimer.singleShot(0, self._fit_header)
 
     def _options_changed(self):
         self.options.save(self.settings)
-        self.options_btn_text()
+        self._refresh_chips()
         if self.result is not None and self.search_edit.text().strip():
             self.run_search()
 
     def _query_changed(self, text):
         n = sum(1 for t in parse_query(text) if not t.negate)
         self.options.set_term_count(n)
-        self.options_btn_text()
+        if self.dist_panel.isVisible():
+            self.dist_panel.sync()
+        self._refresh_chips()
+
+    def _unquote(self):
+        q = quoted_phrase(self.search_edit.text())
+        if q is not None:
+            self.search_edit.setText(q)
+            if self.result is not None:
+                self.run_search()
 
     def _sort_changed(self):
         self.settings.setValue("sort", self.sort_combo.currentIndex())
@@ -552,7 +645,7 @@ class MainWindow(QMainWindow):
     def _sync_file_list(self):
         """רשימת המסמכים מוצגת רק כשיש מה לסנן ויש מקום (בחלון צר היא מקטינה את הכרטיסים)."""
         res = self.result
-        show = bool(res and len(res.files) > 1 and self.docs_split.width() >= T.pad * 56)
+        show = bool(res and len(res.files) > 1 and self.docs_split.width() >= T.pad * 74)
         if not show and self.file_list.isVisible() and self.file_list.currentRow() > 0:
             self.file_list.blockSignals(True)
             self.file_list.setCurrentRow(0)
@@ -563,6 +656,19 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, e):
         super().resizeEvent(e)
         QTimer.singleShot(0, self._sync_file_list)
+        QTimer.singleShot(0, self._fit_header)
+
+    def _fit_header(self):
+        """בחלון צר הקישורים "ברירת מחדל" ו"עזרה" מוצגים כסמל בלבד (הטקסט נשאר בתיאור הכלי)."""
+        chips = [c for c in (self.scope_chip, self.words_chip, self.dist_chip) if not c.isHidden()]
+        need = sum(c.sizeHint().width() + 4 for c in chips)
+        links = [b for b in (self.reset_btn, self.help_btn) if not b.isHidden()]
+        fm = self.help_btn.fontMetrics()
+        need += sum(fm.horizontalAdvance(b.full_text) + T.icon + 3 * T.gap for b in links)
+        room = self.chip_box.parentWidget().width() - 2 * (T.pad + 2)
+        compact = need > room
+        for b in (self.reset_btn, self.help_btn):
+            b.setText("" if compact else b.full_text)
 
     def _apply_filters(self):
         res = self.result
@@ -593,21 +699,22 @@ class MainWindow(QMainWindow):
             return message_html(res.message, "", C.warn).replace("</body>", near + "</body>")
         if res.n_terms > 1:
             text = f"לא נמצאו כל {res.n_terms} המילים יחד"
-            hint = "עם הרווח והסדר שנבחרו. נסו להגדיל את הרווח, לבטל את שמירת הסדר, או לחפש בכל מקום באותה פסקה."
+            hint = "במרחק ובסדר שנבחרו. בשבב 'מרחק' אפשר להגדיל את המרחק, לבחור 'בכל סדר' או 'באותה פסקה'."
         else:
             text = "לא נמצאו תוצאות"
-            hint = "נסו להפעיל הטיות, אותיות שימוש או גמישות באותיות אהו״י, או לבחור סלים נוספים."
+            hint = "בשבב 'מילים' אפשר לבחור 'כל ההטיות' או 'מלא וחסר', ובשבב 'חיפוש ב:' – סלים נוספים."
         return message_html(text, hint).replace("</body>", near + "</body>")
 
     def _update_header(self, res, shown, fid):
+        self.head_box.show()
         parts = []
         if res.message and not res.total:
             self.summary.setText(f'<span style="color:{C.warn}">{res.message}</span>')
-            self.forms_label.hide()
+            self.forms.hide()
             return
         if not res.total:
             self.summary.setText(f"לא נמצאו תוצאות ב-{res.searched_files:,} מסמכים")
-            self.forms_label.hide()
+            self.forms.hide()
             return
         files_word = "מסמך אחד" if len(res.files) == 1 else f"{len(res.files):,} מסמכים"
         found = (f'נמצאה <b style="color:{C.accent}">תוצאה אחת</b>' if res.total == 1 else
@@ -627,49 +734,40 @@ class MainWindow(QMainWindow):
             parts.append(f'<span style="color:{C.warn}">הוצגו רק הראשונות – צמצמו את החיפוש</span>')
         if self.pending_docs:
             parts.append(f'<span style="color:{C.warn}">{self.pending_docs:,} מסמכים עדיין לא נקראו</span>')
-        desc = "ביטוי מדויק (צמוד, לפי הסדר)" if res.phrase else self.options.describe()
-        if desc:
-            parts.append(f'<span style="color:{C.muted}">{desc}</span>')
+        # האפשרויות עצמן כתובות בשבבים שמעל, אז לא חוזרים עליהן כאן
         self.summary.setText("  ·  ".join(parts))
-        # צורות שנמצאו (ניתן ללחוץ לסינון)
         if len(res.forms) > 1 or self.form_filter:
-            chips = []
-            for form, c in res.forms.most_common(10):
-                on = form == self.form_filter
-                style = f"background:{C.accent}; color:white" if on else f"color:{C.accent}"
-                chips.append(f'<a href="form:{form}" style="{style}; text-decoration:none">&nbsp;{form}&nbsp;</a>'
-                             f'<span style="color:{C.muted}">({c:,})</span>')
-            more = f" … ועוד {len(res.forms) - 10:,}" if len(res.forms) > 10 else ""
-            reset = '  <a href="form:" style="color:#64748b">[הצג הכל]</a>' if self.form_filter else ""
-            self.forms_label.setText("צורות שנמצאו: " + "  ".join(chips) + more + reset)
-            self.forms_label.show()
+            top = res.forms.most_common(40)
+            self.forms.set_forms(top, self.form_filter, max(0, len(res.forms) - 40))
+            self.forms.show()
         else:
-            self.forms_label.hide()
+            self.forms.hide()
+
+    def _form_clicked(self, form):
+        form = form or None
+        self.form_filter = None if form == self.form_filter else form
+        self._apply_filters()
 
     def _summary_link(self, link):
         if link.startswith("near:"):
-            m = int(link[5:])
-            idx = self.options.required.findData(m)
-            if idx >= 0:
-                self.options.required.setCurrentIndex(idx)      # מפעיל חיפוש מחדש
+            self.options.update(required=int(link[5:]))      # מפעיל חיפוש מחדש
             return
         if link.startswith("form:"):
-            form = link[5:] or None
-            self.form_filter = None if form == self.form_filter else form
-            self._apply_filters()
+            self._form_clicked(link[5:])
 
     def _show_syntax(self):
         box = QMessageBox(self)
-        box.setWindowTitle("חיפוש מתקדם")
+        box.setWindowTitle("עזרה בחיפוש")
         box.setTextFormat(Qt.RichText)
         box.setText(
             "<p><b>אפשר לשלב בשאילתה:</b></p>" + syntax_table() +
-            "<p><b>אפשרויות:</b></p><ul>"
-            "<li><b>אותיות שימוש</b> – 'דרך' ימצא גם 'בדרך', 'והדרך', 'כשבדרך'.</li>"
-            "<li><b>הטיות</b> – 'הלך' ימצא גם 'הלכה', 'הליכה', 'הולכים', 'וילך', 'ללכת'.</li>"
-            "<li><b>אותיות אהו״י</b> – 'שמרה' ימצא גם 'שמירה', 'שומרה'.</li>"
-            "<li><b>רווח בין המילים</b> – כמה מילים מותר שיפרידו בין כל מילת חיפוש לבאה אחריה (0 = צמודות בדיוק). "
-            "סימני פיסוק אינם נחשבים מילה, והחיפוש הוא בתוך פסקה אחת (ב-PDF – בתוך עמוד אחד).</li>"
+            "<p><b>השבבים שמתחת לשדה החיפוש:</b></p><ul>"
+            "<li><b>חיפוש ב:</b> – באילו סלים מחפשים.</li>"
+            "<li><b>מילים:</b> – צורות המילה: <i>מדויק</i>, <i>עם אותיות שימוש</i> ('דרך' ← 'בדרך', 'והדרך'), "
+            "או <i>כל ההטיות</i> ('הלך' ← 'הלכה', 'הולכים', 'וילך'). וכתיב: <i>מלא וחסר</i> ('שמרה' ← 'שמירה', 'שומרה') "
+            "או <i>כל אהו״י</i>.</li>"
+            "<li><b>מרחק:</b> – <i>צמודות</i>, <i>עד N מילים ביניהן</i> או <i>באותה פסקה</i>; הסדר; וכמה מהמילים "
+            "חייבות להופיע. סימני פיסוק אינם נחשבים מילה, והחיפוש הוא בתוך פסקה אחת (ב-PDF – בתוך עמוד אחד).</li>"
             "</ul><p><b>דירוג:</b> קודם התוצאות שכוללות את כל המילים; בהן – מילים צמודות לפני מרוחקות, "
             "ובסדר הנכון לפני סדר הפוך, והצורה הזהה למה שהוקלד לפני צורות עם תחילית או הטיה. "
             "בהתאמה חלקית מילה נדירה שוקלת יותר ממילה נפוצה.</p>"

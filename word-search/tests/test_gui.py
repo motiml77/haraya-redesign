@@ -18,7 +18,7 @@ from PySide6.QtGui import QPalette  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from hebsearch.gui import icons, main_window as mw, theme  # noqa: E402
-from hebsearch.gui.options import OptionsPopup  # noqa: E402
+from hebsearch.gui.options import DistancePanel, SearchSettings, WordsPanel  # noqa: E402
 from hebsearch.index import IndexDB  # noqa: E402
 from hebsearch.search import Searcher, SearchOptions  # noqa: E402
 
@@ -112,13 +112,38 @@ class LayoutTest(GuiBase):
 
     def test_search_row_is_compact(self):
         win = self.new_window()
-        for name in ("search_edit", "search_btn", "options_btn", "sidebar_btn"):
+        for name in ("search_edit", "search_btn", "sidebar_btn"):
             h = getattr(win, name).height()
             self.assertLessEqual(h, 36, f"{name} גבוה מדי: {h}px")
             self.assertGreaterEqual(h, 24, f"{name} נמוך מדי: {h}px")
-        # כל כרטיס החיפוש (שדה + שוליים) לא תופס יותר מ-10% מגובה החלון
+        # כל כותרת החיפוש (שדה + שורת השבבים + שוליים) לא תופסת יותר מ-10% מגובה החלון,
+        # ועוד גובה שורת השבבים (שהחליפה את שורת "חיפוש ב:" והכפתור "אפשרויות")
         card = win.search_edit.parentWidget()
-        self.assertLessEqual(card.height(), 0.10 * win.height() + 20)
+        extra = win.words_chip.height() - win.fontMetrics().height()
+        self.assertLessEqual(card.height(), 0.10 * win.height() + 20 + extra)
+
+    def test_option_chips_describe_the_search(self):
+        win = self.new_window()
+        self.assertEqual(win.words_chip.value(), "עם אותיות שימוש")
+        self.assertFalse(win.words_chip.isOn())
+        self.assertTrue(win.reset_btn.isHidden())
+        win.search_edit.setText("הלך")
+        self.assertTrue(win.dist_chip.isDim())                 # מילה אחת: למרחק אין משמעות
+        win.search_edit.setText("הלך בדרך")
+        self.assertFalse(win.dist_chip.isDim())
+        win.options.update(spelling="vy", distance="near", near=2, ordered=False)
+        self.assertEqual(win.words_chip.value(), "עם אותיות שימוש · מלא וחסר")
+        self.assertEqual(win.dist_chip.value(), "עד 2 מילים, בכל סדר")
+        self.assertTrue(win.words_chip.isOn() and win.dist_chip.isOn())
+        self.assertFalse(win.reset_btn.isHidden())
+        win.reset_btn.click()
+        self.assertTrue(win.options.is_default())
+        self.assertTrue(win.reset_btn.isHidden())
+        # שבב פותח ומבטל את החלונית שלו
+        win._toggle_panel(win.words_chip, win.words_panel)
+        self.assertTrue(win.words_panel.isVisible())
+        win.words_panel.close()
+        self.assertFalse(win.words_panel.isVisible())
 
     def test_fonts_are_professional_sized(self):
         win = self.new_window()
@@ -186,33 +211,71 @@ class ThemeTest(GuiBase):
 
 
 class OptionsTest(GuiBase):
-    def test_options_roundtrip(self):
-        pop = OptionsPopup()
-        self.assertEqual(pop.non_default(), 0)
-        self.assertEqual(pop.describe(), "")
-        pop.cb_inflect.setChecked(True)
-        pop.gap.setValue(3)
-        pop.set_term_count(3)
-        pop.required.setCurrentIndex(pop.required.findData(2))
-        opts = pop.options()
-        self.assertTrue(opts.inflections)
-        self.assertEqual(opts.max_gap, 3)
-        self.assertEqual(opts.min_terms, 2)
-        self.assertEqual(pop.non_default(), 3)
-        self.assertIn("הטיות", pop.describe())
-        pop.save(self.settings)
-        other = OptionsPopup()
+    def test_settings_roundtrip(self):
+        o = SearchSettings()
+        self.assertTrue(o.is_default())
+        self.assertEqual(o.words_text(), "עם אותיות שימוש")
+        self.assertEqual(o.distance_text(), "צמודות, לפי הסדר")
+        o.set_term_count(3)
+        o.update(forms="all", spelling="vy", distance="near", near=3, required=2)
+        opts = o.options()
+        self.assertTrue(opts.inflections and opts.prefixes)
+        self.assertEqual((opts.ahevi, opts.max_gap, opts.min_terms, opts.whole_paragraph), ("vy", 3, 2, False))
+        self.assertEqual(o.words_text(), "כל ההטיות · מלא וחסר")
+        self.assertEqual(o.distance_text(), "עד 3 מילים, לפי הסדר · לפחות 2 מתוך 3")
+        self.assertFalse(o.words_default() or o.distance_default())
+        o.save(self.settings)
+        other = SearchSettings()
         other.restore(self.settings)
-        self.assertEqual(other.options().max_gap, 3)
-        self.assertTrue(other.options().inflections)
-        pop.reset()
-        self.assertEqual(pop.non_default(), 0)
+        self.assertEqual((other.forms, other.spelling, other.distance, other.near), ("all", "vy", "near", 3))
+        o.reset()
+        self.assertTrue(o.is_default())
 
-    def test_paragraph_mode_disables_gap(self):
-        pop = OptionsPopup()
-        pop.cb_paragraph.setChecked(True)
-        self.assertFalse(pop.gap.isEnabled())
-        self.assertTrue(pop.options().whole_paragraph)
+    def test_paragraph_and_adjacent_are_one_choice(self):
+        o = SearchSettings()
+        o.update(distance="paragraph")
+        self.assertTrue(o.options().whole_paragraph)
+        self.assertEqual(o.options().max_gap, 0)
+        o.update(distance="adjacent")
+        self.assertFalse(o.options().whole_paragraph)
+        self.assertEqual(o.options().max_gap, 0)
+
+    def test_old_saved_settings_are_migrated(self):
+        # הגדרות של גרסה קודמת: אותיות שימוש כבויות + הטיות, רווח 4, אהו"י מלא
+        for k, v in (("prefixes", False), ("inflect", True), ("gap", 4), ("ahevi", 2), ("paragraph", False),
+                     ("ordered", False)):
+            self.settings.setValue(k, v)
+        o = SearchSettings()
+        o.restore(self.settings)
+        self.assertEqual((o.forms, o.spelling, o.distance, o.near, o.ordered), ("all", "all", "near", 4, False))
+        self.settings.setValue("paragraph", True)
+        o.restore(self.settings)
+        self.assertEqual(o.distance, "paragraph")
+
+    def test_required_resets_when_query_gets_shorter(self):
+        o = SearchSettings()
+        o.set_term_count(4)
+        o.update(required=3)
+        self.assertEqual(o.options().min_terms, 3)
+        o.set_term_count(2)
+        self.assertEqual(o.required, 0)
+        self.assertEqual([m for m, _ in o.required_choices()], [0, 1])
+
+    def test_panels_follow_settings(self):
+        o = SearchSettings()
+        words, dist = WordsPanel(o), DistancePanel(o)
+        words.forms.setIndex(2, emit=True)
+        self.assertEqual(o.forms, "all")
+        self.assertIn("הלכה", words.forms_example.text())
+        dist.near.setValue(5)                      # שינוי המספר בוחר "עד N מילים"
+        self.assertEqual((o.distance, o.near), ("near", 5))
+        self.assertTrue(dist.r_near.isChecked())
+        dist.r_paragraph.click()
+        self.assertEqual(o.distance, "paragraph")
+        dist.order.setIndex(1, emit=True)
+        self.assertFalse(o.ordered)
+        dist.set_locked(True)
+        self.assertFalse(dist.body.isEnabled())
 
 
 class SearchFlowTest(GuiBase):
@@ -222,7 +285,7 @@ class SearchFlowTest(GuiBase):
         settle(win)
         self.assertEqual(win.db.baskets()[0][2], 3)
         win.search_edit.setText("הלך")
-        win.options.cb_inflect.setChecked(True)
+        win.options.update(forms="all")
         win.run_search()
         settle(win)
         self.assertIsNotNone(win.result)
@@ -234,13 +297,14 @@ class SearchFlowTest(GuiBase):
         win = self.new_window()
         win.baskets.add_paths([self.docs])
         settle(win)
-        win.options.gap.setValue(5)
+        win.options.update(distance="near", near=5)
         win.search_edit.setText('"ההולך בשבת"')
+        self.assertTrue(win.dist_chip.isLocked())                     # השבב אומר למה ההגדרה לא חלה
+        self.assertIn("ביטוי מדויק", win.dist_chip.value())
         win.run_search()
         settle(win)
         self.assertTrue(win.result.phrase)
         self.assertGreaterEqual(win.result.total, 1)
-        self.assertIn("ביטוי מדויק", win.summary.text())
         for h in win.result.hits:
             self.assertEqual(sorted(h.span), [min(h.span), min(h.span) + 1])   # צמודות
 
@@ -301,11 +365,20 @@ class BasketListTest(GuiBase):
         model = panel.model
         self.assertEqual([model.node_at(model.index(r, 0)).kind for r in range(model.rowCount())], ["basket", "basket"])
         self.assertEqual(panel.search_ids, {first, second})                    # סל חדש נכלל בחיפוש מיד
-        self.assertIn("כל הסלים", win.scope_label.text())
+        self.assertIn("כל הסלים", win.scope_chip.value())
         # ביטול הסימון של סל מוציא אותו מהחיפוש
         model.setData(model.basket_index(second), Qt.Unchecked, Qt.CheckStateRole)
         self.assertEqual(panel.search_ids, {first})
-        self.assertNotIn("תורה", win.scope_label.text())
+        self.assertNotIn("תורה", win.scope_chip.value())
+        # אותה בחירה גם מהשבב "חיפוש ב:" בלי לפתוח את הסרגל
+        win._toggle_panel(win.scope_chip, win.scope_panel)
+        self.assertEqual(set(win.scope_panel.boxes), {first, second})
+        self.assertFalse(win.scope_panel.boxes[second].isChecked())
+        win.scope_panel.boxes[second].setChecked(True)
+        self.assertEqual(panel.search_ids, {first, second})
+        win.scope_panel.boxes[second].setChecked(False)
+        win.scope_panel.close()
+        self.assertEqual(panel.search_ids, {first})
         win.search_edit.setText("הלך")
         win.run_search()
         settle(win)
@@ -365,7 +438,7 @@ class ResponsivenessTest(GuiBase):
         timer.start()
         settle(win, 120)                                   # אינדוקס
         win.search_edit.setText("של את על")
-        win.options.cb_paragraph.setChecked(True)
+        win.options.update(distance="paragraph")
         gaps.clear()
         last[0] = time.perf_counter()
         t0 = time.perf_counter()

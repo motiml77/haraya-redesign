@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 from PySide6.QtCore import (
-    QEasingCurve, QEvent, QObject, QPoint, QPropertyAnimation, QRect, QRectF, QSize, Qt, QTimer, Signal,
+    QEasingCurve, QEvent, QObject, QPoint, QPropertyAnimation, QRect, QRectF, QSize, Qt, QTimer, QVariantAnimation,
+    Signal,
 )
 from PySide6.QtGui import QColor, QFontMetrics, QIcon, QPainter, QPen, QTextDocument
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QProgressBar, QPushButton, QSizePolicy,
-    QStyle, QStyleOptionComboBox, QToolButton, QVBoxLayout, QWidget,
+    QAbstractButton, QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QProgressBar,
+    QPushButton, QSizePolicy, QStyle, QStyleOptionComboBox, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .icons import ui_icon
-from .theme import C, T
+from .theme import C, T, ui_font
 
 
 # ---------------------------------------------------------------- כפתורים וסמלים
@@ -42,19 +43,319 @@ def text_icon_button(name: str, text: str, tip: str = "", parent=None) -> QToolB
     return b
 
 
-class Chip(QPushButton):
-    """כפתור-תגית (בחירת סל). לחיצה כפולה = "רק זה"."""
-    doubleClicked = Signal()
+def link_button(text: str, tip: str = "", icon: str = "", parent=None) -> QPushButton:
+    """כפתור-קישור: טקסט בצבע ההדגשה, רקע רק במעבר עכבר."""
+    b = QPushButton(text, parent)
+    b.setObjectName("link")
+    b.setToolTip(tip)
+    b.setCursor(Qt.PointingHandCursor)
+    b.setFocusPolicy(Qt.TabFocus)
+    if icon:
+        b.setIcon(ui_icon(icon, C.accent, C.accent_hover))
+        T.sized(b, icon="icon")
+    T.sized(b, h="h_chip")
+    return b
 
-    def __init__(self, text, parent=None):
-        super().__init__(text, parent)
-        self.setObjectName("chip")
-        self.setCheckable(True)
+
+def _focus_ring(p: QPainter, rect: QRectF, radius: float):
+    p.setPen(QPen(QColor(C.accent), 2))
+    p.setBrush(Qt.NoBrush)
+    p.drawRoundedRect(rect.adjusted(-1, -1, 1, 1), radius + 1, radius + 1)
+
+
+class OptionChip(QAbstractButton):
+    """שבב של הגדרה: "שם: ערך ⌄". מציג את הבחירה הנוכחית במילים, ולחיצה פותחת חלונית.
+
+    מצבים: on – שונה מברירת המחדל (צבוע), locked – ננעל (מסגרת מקווקוות ומנעול, בלי חץ),
+    dim – לא רלוונטי כרגע (מעומעם, עדיין לחיץ), open – החלונית שלו פתוחה."""
+
+    RING = 2
+
+    def __init__(self, key: str, parent=None):
+        super().__init__(parent)
+        self._key, self._value = key, ""
+        self._on = self._locked = self._dim = self._open = self._warn = False
         self.setCursor(Qt.PointingHandCursor)
-        T.sized(self, h="h_chip")
+        self.setFocusPolicy(Qt.TabFocus)
+        self.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
 
-    def mouseDoubleClickEvent(self, e):
-        self.doubleClicked.emit()
+    # ----- מצב -----
+    def value(self) -> str:
+        return self._value
+
+    def setValue(self, text: str):
+        if text != self._value:
+            self._value = text
+            self.setAccessibleName(f"{self._key} {text}")
+            self.updateGeometry()
+            self.update()
+
+    def _flag(self, name, on):
+        if getattr(self, name) != bool(on):
+            setattr(self, name, bool(on))
+            self.update()
+
+    def setOn(self, on: bool):
+        self._flag("_on", on)
+
+    def setLocked(self, on: bool):
+        self._flag("_locked", on)
+        self.updateGeometry()
+
+    def setDim(self, on: bool):
+        self._flag("_dim", on)
+
+    def setOpen(self, on: bool):
+        self._flag("_open", on)
+
+    def setWarn(self, on: bool):
+        self._flag("_warn", on)
+
+    def isOn(self) -> bool:
+        return self._on
+
+    def isLocked(self) -> bool:
+        return self._locked
+
+    def isDim(self) -> bool:
+        return self._dim
+
+    # ----- מידות -----
+    def _fonts(self):
+        return ui_font(T.body), ui_font(T.body, 600)
+
+    def sizeHint(self):
+        fk, fv = self._fonts()
+        w = 2 * self.RING + 2 * T.gap + 2
+        w += QFontMetrics(fk).horizontalAdvance(self._key) + 4 + QFontMetrics(fv).horizontalAdvance(self._value)
+        w += (T.icon - 2) + 4      # חץ או מנעול
+        return QSize(w, T.h_ctl + 2 * self.RING - 2)
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+    # ----- ציור -----
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        if self._dim and not self._open:
+            p.setOpacity(0.5)
+        box = QRectF(self.rect()).adjusted(self.RING + 0.5, self.RING + 0.5, -self.RING - 0.5, -self.RING - 0.5)
+        r = T.radius + 1
+        hover = self.underMouse() and self.isEnabled()
+        if self._locked:
+            bg, border, val = C.surface_alt, C.border_strong, C.text2
+        elif self._warn:
+            bg, border, val = C.warn_bg, "#efc98a", C.warn
+        elif self._on:
+            bg, border, val = C.accent_soft, "#b7cdfb", C.accent
+        else:
+            bg, border, val = C.surface, C.border_strong, C.text
+        if hover and not self._locked:
+            bg = C.accent_sel if self._on else C.hover
+            border = C.accent if self._on else "#aeb8c9"
+        if self._open:
+            border = C.accent
+        if self.isDown():
+            bg = C.accent_sel
+        pen = QPen(QColor(border), 1)
+        if self._locked:
+            pen.setStyle(Qt.DashLine)
+        p.setPen(pen)
+        p.setBrush(QColor(bg))
+        p.drawRoundedRect(box, r, r)
+        if self._open:                      # טבעת עדינה סביב השבב שהחלונית שלו פתוחה
+            p.setPen(QPen(QColor(C.accent_sel), 2))
+            p.setBrush(Qt.NoBrush)
+            p.drawRoundedRect(box.adjusted(-1.5, -1.5, 1.5, 1.5), r + 1.5, r + 1.5)
+        elif self.hasFocus():
+            _focus_ring(p, box, r)
+
+        fk, fv = self._fonts()
+        x = box.right() - T.gap
+        isz = T.icon - 2
+        if self._locked:
+            pm = ui_icon("lock", C.text2).pixmap(QSize(isz, isz))
+            p.drawPixmap(int(x - isz), int(box.center().y() - isz / 2), pm)
+            x -= isz + 4
+        p.setFont(fk)
+        kw = QFontMetrics(fk).horizontalAdvance(self._key)
+        p.setPen(QColor(C.muted))
+        p.drawText(QRectF(x - kw, box.top(), kw + 1, box.height()), Qt.AlignRight | Qt.AlignVCenter, self._key)
+        x -= kw + 4
+        p.setFont(fv)
+        vw = QFontMetrics(fv).horizontalAdvance(self._value)
+        p.setPen(QColor(val))
+        p.drawText(QRectF(x - vw, box.top(), vw + 1, box.height()), Qt.AlignRight | Qt.AlignVCenter, self._value)
+        x -= vw + 4
+        if not self._locked:
+            name = "chevron-up" if self._open else "chevron-down"
+            color = C.accent if (self._open or self._on) else C.muted
+            pm = ui_icon(name, color).pixmap(QSize(isz, isz))
+            p.drawPixmap(int(x - isz), int(box.center().y() - isz / 2), pm)
+
+    def enterEvent(self, e):
+        self.update()
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        self.update()
+        super().leaveEvent(e)
+
+
+class Segmented(QWidget):
+    """בורר מקטעים: כמה אפשרויות צמודות, אחת נבחרת. "גלולה" לבנה מחליקה אל הבחירה.
+
+    במקום קבוצת כפתורי רדיו לבחירות קצרות שהן סולם (מדויק ← רחב). חצים במקלדת מזיזים את הבחירה."""
+    changed = Signal(int)
+
+    def __init__(self, items, index=0, parent=None):
+        super().__init__(parent)
+        self._items = list(items)
+        self._index = index
+        self._pos = float(index)            # מיקום הגלולה (לאנימציה)
+        self._hover = -1
+        self._anim = QVariantAnimation(self)
+        self._anim.setDuration(140)
+        self._anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._anim.valueChanged.connect(self._moved)
+        self.setMouseTracking(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        T.sized(self, h="h_ctl")
+
+    def index(self) -> int:
+        return self._index
+
+    def items(self):
+        return list(self._items)
+
+    def setIndex(self, i: int, emit: bool = False, animate: bool = False):
+        i = max(0, min(len(self._items) - 1, int(i)))
+        if i == self._index:
+            return
+        start = self._pos
+        self._index = i
+        self.setAccessibleDescription(self._items[i])
+        if animate and self.isVisible():
+            self._anim.stop()
+            self._anim.setStartValue(float(start))
+            self._anim.setEndValue(float(i))
+            self._anim.start()
+        else:
+            self._pos = float(i)
+            self.update()
+        if emit:
+            self.changed.emit(i)
+
+    def _moved(self, v):
+        self._pos = float(v)
+        self.update()
+
+    def _font(self, selected=False):
+        return ui_font(T.body, 600 if selected else None)
+
+    def sizeHint(self):
+        fm = QFontMetrics(self._font(True))
+        w = sum(fm.horizontalAdvance(t) + 2 * T.pad + 4 for t in self._items) + 4
+        return QSize(w, T.h_ctl)
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+    def _rects(self):
+        """מלבני המקטעים, מימין לשמאל; רוחב יחסי לטקסט והעודף מתחלק שווה."""
+        fm = QFontMetrics(self._font(True))
+        widths = [fm.horizontalAdvance(t) + 2 * T.pad for t in self._items]
+        inner = QRectF(self.rect()).adjusted(2, 2, -2, -2)
+        extra = max(0.0, inner.width() - sum(widths)) / max(1, len(widths))
+        x = inner.right()
+        out = []
+        for w in widths:
+            w = w + extra
+            out.append(QRectF(x - w, inner.top(), w, inner.height()))
+            x -= w
+        return out
+
+    def _at(self, pos) -> int:
+        for i, r in enumerate(self._rects()):
+            if r.contains(pos):
+                return i
+        return -1
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        if not self.isEnabled():
+            p.setOpacity(0.5)
+        track = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        r = T.radius + 1
+        p.setPen(QPen(QColor(C.border), 1))
+        p.setBrush(QColor(C.track))
+        p.drawRoundedRect(track, r, r)
+        rects = self._rects()
+        if not rects:
+            return
+        # הגלולה: בין שני מקטעים כשהיא בתנועה
+        lo = int(self._pos)
+        hi = min(len(rects) - 1, lo + 1)
+        f = self._pos - lo
+        a, b = rects[lo], rects[hi]
+        pill = QRectF(a.left() + (b.left() - a.left()) * f, a.top(), a.width() + (b.width() - a.width()) * f, a.height())
+        if 0 <= self._hover < len(rects) and self._hover != self._index:
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(C.track_hover))
+            p.drawRoundedRect(rects[self._hover], r - 1, r - 1)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(0, 0, 0, 22))                 # צל רך מתחת לגלולה
+        p.drawRoundedRect(pill.translated(0, 1), r - 1, r - 1)
+        p.setPen(QPen(QColor(C.border_strong), 1))
+        p.setBrush(QColor(C.surface))
+        p.drawRoundedRect(pill.adjusted(0.5, 0.5, -0.5, -0.5), r - 1, r - 1)
+        for i, rect in enumerate(rects):
+            sel = i == self._index
+            p.setFont(self._font(sel))
+            p.setPen(QColor(C.accent if sel else (C.text if i == self._hover else C.text2)))
+            p.drawText(rect, Qt.AlignCenter, self._items[i])
+        if self.hasFocus() and self._kbd_focus:
+            _focus_ring(p, track, r)
+
+    _kbd_focus = False
+
+    def focusInEvent(self, e):
+        # טבעת מיקוד רק בניווט במקלדת (Tab), לא אחרי לחיצת עכבר
+        self._kbd_focus = e.reason() in (Qt.TabFocusReason, Qt.BacktabFocusReason, Qt.ShortcutFocusReason)
+        super().focusInEvent(e)
+
+    def focusOutEvent(self, e):
+        self._kbd_focus = False
+        super().focusOutEvent(e)
+
+    def mousePressEvent(self, e):
+        i = self._at(e.position())
+        if i >= 0:
+            self.setIndex(i, emit=True, animate=True)
+
+    def mouseMoveEvent(self, e):
+        i = self._at(e.position())
+        if i != self._hover:
+            self._hover = i
+            self.update()
+
+    def leaveEvent(self, e):
+        self._hover = -1
+        self.update()
+        super().leaveEvent(e)
+
+    def keyPressEvent(self, e):
+        # בממשק מימין לשמאל: חץ ימינה = האפשרות הקודמת (שמימין)
+        if e.key() == Qt.Key_Right:
+            self.setIndex(self._index - 1, emit=True, animate=True)
+        elif e.key() == Qt.Key_Left:
+            self.setIndex(self._index + 1, emit=True, animate=True)
+        else:
+            super().keyPressEvent(e)
 
 
 class Combo(QComboBox):
@@ -87,6 +388,128 @@ class SearchField(QLineEdit):
         self._clear.triggered.connect(self.clear)
         self.textChanged.connect(lambda t: self._clear.setVisible(bool(t)))
         T.sized(self, h="h_search")
+        self.shortcut_hint = "Ctrl+F"
+
+    def paintEvent(self, e):
+        super().paintEvent(e)
+        # רמז מקלדת בקצה השדה כשהוא ריק ולא בפוקוס (כמו בתוכנות עבודה מודרניות)
+        if self.text() or self.hasFocus() or not self.shortcut_hint or self.width() < T.pad * 40:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        f = ui_font(T.caption - 1, 600)
+        p.setFont(f)
+        fm = QFontMetrics(f)
+        w, h = fm.horizontalAdvance(self.shortcut_hint) + 10, fm.height() + 4
+        r = QRectF(T.gap + 2, (self.height() - h) / 2, w, h)      # בקצה השמאלי (סוף השדה בעברית)
+        p.setPen(QPen(QColor(C.border_strong), 1))
+        p.setBrush(QColor(C.surface))
+        p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
+        p.setPen(QColor(C.muted))
+        p.drawText(r, Qt.AlignCenter, self.shortcut_hint)
+
+
+class FormChips(QWidget):
+    """הצורות שנמצאו, כשבבים קטנים עם מספר. לחיצה מסננת לפי הצורה, לחיצה נוספת מבטלת.
+    שורה אחת בלבד; מה שלא נכנס מתקפל ל"ועוד N", שפותח את כל הצורות."""
+    clicked = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.flow = FlowLayout(self, 4, 4)
+        policy = self.sizePolicy()
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+        self._chips, self._extra, self._expanded = [], 0, False
+        self._label = self._more = self._clear = None
+
+    def set_forms(self, forms, active=None, extra=0):
+        """forms: [(צורה, מספר)]; extra: כמה צורות נוספות לא הועברו בכלל."""
+        while self.flow.count():
+            item = self.flow.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        self._chips, self._extra = [], extra
+        self._label = QLabel("צורות שנמצאו:")
+        self._label.setObjectName("caption")
+        T.sized(self._label, h="h_chip")
+        self.flow.addWidget(self._label)
+        for form, count in forms:
+            b = QPushButton(f"{form}  {count:,}")
+            b.setObjectName("formchip")
+            b.setCheckable(True)
+            b.setChecked(form == active)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setFocusPolicy(Qt.TabFocus)
+            b.setToolTip(f"הצגת התוצאות עם הצורה '{form}' בלבד" if form != active else "ביטול הסינון")
+            T.sized(b, h="h_chip")
+            b.clicked.connect(lambda _=False, f=form: self.clicked.emit(f))
+            self.flow.addWidget(b)
+            self._chips.append(b)
+        self._more = link_button("")
+        self._more.clicked.connect(self._toggle)
+        self.flow.addWidget(self._more)
+        self._clear = None
+        if active:
+            self._clear = link_button("הצגת הכל")
+            self._clear.clicked.connect(lambda: self.clicked.emit(""))
+            self.flow.addWidget(self._clear)
+        self._relayout()
+
+    def _toggle(self):
+        self._expanded = not self._expanded
+        self._relayout()
+
+    def _relayout(self):
+        if self._more is None:
+            return
+        if self._expanded:
+            for b in self._chips:
+                b.show()
+            self._more.setText("פחות ⌃")
+            self._more.setEnabled(True)
+            self._more.setVisible(self._has_overflow())
+        else:
+            room = self.width() - self._label.sizeHint().width() - 8
+            if self._clear is not None:
+                room -= self._clear.sizeHint().width() + 4
+            more_w = QFontMetrics(self._more.font()).horizontalAdvance("ועוד 999 ⌄") + 2 * T.gap + 4
+            used = hidden = 0
+            for i, b in enumerate(self._chips):
+                w = b.sizeHint().width() + 4
+                reserve = 0 if (i == len(self._chips) - 1 and not self._extra) else more_w
+                if hidden == 0 and used + w + reserve <= room:
+                    b.show()
+                    used += w
+                else:
+                    b.hide()
+                    hidden += 1
+            rest = hidden + self._extra
+            self._more.setText(f"ועוד {rest:,} ⌄" if hidden else f"ועוד {rest:,}")
+            self._more.setEnabled(hidden > 0)          # רק צורות שלא הועברו – תווית בלבד
+            self._more.setVisible(rest > 0)
+        self.flow.invalidate()
+        self.updateGeometry()
+
+    def _has_overflow(self) -> bool:
+        """האם בתצוגה מקופלת היו צורות מוסתרות (כדי לדעת אם להציג "פחות")."""
+        room = self.width() - self._label.sizeHint().width() - 8
+        return sum(b.sizeHint().width() + 4 for b in self._chips) > room
+
+    def relayout(self):
+        """אחרי שינוי זום: הגדלים השתנו, צריך לחשב מחדש מה נכנס בשורה."""
+        QTimer.singleShot(0, self._relayout)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if e.oldSize().width() != e.size().width():
+            self._relayout()
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, w):
+        return self.flow.heightForWidth(w)
 
 
 # ---------------------------------------------------------------- בורר מספרי
@@ -478,18 +901,29 @@ class SmoothScroller(QObject):
 # ---------------------------------------------------------------- חלון קופץ
 class Popup(QFrame):
     """חלון קופץ (נסגר בלחיצה בחוץ) המעוגן לכפתור."""
+    closed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent, Qt.Popup)
         self.setObjectName("popup")
         self.setAttribute(Qt.WA_DeleteOnClose, False)
+        self.closed_at = 0.0
+
+    def hideEvent(self, e):
+        import time
+        self.closed_at = time.monotonic()
+        super().hideEvent(e)
+        self.closed.emit()
 
     def show_below(self, anchor: QWidget):
         self.adjustSize()
         screen = anchor.screen().availableGeometry() if anchor.screen() else QRect(0, 0, 1280, 800)
         below = anchor.mapToGlobal(QPoint(0, anchor.height() + 4))
-        # יישור לקצה הימני של הכפתור (RTL), ובתוך המסך
+        # יישור לקצה הימני של הכפתור (RTL); בתוך חלון התוכנה אם יש מקום, ותמיד בתוך המסך
         x = below.x() + anchor.width() - self.width()
+        win = anchor.window().geometry() if anchor.window() is not None else screen
+        if win.width() >= self.width() + 8:
+            x = max(win.left() + 4, min(x, win.right() - self.width() - 4))
         x = max(screen.left() + 4, min(x, screen.right() - self.width() - 4))
         y = below.y()
         if y + self.height() > screen.bottom() - 4:

@@ -56,6 +56,11 @@ _SVG = {
     "expand": '<path d="M14 4.5h5.5V10M10 19.5H4.5V14M19.5 4.5L13.5 10.5M4.5 19.5l6-6"/>',
     "home": '<path d="M4.5 11L12 4.5l7.5 6.5"/><path d="M6.5 9.5V19h11V9.5"/>',
     "drive": '<rect x="3.5" y="8" width="17" height="8" rx="2"/><path d="M16.5 12h.01M13.5 12h.01"/>',
+    "lock": '<rect x="5.5" y="10.5" width="13" height="9" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>',
+    "help": '<circle cx="12" cy="12" r="8.5"/><path d="M9.7 9.6a2.4 2.4 0 1 1 3.4 2.2c-.7.3-1.1.9-1.1 1.6v.4"/><path d="M12 16.8h.01"/>',
+    "reset": '<path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4.5V9H9"/>',
+    "zoom-in": '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5M8 10.5h5M10.5 8v5"/>',
+    "zoom-out": '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5M8 10.5h5"/>',
 }
 
 _NORMAL, _ACTIVE, _DISABLED = C.text2, C.accent, "#b4bcc9"

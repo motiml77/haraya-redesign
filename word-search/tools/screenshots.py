@@ -147,6 +147,19 @@ def main():
         report["shots"][fname] = {"size": [img.width(), img.height()], "dark_share": darkness(img), "note": note}
         print("  ", fname, img.width(), "x", img.height())
 
+    def shot_popup(name, popup, note=""):
+        """החלון עם חלונית פתוחה, כפי שהמשתמש רואה אותם (החלונית היא חלון נפרד)."""
+        from PySide6.QtGui import QPainter
+        counter[0] += 1
+        img = win.grab().toImage()
+        p = QPainter(img)
+        p.drawImage(win.mapFromGlobal(popup.mapToGlobal(popup.rect().topLeft())), popup.grab().toImage())
+        p.end()
+        fname = f"{counter[0]:02d}_{name}.png"
+        img.save(os.path.join(out, fname))
+        report["shots"][fname] = {"size": [img.width(), img.height()], "dark_share": darkness(img), "note": note}
+        print("  ", fname, img.width(), "x", img.height())
+
     def step(name, fn):
         try:
             fn()
@@ -177,7 +190,7 @@ def main():
 
     def results():
         win.search_edit.setText("הלך")
-        win.options.cb_inflect.setChecked(True)
+        win.options.update(forms="all")
         t0 = time.perf_counter()
         win.run_search()
         idle()
@@ -186,10 +199,17 @@ def main():
     step("results", results)
 
     def options():
-        win._show_options()
-        spin(0.4)
-        shot("options", win.options)
-        win.options.close()
+        win._toggle_panel(win.words_chip, win.words_panel)
+        spin(0.5)
+        shot_popup("options", win.words_panel, note="מילים: צורות המילה וכתיב")
+        win.words_panel.close()
+        spin(0.2)
+        win.search_edit.setText("הלך בדרך")
+        win._toggle_panel(win.dist_chip, win.dist_panel)
+        spin(0.5)
+        shot_popup("options_distance", win.dist_panel, note="מרחק: מרחק, סדר, כמה מהמילים")
+        win.dist_panel.close()
+        win.search_edit.setText("הלך")
         spin(0.2)
     step("options", options)
 
@@ -257,7 +277,7 @@ def main():
 
     report["metrics"] = {
         "window": geo(win), "search_field": geo(win.search_edit), "search_button": geo(win.search_btn),
-        "options_button": geo(win.options_btn), "basket_tree": geo(win.baskets.tree),
+        "words_chip": geo(win.words_chip), "basket_tree": geo(win.baskets.tree),
 "results": geo(win.results),
     }
     win.close()

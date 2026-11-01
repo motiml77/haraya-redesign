@@ -69,7 +69,7 @@ class BasketPanel(QFrame):
 
     def __init__(self, db, settings: QSettings):
         super().__init__()
-        self.setObjectName("panel")
+        self.setObjectName("sidebar")
         self.db, self.settings = db, settings
         self.scan = None
         self._dialog = None
@@ -89,17 +89,21 @@ class BasketPanel(QFrame):
         lay.setContentsMargins(T.pad, T.pad, T.pad, T.pad)
         lay.setSpacing(T.gap)
 
-        # ---- כותרת ----
-        head = QHBoxLayout()
+        # ---- כותרת (באותו גובה כמו שדה החיפוש שלצידה) ----
+        head_w = QWidget()
+        T.sized(head_w, h="h_search")
+        head = QHBoxLayout(head_w)
+        head.setContentsMargins(2, 0, 0, 0)
         head.setSpacing(4)
         title = QLabel("הסלים")
         title.setObjectName("title")
         self.new_btn = text_icon_button("plus", " סל חדש", "יצירת סל חדש (למשל: שיעורים, תורה, מכתבים)")
-        self.new_btn.setObjectName("bordered")
+        self.new_btn.setObjectName("soft")
+        self.new_btn.setIcon(ui_icon("plus", C.accent, C.accent_hover))
         self.new_btn.clicked.connect(self.new_basket)
         head.addWidget(title, 1)
         head.addWidget(self.new_btn)
-        lay.addLayout(head)
+        lay.addWidget(head_w)
 
         self.filter_edit = QLineEdit()
         self.filter_edit.setPlaceholderText("סינון לפי שם תיקייה או מסמך…")
@@ -115,6 +119,7 @@ class BasketPanel(QFrame):
         # ---- העץ / מצב ריק ----
         self.stack = QStackedWidget()
         self.tree = BasketTree()
+        self.tree.setObjectName("nav")
         self.tree.setModel(self.model)
         self.tree.setHeaderHidden(True)
         self.tree.setUniformRowHeights(True)
@@ -218,14 +223,17 @@ class BasketPanel(QFrame):
         self.tree.setIconSize(QSize(T.icon, T.icon))
         self.tree.header().resizeSection(1, T.pad * 9)
 
-    def scope(self):
-        """[(מזהה, שם, מספר מסמכים)] של הסלים שמחפשים בהם."""
+    def all_baskets(self):
+        """[(מזהה, שם, מספר מסמכים)] של כל הסלים."""
         out = []
         for bid, name, count in self.db.baskets():
-            if bid in self.search_ids:
-                files = self.scan.files.get(bid) if self.scan else None
-                out.append((bid, name, len(files) if files is not None else count))
+            files = self.scan.files.get(bid) if self.scan else None
+            out.append((bid, name, len(files) if files is not None else count))
         return out
+
+    def scope(self):
+        """[(מזהה, שם, מספר מסמכים)] של הסלים שמחפשים בהם."""
+        return [b for b in self.all_baskets() if b[0] in self.search_ids]
 
     # ================================================================ סלים
     def reload_baskets(self):

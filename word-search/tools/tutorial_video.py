@@ -542,39 +542,41 @@ def main():
     st.move(QPointF(card_pt.x(), card_pt.y()), 1.0)
     st.hold(2.6)
 
-    # ============================================================ 3. אפשרויות
-    st.set_caption("3", "אפשרויות חיפוש", "הטיות: 'הלך' ימצא גם הלכה, הליכה, הולכים, וילך · רווח בין מילים · אותיות אהו״י")
+    # ============================================================ 3. אפשרויות (השבבים)
+    st.set_caption("3", "איך למצוא כל מילה – השבב 'מילים'",
+                   "'כל ההטיות': 'הלך' ימצא גם הלכה, הליכה, הולכים, וילך · ובכתיב: מלא וחסר")
     pop_pos = {}
+    panel_w = win.words_panel
 
-    def open_options():
-        win._show_options()
+    def open_words():
+        win._toggle_panel(win.words_chip, panel_w)
         app.processEvents()
-        b = win.options_btn
-        below = b.mapTo(win, QPoint(0, b.height() + 4))
-        x = below.x() + b.width() - win.options.width()
-        pop_pos["p"] = QPointF(max(8, min(x, win.width() - win.options.width() - 8)), below.y())
-        st.overlays = [(win.options.grab().toImage(), pop_pos["p"], 1.0)]
+        pop_pos["p"] = QPointF(win.mapFromGlobal(panel_w.mapToGlobal(QPoint(0, 0))))
+        st.overlays = [(panel_w.grab().toImage(), pop_pos["p"], 1.0)]
 
-    st.zoom_to(center_of(win.options_btn, -120, 120), 1.35)
-    st.click(center_of(win.options_btn), open_options, after=0.8)
-    cb = win.options.cb_inflect
-    cb_pt = cb.mapTo(win.options, QPoint(cb.width() - 12, cb.height() // 2))
+    st.zoom_to(center_of(win.words_chip, -60, 110), 1.35)
+    st.click(center_of(win.words_chip), open_words, after=0.8)
+    seg = panel_w.forms
+    seg_pt = seg.mapTo(panel_w, seg._rects()[2].center().toPoint())
 
-    def inflect():
-        cb.setChecked(True)
+    def all_forms():
+        seg.setIndex(2, emit=True)
         app.processEvents()
-        st.overlays = [(win.options.grab().toImage(), pop_pos["p"], 1.0)]
+        time.sleep(0.16)                 # הגלולה מחליקה אל הבחירה
+        app.processEvents()
+        st.overlays = [(panel_w.grab().toImage(), pop_pos["p"], 1.0)]
 
-    st.click(QPointF(pop_pos["p"].x() + cb_pt.x(), pop_pos["p"].y() + cb_pt.y()), inflect, after=0.6)
+    st.click(QPointF(pop_pos["p"].x() + seg_pt.x(), pop_pos["p"].y() + seg_pt.y()), all_forms, after=0.9)
     st.wait_jobs()
 
     def close_options():
-        win.options.close()
+        panel_w.close()
         st.overlays = []
 
     st.zoom_reset()
     st.click(center_of(win.results, -150, 120), close_options, after=0.3)
-    st.hold(2.4, live=True)
+    st.move(center_of(win.words_chip), 0.8)
+    st.hold(2.0, live=True)
 
     # ============================================================ 4. פתיחת תוצאה
     st.set_caption("4", "פותחים את המסמך בדיוק במקום",
@@ -613,7 +615,8 @@ def main():
     st.click(center_of(win.results, 200, -150), close_viewer, after=0.4)
 
     # ============================================================ 5. ביטוי מדויק
-    st.set_caption("5", "ביטוי מדויק במירכאות", "\"ההולך בשבת\" – המילים צמודות ובסדר הזה, בלי קשר להגדרות הרווח")
+    st.set_caption("5", "ביטוי מדויק במירכאות",
+                   "\"ההולך בשבת\" – המילים צמודות ובסדר הזה. השבב 'מרחק' ננעל ואומר למה")
 
     def select_all():
         win.search_edit.setFocus()
@@ -626,12 +629,12 @@ def main():
     win.run_search()
     st.wait_jobs()
     st.keycap = None
-    st.move(center_of(win.summary, 120), 0.9)
+    st.move(center_of(win.dist_chip), 0.9)
     st.hold(2.6)
 
     # ============================================================ 6. כמה סלים
     st.set_caption("6", "כמה סלים – בוחרים במה לחפש",
-                   "כל סל מסומן ✓ – מחפשים בו. ביטול הסימון מוציא אותו מהחיפוש, ולחיצה כפולה – חיפוש רק בו")
+                   "כל סל מסומן ✓ – מחפשים בו. אפשר לבחור גם מהשבב 'חיפוש ב:', ולחיצה כפולה על סל – חיפוש רק בו")
     new_bid = {}
 
     def new_basket():
@@ -654,7 +657,7 @@ def main():
     st.hold(0.5)
     st.zoom_reset()
     st.wait_jobs()
-    st.move(center_of(win.scope_label, 60), 0.9)
+    st.move(center_of(win.scope_chip), 0.9)
     st.hold(2.2, live=True)
 
     # ============================================================ 7. גודל תצוגה
