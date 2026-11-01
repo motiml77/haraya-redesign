@@ -184,7 +184,7 @@ def main():
         dlg = win.baskets.open_browser(win.db.baskets()[0][0], modal=False)
         dlg.browser.reveal(docs)
         spin(2.5)
-        shot("browse_dialog", dlg, note="חלון הבחירה מהמחשב: ✓ מוסיף לסל, ביטול מוציא")
+        shot("browse_dialog", dlg, note="חלון הבחירה מהמחשב: ✓ מוסיף לאוסף, ביטול מוציא")
         dlg.close()
     step("browser", browser)
 

@@ -300,7 +300,7 @@ class Searcher:
         return occ
 
     def search(self, query, file_ids, opts: SearchOptions, cancelled=None, progress=None) -> SearchResult:
-        """file_ids: מילון מזהה_קובץ → נתיב (קבצי הסל).
+        """file_ids: מילון מזהה_קובץ → נתיב (קבצי האוסף).
 
         progress(שבר 0..1, טקסט) – דיווח התקדמות אמיתי לפי שלבים; cancelled() – ביטול באמצע.
         """
@@ -334,7 +334,7 @@ class Searcher:
             res.message = "יש להקליד לפחות מילה אחת לחיפוש."
             return res
         if not file_ids:
-            res.message = "הסל ריק, או שאין בו מסמכים שנקראו בהצלחה."
+            res.message = "האוסף ריק, או שאין בו מסמכים שנקראו בהצלחה."
             return res
 
         rep(0.02, "טוען את אוצר המילים")

@@ -1,7 +1,7 @@
 """החלון הראשי.
 
 פריסה (מימין לשמאל), כמו בתוכנות עבודה מקצועיות – מסגרת אחת בלי "כרטיסים" צפים:
-    סרגל הסלים │ כותרת: [סרגל] [שדה חיפוש ············] [חיפוש]
+    סרגל האוספים │ כותרת: [סרגל] [שדה חיפוש ············] [חיפוש]
     (רקע מסגרת)│         [חיפוש ב: ⌄] [מילים: ⌄] [מרחק: ⌄]        ברירת מחדל · עזרה
                ├──────────────────────────────────────────────────
                │ סיכום התוצאות                                  [מיון ⌄]
@@ -169,7 +169,7 @@ class MainWindow(QMainWindow):
         hl.setSpacing(4)
         row = QHBoxLayout()
         row.setSpacing(T.gap)
-        self.sidebar_btn = icon_button("sidebar", "הצגה / הסתרה של סרגל הסלים (Ctrl+B)", checkable=True)
+        self.sidebar_btn = icon_button("sidebar", "הצגה / הסתרה של סרגל האוספים (Ctrl+B)", checkable=True)
         self.sidebar_btn.setChecked(True)
         self.sidebar_btn.toggled.connect(self._sidebar_toggled)
         self.search_edit = SearchField()
@@ -203,7 +203,7 @@ class MainWindow(QMainWindow):
         policy.setHeightForWidth(True)
         chip_box.setSizePolicy(policy)
         self.scope_chip = OptionChip("חיפוש ב:")
-        self.scope_chip.setToolTip("באילו סלים מחפשים")
+        self.scope_chip.setToolTip("באילו אוספים מחפשים")
         self.words_chip = OptionChip("מילים:")
         self.words_chip.setToolTip("איך למצוא כל מילה: אותיות שימוש, הטיות, כתיב מלא וחסר")
         self.dist_chip = OptionChip("מרחק:")
@@ -363,7 +363,7 @@ class MainWindow(QMainWindow):
         return self.baskets.search_ids
 
     def _update_scope(self):
-        """השבב "חיפוש ב:" – שמות הסלים ומספר המסמכים, או אזהרה כשלא סומן סל."""
+        """השבב "חיפוש ב:" – שמות האוספים ומספר המסמכים, או אזהרה כשלא סומן אוסף."""
         scope = self.baskets.scope()
         all_count = len(self.db.baskets())
         has_items = self.baskets.model.has_items()
@@ -371,17 +371,17 @@ class MainWindow(QMainWindow):
         if not has_items:
             return
         if not scope:
-            self.scope_chip.setValue("לא נבחר סל")
+            self.scope_chip.setValue("לא נבחר אוסף")
             self.scope_chip.setWarn(True)
             return
         self.scope_chip.setWarn(False)
         docs = sum(c for _b, _n, c in scope)
         if len(scope) == all_count and all_count > 1:
-            names = "כל הסלים"
+            names = "כל האוספים"
         elif len(scope) <= 2:
             names = ", ".join(n for _b, n, _c in scope)
         else:
-            names = f"{len(scope)} סלים"
+            names = f"{len(scope)} אוספים"
         if len(names) > 28:
             names = names[:26] + "…"
         self.scope_chip.setValue(f"{names} · " + ("מסמך אחד" if docs == 1 else f"{docs:,} מסמכים"))
@@ -523,7 +523,7 @@ class MainWindow(QMainWindow):
             self.results.busy_end()
             if self.scan is None:           # הסריקה נכשלה או בוטלה – לא מנסים שוב ושוב
                 self.results.show_message(message_html(
-                    "לא ניתן היה לעדכן את הסלים לחיפוש", note or "הסריקה בוטלה. אפשר ללחוץ על 'עדכון מפת החיפוש'.", C.warn))
+                    "לא ניתן היה לעדכן את האוספים לחיפוש", note or "הסריקה בוטלה. אפשר ללחוץ על 'עדכון מפת החיפוש'.", C.warn))
             else:
                 self.run_search()
 
@@ -533,7 +533,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(msg, 10000)
 
     def _maybe_rescan(self):
-        """חזרה לחלון אחרי זמן: בודקים ברקע אם נוספו מסמכים לתיקיות הסלים (בלי לחסום)."""
+        """חזרה לחלון אחרי זמן: בודקים ברקע אם נוספו מסמכים לתיקיות האוספים (בלי לחסום)."""
         if self.scan is not None and self._scan_job is None and time.monotonic() - self._last_scan_done > 45:
             self.start_scan(force=True)
 
@@ -560,7 +560,7 @@ class MainWindow(QMainWindow):
         if not q:
             return
         if not self.search_ids:
-            self.results.show_message(message_html("לא סומן אף סל לחיפוש", "סמנו ✓ ליד סל בסרגל הסלים", C.warn))
+            self.results.show_message(message_html("לא סומן אף אוסף לחיפוש", "סמנו ✓ ליד אוסף בסרגל האוספים", C.warn))
             return
         if q in self.history:
             self.history.remove(q)
@@ -570,9 +570,9 @@ class MainWindow(QMainWindow):
         self.settings.setValue("history", self.history)
         self._cancel_search(quiet=True)
         if self.scan is None or self._scan_job is not None:
-            # הסריקה רצה (ראשונית, או אחרי שינוי בסל) – מחכים לה, עם התקדמות, ואז מחפשים
+            # הסריקה רצה (ראשונית, או אחרי שינוי באוסף) – מחכים לה, עם התקדמות, ואז מחפשים
             self._search_waiting_scan = True
-            self.results.busy_begin("מכין את הסלים לחיפוש…")
+            self.results.busy_begin("מכין את האוספים לחיפוש…")
             if self._scan_job is None:
                 self.start_scan()
             return
@@ -702,7 +702,7 @@ class MainWindow(QMainWindow):
             hint = "במרחק ובסדר שנבחרו. בשבב 'מרחק' אפשר להגדיל את המרחק, לבחור 'בכל סדר' או 'באותה פסקה'."
         else:
             text = "לא נמצאו תוצאות"
-            hint = "בשבב 'מילים' אפשר לבחור 'כל ההטיות' או 'מלא וחסר', ובשבב 'חיפוש ב:' – סלים נוספים."
+            hint = "בשבב 'מילים' אפשר לבחור 'כל ההטיות' או 'מלא וחסר', ובשבב 'חיפוש ב:' – אוספים נוספים."
         return message_html(text, hint).replace("</body>", near + "</body>")
 
     def _update_header(self, res, shown, fid):
@@ -762,7 +762,7 @@ class MainWindow(QMainWindow):
         box.setText(
             "<p><b>אפשר לשלב בשאילתה:</b></p>" + syntax_table() +
             "<p><b>השבבים שמתחת לשדה החיפוש:</b></p><ul>"
-            "<li><b>חיפוש ב:</b> – באילו סלים מחפשים.</li>"
+            "<li><b>חיפוש ב:</b> – באילו אוספים מחפשים.</li>"
             "<li><b>מילים:</b> – צורות המילה: <i>מדויק</i>, <i>עם אותיות שימוש</i> ('דרך' ← 'בדרך', 'והדרך'), "
             "או <i>כל ההטיות</i> ('הלך' ← 'הלכה', 'הולכים', 'וילך'). וכתיב: <i>מלא וחסר</i> ('שמרה' ← 'שמירה', 'שומרה') "
             "או <i>כל אהו״י</i>.</li>"

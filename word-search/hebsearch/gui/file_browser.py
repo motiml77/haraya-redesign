@@ -1,4 +1,4 @@
-"""עיון במחשב: עץ מלא של התיקיות והמסמכים עם תיבות סימון שמוסיפות לסל ומוציאות ממנו.
+"""עיון במחשב: עץ מלא של התיקיות והמסמכים עם תיבות סימון שמוסיפות לאוסף ומוציאות ממנו.
 
 כמו בסייר (ובתוכנות מקצועיות כמו VS Code): העץ מתחיל מכל הכוננים וגבוה ככל שהסרגל מאפשר –
 בלי "שורש" מוגבל שצריך לעלות ממנו. לניווט מהיר: מקלידים נתיב, בוחרים קיצור דרך (שולחן עבודה,
@@ -29,7 +29,7 @@ NAME_FILTERS = [f"*{e}" for e in sorted(SUPPORTED_EXTS)] + [f"*{e.upper()}" for 
 
 
 class CheckableFsModel(QFileSystemModel):
-    """מערכת הקבצים: תיקיות ומסמכים נתמכים בלבד, עם סימון לפי מצב הסל."""
+    """מערכת הקבצים: תיקיות ומסמכים נתמכים בלבד, עם סימון לפי מצב האוסף."""
     toggled = Signal(str, bool, bool)      # נתיב, תיקייה?, מסומן?
 
     def __init__(self, state_fn, parent=None):
@@ -140,7 +140,7 @@ class FileBrowser(QWidget):
         self.view.verticalScrollBar().actionTriggered.connect(lambda _: setattr(self, "_target", ""))
         lay.addWidget(self.view, 1)
 
-        hint = WrapLabel("סמנו ✓ ליד תיקייה (כולל כל תתי־התיקיות שבה) או ליד מסמך כדי להוסיף לסל. ביטול הסימון מוציא מהסל.")
+        hint = WrapLabel("סמנו ✓ ליד תיקייה (כולל כל תתי־התיקיות שבה) או ליד מסמך כדי להוסיף לאוסף. ביטול הסימון מוציא מהאוסף.")
         hint.setObjectName("caption")
         lay.addWidget(hint)
 
@@ -266,7 +266,7 @@ class BrowserDialog(QDialog):
 
     def __init__(self, state_fn, settings, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("בחירת תיקיות ומסמכים לסל")
+        self.setWindowTitle("בחירת תיקיות ומסמכים לאוסף")
         screen = (parent.screen() if parent is not None else QApplication.primaryScreen()).availableGeometry()
         self.resize(min(760, int(screen.width() * 0.7)), min(720, int(screen.height() * 0.8)))
         lay = QVBoxLayout(self)

@@ -52,7 +52,7 @@ def _key(p):
 
 
 def is_excluded(path, excluded, root=None) -> bool:
-    """האם המסמך הוחרג – בעצמו או דרך תת-תיקייה שלו (עד תיקיית הסל root, לא כולל)."""
+    """האם המסמך הוחרג – בעצמו או דרך תת-תיקייה שלו (עד תיקיית האוסף root, לא כולל)."""
     if not excluded:
         return False
     k = _key(path)
@@ -76,12 +76,12 @@ def _walk_folder(path):
 
 
 def resolve_basket(items, cache=None):
-    """פריטי סל → (רשומות, קבצים).
+    """פריטי אוסף → (רשומות, קבצים).
 
     cache: מילון {נתיב_תיקייה: [קבצים]} – אם ניתן, תיקיות שכבר נסרקו לא נסרקות שוב (מתעדכן במקום).
 
     items: [(נתיב, סוג)] כשסוג הוא folder / file / exclude (מסמך או תת-תיקייה שהוחרגו).
-    רשומות: [(נתיב, סוג, [כל המסמכים שתחתיו])] – לתצוגת תוכן הסל.
+    רשומות: [(נתיב, סוג, [כל המסמכים שתחתיו])] – לתצוגת תוכן האוסף.
     קבצים: המסמכים שייכללו בחיפוש, ממוינים וללא כפילויות וללא המוחרגים.
     """
     excluded = {_key(p) for p, k in items if k == "exclude"}
@@ -209,7 +209,7 @@ class IndexDB:
     def close(self):
         self.conn.close()
 
-    # ---------- סלים ----------
+    # ---------- אוספים ----------
     def baskets(self):
         """[(מזהה, שם, מספר_מסמכים)]"""
         return self.conn.execute("SELECT id, name, doc_count FROM baskets ORDER BY id").fetchall()
@@ -220,7 +220,7 @@ class IndexDB:
                                   [(c, bid) for bid, c in counts.items()])
 
     def set_excluded(self, basket_id: int, path: str, excluded: bool):
-        """מחריג מסמך או תת-תיקייה מתוך תיקייה שבסל (או מחזיר אותם).
+        """מחריג מסמך או תת-תיקייה מתוך תיקייה שבאוסף (או מחזיר אותם).
         החזרה של תיקייה מחזירה גם את כל מה שהוחרג בתוכה."""
         path = os.path.abspath(path)
         with self.conn:
@@ -260,7 +260,7 @@ class IndexDB:
                                   [(basket_id, os.path.abspath(p), k) for p, k in items])
 
     def remove_basket_items(self, basket_id: int, paths):
-        """הסרת פריטים מהסל (וגם ההחרגות שהיו בתוך תיקייה שהוסרה)."""
+        """הסרת פריטים מהאוסף (וגם ההחרגות שהיו בתוך תיקייה שהוסרה)."""
         with self.conn:
             self.conn.executemany("DELETE FROM basket_items WHERE basket_id=? AND path=?",
                                   [(basket_id, p) for p in paths])
@@ -344,7 +344,7 @@ class IndexDB:
         return total
 
     def postings(self, word_ids, file_ids):
-        """מחזיר (מזהה_מילה, מזהה_קובץ, array[פסקה, מיקום, ...]) לקבצי הסל בלבד."""
+        """מחזיר (מזהה_מילה, מזהה_קובץ, array[פסקה, מיקום, ...]) לקבצי האוסף בלבד."""
         for i in range(0, len(word_ids), 500):
             chunk = word_ids[i:i + 500]
             q = f"SELECT word_id, file_id, paras FROM postings WHERE word_id IN ({','.join('?' * len(chunk))})"

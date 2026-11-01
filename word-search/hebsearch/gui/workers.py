@@ -1,6 +1,6 @@
 """עבודות רקע על QThreadPool – כל עבודה כבדה רצה מחוץ לתהליכון הממשק, ולכן החלון לא נתקע.
 
-  ScanJob     סריקת תיקיות הסלים + בניית/עדכון מפת החיפוש (רק מסמכים חדשים או ששונו)
+  ScanJob     סריקת תיקיות האוספים + בניית/עדכון מפת החיפוש (רק מסמכים חדשים או ששונו)
   SearchJob   החיפוש עצמו (עם אחוזים וביטול) והכנת העמוד הראשון של הקטעים
   SnippetJob  הכנת קטעי תצוגה לעמוד הבא של תוצאות בזמן גלילה
 
@@ -95,8 +95,8 @@ class Job(QRunnable):
 # ---------------------------------------------------------------- סריקה ואינדוקס
 @dataclass
 class ScanResult:
-    entries: dict = field(default_factory=dict)     # מזהה_סל → [(נתיב, סוג, [מסמכים שתחתיו])]
-    files: dict = field(default_factory=dict)       # מזהה_סל → [המסמכים שנכללים בחיפוש]
+    entries: dict = field(default_factory=dict)     # מזהה_אוסף → [(נתיב, סוג, [מסמכים שתחתיו])]
+    files: dict = field(default_factory=dict)       # מזהה_אוסף → [המסמכים שנכללים בחיפוש]
     status: dict = field(default_factory=dict)      # נתיב → (מצב, הודעה, מזהה_קובץ)
     indexed: int = 0
     stale: int = 0
@@ -106,7 +106,7 @@ class ScanJob(Job):
     kind = "scan"
 
     def __init__(self, db_path, baskets: dict, cache: dict, tag=None):
-        """baskets: מזהה_סל → פריטי הסל; cache: מילון סריקות תיקיות (מתעדכן)."""
+        """baskets: מזהה_אוסף → פריטי האוסף; cache: מילון סריקות תיקיות (מתעדכן)."""
         super().__init__(tag)
         self.db_path, self.baskets, self.cache = db_path, baskets, cache
 
@@ -114,7 +114,7 @@ class ScanJob(Job):
         db = IndexDB(self.db_path)
         try:
             out = ScanResult()
-            self.report(-1, "סורק את תיקיות הסלים…", force=True)
+            self.report(-1, "סורק את תיקיות האוספים…", force=True)
             all_files, seen = [], set()
             for bid, items in self.baskets.items():
                 if self.cancelled():
@@ -150,7 +150,7 @@ class ScanJob(Job):
 @dataclass
 class SearchPayload:
     result: object
-    pending: int = 0           # מסמכים בסל שעדיין לא נקראו (המפה בעדכון)
+    pending: int = 0           # מסמכים באוסף שעדיין לא נקראו (המפה בעדכון)
     tag: object = None
 
 

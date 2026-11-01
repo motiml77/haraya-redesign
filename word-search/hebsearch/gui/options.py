@@ -1,6 +1,6 @@
 """אפשרויות החיפוש: שלוש שאלות, כל אחת בשבב משלה בשורה שמתחת לשדה החיפוש.
 
-    חיפוש ב:   באילו סלים מחפשים              ScopePanel
+    חיפוש ב:   באילו אוספים מחפשים              ScopePanel
     מילים:     איך למצוא כל מילה               WordsPanel     – צורות המילה + כתיב
     מרחק:      איך המילים קשורות זו לזו        DistancePanel  – מרחק + סדר + כמה מהמילים
 
@@ -341,7 +341,7 @@ class DistancePanel(_Panel):
 
 
 class ScopePanel(Popup):
-    """באילו סלים מחפשים: אותם סימונים כמו בעץ הסלים, בלי לפתוח את הסרגל."""
+    """באילו אוספים מחפשים: אותם סימונים כמו בעץ האוספים, בלי לפתוח את הסרגל."""
     toggled = Signal(int, bool)
     allRequested = Signal()
     manageRequested = Signal()
@@ -352,15 +352,15 @@ class ScopePanel(Popup):
         self.lay = QVBoxLayout(self)
         self.lay.setContentsMargins(T.pad + 4, T.pad + 2, T.pad + 4, T.pad)
         self.lay.setSpacing(4)
-        self.lay.addWidget(_section("באילו סלים לחפש"))
+        self.lay.addWidget(_section("באילו אוספים לחפש"))
         self.rows = QVBoxLayout()
         self.rows.setSpacing(2)
         self.lay.addLayout(self.rows)
         self.lay.addSpacing(4)
         self.lay.addWidget(_separator())
-        self.all_btn = link_button("סימון כל הסלים")
+        self.all_btn = link_button("סימון כל האוספים")
         self.all_btn.clicked.connect(self.allRequested)
-        self.manage_btn = link_button("ניהול הסלים בסרגל…")
+        self.manage_btn = link_button("ניהול האוספים בסרגל…")
         self.manage_btn.clicked.connect(lambda: (self.close(), self.manageRequested.emit()))
         self.lay.addWidget(self.all_btn, 0, Qt.AlignRight)
         self.lay.addWidget(self.manage_btn, 0, Qt.AlignRight)

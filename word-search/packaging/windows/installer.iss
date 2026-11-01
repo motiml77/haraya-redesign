@@ -48,7 +48,7 @@ hebrew.DesktopIcon=קיצור דרך בשולחן העבודה
 english.DesktopIcon=Desktop shortcut
 hebrew.LaunchApp=הפעל את {#AppName}
 english.LaunchApp=Launch {#AppName}
-hebrew.KeepData=להשאיר את מפת החיפוש והסלים במחשב (מומלץ אם מתקינים שוב)?
+hebrew.KeepData=להשאיר את מפת החיפוש והאוספים במחשב (מומלץ אם מתקינים שוב)?
 english.KeepData=Keep the search index and baskets on this computer?
 
 [Tasks]

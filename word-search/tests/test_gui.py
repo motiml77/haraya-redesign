@@ -91,7 +91,7 @@ class GuiBase(unittest.TestCase):
 
 
 class LayoutTest(GuiBase):
-    """הפרופורציות: חלון שנכנס במסך, שדה חיפוש קומפקטי, סרגל סלים גבוה."""
+    """הפרופורציות: חלון שנכנס במסך, שדה חיפוש קומפקטי, סרגל אוספים גבוה."""
 
     def test_window_fits_every_common_screen(self):
         for w, h in ((1366, 728), (1280, 680), (1024, 560), (800, 560), (1920, 1040), (2560, 1400)):
@@ -158,7 +158,7 @@ class LayoutTest(GuiBase):
         settle(win)
         APP.processEvents()
         share = win.baskets.tree.height() / win.height()
-        self.assertGreaterEqual(share, 0.5, f"עץ הסלים נמוך מדי: {win.baskets.tree.height()} מתוך {win.height()}")
+        self.assertGreaterEqual(share, 0.5, f"עץ האוספים נמוך מדי: {win.baskets.tree.height()} מתוך {win.height()}")
         dlg = win.baskets.open_browser(win.db.baskets()[0][0], modal=False)
         self.addCleanup(dlg.close)
         APP.processEvents()
@@ -348,11 +348,11 @@ class SearchFlowTest(GuiBase):
         self.assertEqual(model.included_count(sub), 0)
         win.baskets._tree_toggled(basket.bid, sub.path, True, True)
         self.assertEqual(model.included_count(node), 3)
-        self.assertEqual(basket.kids[-1].kind, "add")                         # שורת "הוספה לסל…"
+        self.assertEqual(basket.kids[-1].kind, "add")                         # שורת "הוספה לאוסף…"
 
 
 class BasketListTest(GuiBase):
-    """כל הסלים ברשימה אחת: הסימון של סל קובע אם מחפשים בו (בלי בורר סל נפרד ותגיות)."""
+    """כל האוספים ברשימה אחת: הסימון של אוסף קובע אם מחפשים בו (בלי בורר אוסף נפרד ותגיות)."""
 
     def test_one_list_and_scope(self):
         win = self.new_window("test_one_list_and_scope.sqlite3")
@@ -364,9 +364,9 @@ class BasketListTest(GuiBase):
         settle(win)
         model = panel.model
         self.assertEqual([model.node_at(model.index(r, 0)).kind for r in range(model.rowCount())], ["basket", "basket"])
-        self.assertEqual(panel.search_ids, {first, second})                    # סל חדש נכלל בחיפוש מיד
-        self.assertIn("כל הסלים", win.scope_chip.value())
-        # ביטול הסימון של סל מוציא אותו מהחיפוש
+        self.assertEqual(panel.search_ids, {first, second})                    # אוסף חדש נכלל בחיפוש מיד
+        self.assertIn("כל האוספים", win.scope_chip.value())
+        # ביטול הסימון של אוסף מוציא אותו מהחיפוש
         model.setData(model.basket_index(second), Qt.Unchecked, Qt.CheckStateRole)
         self.assertEqual(panel.search_ids, {first})
         self.assertNotIn("תורה", win.scope_chip.value())
@@ -383,13 +383,24 @@ class BasketListTest(GuiBase):
         win.run_search()
         settle(win)
         self.assertTrue(all("הלכה" in h.path for h in win.result.hits))
-        # לחיצה כפולה על סל = חיפוש רק בו
+        # לחיצה כפולה על אוסף = חיפוש רק בו
         panel._double_clicked(model.basket_index(second))
         self.assertEqual(panel.search_ids, {second})
         settle(win)
         self.assertTrue(all("תורה" in h.path for h in win.result.hits))
         # הבחירה נשמרת
         self.assertEqual(sorted(int(x) for x in self.settings.value("search_baskets")), [second])
+
+    def test_old_default_name_is_renamed(self):
+        # בגרסאות קודמות הקבוצה הראשונה נוצרה בשם "הסל שלי"; עכשיו קוראים לה "האוסף שלי"
+        from hebsearch.index import IndexDB
+        path = os.path.join(self.dir, "test_old_default_name.sqlite3")
+        db = IndexDB(path)
+        db.create_basket("הסל שלי")
+        db.create_basket("שיעורים")
+        db.close()
+        win = self.new_window("test_old_default_name.sqlite3")
+        self.assertEqual(sorted(n for _b, n, _c in win.db.baskets()), sorted(["האוסף שלי", "שיעורים"]))
 
     def test_browser_dialog_adds_to_that_basket(self):
         win = self.new_window("test_browser_dialog_adds_to_that_basket.sqlite3")
@@ -398,7 +409,7 @@ class BasketListTest(GuiBase):
         letter = os.path.join(self.docs, "מכתב.docx")
         panel._browser_toggled(bid, letter, False, True)                       # ✓ בעץ המחשב
         self.assertEqual(win.db.basket_items(bid), [(letter, "file")])
-        panel._browser_toggled(bid, letter, False, False)                      # ביטול = הוצאה מהסל
+        panel._browser_toggled(bid, letter, False, False)                      # ביטול = הוצאה מהאוסף
         self.assertEqual(win.db.basket_items(bid), [])
 
     def test_drop_goes_to_the_basket_under_the_mouse(self):

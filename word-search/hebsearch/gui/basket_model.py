@@ -1,12 +1,12 @@
-"""מודל העץ של הסלים: כל הסלים ברשימה אחת.
+"""מודל העץ של האוספים: כל האוספים ברשימה אחת.
 
-    ☑ שיעורים                1,240     ← סל: הסימון קובע אם מחפשים בו
-        📁 שיעורי הרב          820     ← מה שהוספתם לסל (תיקיות ומסמכים)
+    ☑ שיעורים                1,240     ← אוסף: הסימון קובע אם מחפשים בו
+        📁 שיעורי הרב          820     ← מה שהוספתם לאוסף (תיקיות ומסמכים)
             📁 תת־תיקייה   3 מתוך 5     ← ביטול סימון = החרגה מהחיפוש
             📄 מסמך
-        ＋ הוספה לסל…
+        ＋ הוספה לאוסף…
 
-המודל וירטואלי: נבנה פעם אחת לכל סריקה והעץ מצייר רק את מה שנראה, ולכן גם סלים של
+המודל וירטואלי: נבנה פעם אחת לכל סריקה והעץ מצייר רק את מה שנראה, ולכן גם אוספים של
 עשרות אלפי מסמכים נפתחים מיד ולא נבנים מחדש בכל חיפוש.
 """
 
@@ -43,8 +43,8 @@ class Node:
 
 
 class BasketModel(QAbstractItemModel):
-    toggled = Signal(int, str, bool, bool)       # סל, נתיב, תיקייה?, כלול?
-    searchToggled = Signal(int, bool)            # סל, מחפשים בו?
+    toggled = Signal(int, str, bool, bool)       # אוסף, נתיב, תיקייה?, כלול?
+    searchToggled = Signal(int, bool)            # אוסף, מחפשים בו?
 
     def __init__(self, db, status_fn, parent=None):
         """status_fn(path) -> (מצב, הודעה, מזהה) או None אם עדיין לא נקרא."""
@@ -54,14 +54,14 @@ class BasketModel(QAbstractItemModel):
         self.root = Node("", "", "root")
         self.editors = {}
         self.search_ids = set()
-        self.files_of = {}                         # סל → המסמכים שנכללים (מהסריקה) או None
+        self.files_of = {}                         # אוסף → המסמכים שנכללים (מהסריקה) או None
         self._tops = {}
         self._filter = ""
 
     # ---------------------------------------------------------------- בנייה
     def load(self, baskets, items_of, entries_of, files_of):
-        """baskets: [(מזהה, שם, מספר)]; items_of[סל]: [(נתיב, סוג)];
-        entries_of[סל]: [(נתיב, סוג, [מסמכים])] מהסריקה; files_of[סל]: המסמכים הנכללים (או None)."""
+        """baskets: [(מזהה, שם, מספר)]; items_of[אוסף]: [(נתיב, סוג)];
+        entries_of[אוסף]: [(נתיב, סוג, [מסמכים])] מהסריקה; files_of[אוסף]: המסמכים הנכללים (או None)."""
         self.beginResetModel()
         self.root = Node("", "", "root")
         self.files_of = files_of
@@ -88,7 +88,7 @@ class BasketModel(QAbstractItemModel):
                 else:
                     b.kids.append(Node(doc_name(path), path, "single", b, bid))
             self._finish(b)
-            b.kids.append(Node("הוספה לסל…", "", "add", b, bid))
+            b.kids.append(Node("הוספה לאוסף…", "", "add", b, bid))
             for i, k in enumerate(b.kids):
                 k.vrow = i
         for i, b in enumerate(self.root.kids):
@@ -137,7 +137,7 @@ class BasketModel(QAbstractItemModel):
         return total
 
     def _recompute_exclusions(self):
-        """לכל סל: התיקיות/המסמכים המוחרגים העליונים (לספירת "3 מתוך 5")."""
+        """לכל אוסף: התיקיות/המסמכים המוחרגים העליונים (לספירת "3 מתוך 5")."""
         self._tops = {}
         sep = os.sep
         for b in self.root.kids:
@@ -225,7 +225,7 @@ class BasketModel(QAbstractItemModel):
         return node.total - sum(t.total for t in self._tops.get(node.bid, ()) if t.key.startswith(node.key + sep))
 
     def problems(self, node) -> int:
-        """מסמכים בסל שלא נקראו (לסימן ⚠ ליד הסל)."""
+        """מסמכים באוסף שלא נקראו (לסימן ⚠ ליד האוסף)."""
         files = self.files_of.get(node.bid) or []
         bad = 0
         for f in files:
@@ -253,7 +253,7 @@ class BasketModel(QAbstractItemModel):
         return out
 
     def restore_expanded(self, view, keys, default_open=True):
-        """keys=None (פעם ראשונה): הסלים פתוחים, וגם התיקיות בהם אם הסל קטן."""
+        """keys=None (פעם ראשונה): האוספים פתוחים, וגם התיקיות בהם אם האוסף קטן."""
         def walk(parent_index, depth):
             for r in range(self.rowCount(parent_index)):
                 idx = self.index(r, 0, parent_index)
@@ -355,12 +355,12 @@ class BasketModel(QAbstractItemModel):
             return None
         if role == Qt.ToolTipRole:
             if kind == "basket":
-                return ("מחפשים בסל הזה – ביטול הסימון מוציא אותו מהחיפוש" if node.bid in self.search_ids
-                        else "הסל לא נכלל בחיפוש – סמנו כדי לחפש בו") + "\nלחיצה כפולה: חיפוש רק בסל הזה"
+                return ("מחפשים באוסף הזה – ביטול הסימון מוציא אותו מהחיפוש" if node.bid in self.search_ids
+                        else "האוסף לא נכלל בחיפוש – סמנו כדי לחפש בו") + "\nלחיצה כפולה: חיפוש רק באוסף הזה"
             if kind == "add":
                 return "פותח את עץ המחשב לבחירת תיקיות ומסמכים (אפשר גם לגרור לכאן מהסייר)"
             if kind == "top":
-                return "‪" + node.path + "‬\nתיקייה שהוספתם לסל (כולל כל תתי־התיקיות)"
+                return "‪" + node.path + "‬\nתיקייה שהוספתם לאוסף (כולל כל תתי־התיקיות)"
             return "‪" + node.path + "‬"
         if role == PATH_ROLE:
             return node.path
@@ -429,7 +429,7 @@ class BasketModel(QAbstractItemModel):
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            return ("סל / מסמך", "מסמכים")[section]
+            return ("אוסף / מסמך", "מסמכים")[section]
         return None
 
     def node_at(self, index):
