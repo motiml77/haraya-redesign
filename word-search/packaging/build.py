@@ -115,23 +115,30 @@ Write-Output ('KEY=' + $k)
 
 
 def vsto_overrides(vstools):
-    """היעדים של Visual Studio מוסיפים את פלט הבנייה לרשימת המהימנים של מחשב הבנייה (SetInclusionListEntry) –
-    נוחות למפתח שמריץ מ-Visual Studio, שדורשת את VSTO Runtime במחשב הבנייה. אצל המשתמש אשף ההתקנה עושה זאת.
-    יוצרים העתק של אותם יעדים בלי המשימה הזו בלבד, ומייבאים אותו אחרי היעדים המקוריים (ההגדרה האחרונה גוברת)."""
+    """היעדים של Visual Studio רושמים את פלט הבנייה ב-Word של מחשב הבנייה ומוסיפים אותו לרשימת המהימנים שלו
+    (SetOffice2007AddInRegistration, SetInclusionListEntry) – נוחות למפתח שמריץ מ-Visual Studio (F5), שדורשת
+    VSTO Runtime במחשב הבנייה. אצל המשתמש אשף ההתקנה עושה את שניהם. יוצרים העתק של אותם יעדים בלי המשימות
+    האלה בלבד, ומייבאים אותו אחרי היעדים המקוריים (ההגדרה האחרונה גוברת)."""
     import xml.etree.ElementTree as ET
     src = os.path.join(vstools, "OfficeTools", "Microsoft.VisualStudio.Tools.Office.targets")
     ns = "http://schemas.microsoft.com/developer/msbuild/2003"
     ET.register_namespace("", ns)
     root = ET.parse(src).getroot()
     out = ET.Element(f"{{{ns}}}Project")
+    dev_only = {"SetInclusionListEntry", "SetOffice2007AddInRegistration"}
+
+    def local(tag):
+        return tag.split("}", 1)[-1]
+
     for target in root.iter(f"{{{ns}}}Target"):
-        parents = [(p, c) for p in target.iter() for c in list(p) if c.tag == f"{{{ns}}}SetInclusionListEntry"]
-        if not parents:
+        found = [(p, c) for p in target.iter() for c in list(p) if local(c.tag) in dev_only]
+        if not found:
             continue
-        for parent, child in parents:
+        for parent, child in found:
             parent.remove(child)
         out.append(target)
-        print(f"  בלי SetInclusionListEntry ביעד {target.get('Name')}", flush=True)
+        rest = [local(c.tag) for c in target]
+        print(f"  יעד {target.get('Name')}: בלי {sorted({local(c.tag) for _, c in found})}; נשארו {rest}", flush=True)
     path = os.path.join(BUILD, "vsto_overrides.targets")
     os.makedirs(BUILD, exist_ok=True)
     ET.ElementTree(out).write(path, encoding="utf-8", xml_declaration=True)
