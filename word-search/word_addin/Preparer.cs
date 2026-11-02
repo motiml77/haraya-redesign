@@ -3,7 +3,9 @@
 //   * עבודה כבדה (חלוקה, טביעת אצבע, בניית מפת החיפוש) – על תהליך נפרד / ברכיב העזר;
 //   * שום דבר בזמן הפתיחה: אחרי שהמסמך נפתח מחכים שהמשתמש לא נוגע במקלדת ובעכבר,
 //     ש-Word לא מציג חלון דו-שיח ולא שומר/מדפיס ברקע – ורק אז קוראים את הטקסט (קריאה אחת).
-//   * הכותרות נקראות במנות קצרות (עד ~40ms) בזמני מנוחה, כך ש-Word אף פעם לא נתקע.
+//   * הכותרות נקראות במנות קצרות (עד ~40ms) בזמני מנוחה, כך ש-Word אף פעם לא נתקע: חיפוש של Word
+//     לפי סגנונות "כותרת 1" עד "כותרת 9" (Find עם Style – רק הכותרות עצמן, בלי לעבור על כל פסקה);
+//     ואם אין כאלה – רמת החלוקה (OutlineLevel) של הפסקאות הקצרות. כשבוחרים "כותרות" – משלימים מיד.
 //   * בחיפוש קוראים את הטקסט מחדש רק אם ייתכן שהמסמך השתנה מאז הקריאה הקודמת: האורך השתנה,
 //     המסמך נשמר, או שהסמן זז במסמך שיש בו שינויים שלא נשמרו (כל הקלדה מזיזה את הסמן).
 using System;
@@ -29,7 +31,7 @@ namespace HebDocSearch.WordAddin
             public bool Reading, Indexing;
             public DateTime NotBefore;
             public HeadingScan Scan;
-            public string Error;
+            public string Error, HeadingsError;
 
             // מה היה כשקראנו את הטקסט – כדי לדעת אם צריך לקרוא שוב
             public int ReadEnd = -1;
@@ -41,9 +43,13 @@ namespace HebDocSearch.WordAddin
         {
             public DocText Text;
             public int[] Levels;
-            public int Pos = -1;                // המיקום במסמך של הכותרת האחרונה שנמצאה
-            public int NextPara;
-            public int Steps;
+            public int Style = 1;               // סגנון "כותרת N" שמחפשים עכשיו (1–9)
+            public Word.Range Range;            // הטווח של החיפוש הנוכחי (מתקדם אחרי כל כותרת)
+            public int LastEnd = -1;
+            public bool ByOutline;              // אין סגנונות כותרת – בודקים רמת חלוקה של פסקאות קצרות
+            public int OutlineIndex;
+            public int Found, Failures;
+            public Stopwatch Time = new Stopwatch();
         }
 
         const int SliceMs = 40;
@@ -207,7 +213,7 @@ namespace HebDocSearch.WordAddin
                 }
                 else if (WordIsFree(SliceIdleMs))
                 {
-                    HeadingSlice(next);
+                    HeadingSlice(next, SliceMs);
                 }
             }
             catch (COMException e)
@@ -278,21 +284,14 @@ namespace HebDocSearch.WordAddin
         void BeginIndex(DocState s, DocText dt)
         {
             if (s.IndexedKey == dt.Key || s.Indexing) return;
-            string from = s.IndexedKey;
             s.Indexing = true;
             Task.Run(() =>
             {
                 try
                 {
                     var t0 = Stopwatch.StartNew();
-                    Dictionary<string, object> reply = null;
-                    // רק רמות הכותרות השתנו (אחרי קריאת הכותרות) – רכיב העזר משתמש שוב במפת החיפוש שכבר בנה
-                    if (from != null && from.StartsWith(dt.TextHash + "/"))
-                        reply = Call(new Dictionary<string, object> { ["cmd"] = "relevel", ["from"] = from, ["doc"] = dt.Key, ["levels"] = dt.Levels });
-                    if (reply == null || !Ok(reply))
-                        reply = Ask(new Dictionary<string, object> { ["cmd"] = "index", ["doc"] = dt.Key }, dt);
+                    var reply = Ask(new Dictionary<string, object> { ["cmd"] = "index", ["doc"] = dt.Key }, dt);
                     bool ok = Ok(reply);
-                    if (ok) lock (_sent) _sent.Add(dt.Key);
                     Post(() =>
                     {
                         s.Indexing = false;
@@ -310,48 +309,171 @@ namespace HebDocSearch.WordAddin
         }
 
         // ================================================================ הכותרות, במנות קצרות
-        void HeadingSlice(DocState s)
+        /// <summary>מנה אחת של קריאת הכותרות (עד budgetMs). מחזיר true כשהסתיים.</summary>
+        bool HeadingSlice(DocState s, int budgetMs)
         {
-            if (s.Text == null) { s.NeedsHeadings = false; return; }
+            if (s.Text == null) { s.NeedsHeadings = false; return true; }
             var sw = Stopwatch.StartNew();
             var scan = s.Scan;
             if (scan == null || scan.Text != s.Text)
-            {
                 scan = s.Scan = new HeadingScan { Text = s.Text, Levels = new int[s.Text.Texts.Count] };
-                Word.Paragraph first = s.Doc.Paragraphs.First;           // GoTo "הבאה" מדלג על הפסקה הראשונה
-                scan.Pos = first.Range.Start;
-                Take(scan, first);
-            }
-            int maxSteps = s.Text.Texts.Count + 10;
+            scan.Time.Start();
             bool done = false;
-            while (sw.ElapsedMilliseconds < SliceMs)
+            try
             {
-                Word.Range at = s.Doc.Range(scan.Pos, scan.Pos);
-                Word.Range r = at.GoTo(Word.WdGoToItem.wdGoToHeading, Word.WdGoToDirection.wdGoToNext);
-                if (r == null || r.Start <= scan.Pos || ++scan.Steps > maxSteps) { done = true; break; }
-                scan.Pos = r.Start;
-                Take(scan, r.Paragraphs.First);
+                int docEnd = s.Doc.Content.End;
+                while (!done && sw.ElapsedMilliseconds < budgetMs)
+                {
+                    if (!scan.ByOutline)
+                    {
+                        if (scan.Style > 9)
+                        {
+                            if (scan.Found > 0 || scan.Text.Texts.Count > 60000) { done = true; break; }
+                            scan.ByOutline = true;                  // אין סגנונות כותרת – לפי רמת חלוקה
+                            continue;
+                        }
+                        if (scan.Range == null)
+                        {
+                            scan.Range = s.Doc.Content;
+                            StyleFind(s.Doc, scan.Range.Find, scan.Style);
+                            scan.LastEnd = -1;
+                        }
+                        if (!scan.Range.Find.Execute() || scan.Range.End <= scan.LastEnd)
+                        {
+                            scan.Range = null;
+                            scan.Style++;
+                            continue;
+                        }
+                        scan.LastEnd = scan.Range.End;
+                        TakeFound(scan, scan.Range.Text, scan.Range.Start, scan.Style);
+                        if (scan.LastEnd >= docEnd)
+                        {
+                            scan.Range = null;
+                            scan.Style++;
+                            continue;
+                        }
+                        scan.Range.Collapse(Word.WdCollapseDirection.wdCollapseEnd);
+                    }
+                    else
+                    {
+                        if (scan.OutlineIndex >= scan.Text.Texts.Count) { done = true; break; }
+                        int i = scan.OutlineIndex++;
+                        string t = scan.Text.Texts[i];
+                        if (t.Trim().Length == 0 || t.Length > 200) continue;
+                        int pos = scan.Text.EstimatedStart(i);
+                        if (pos >= docEnd) continue;
+                        Word.Paragraph p = s.Doc.Range(pos, pos).Paragraphs.First;
+                        int level = (int)p.OutlineLevel;                     // 10 = גוף הטקסט
+                        if (level < 1 || level > 9) continue;
+                        Word.Range pr = p.Range;
+                        if (!DocText.SameText(DocText.Clean(pr.Text), t)) continue;
+                        scan.Levels[i] = level;
+                        scan.Found++;
+                        scan.Text.Learn(i, pr.Start);
+                    }
+                }
             }
-            if (!done) return;                                            // ממשיכים בזמן המנוחה הבא
+            catch (Exception e)
+            {
+                // Word עסוק (חלון דו-שיח, עריכה בתא…) – מנסים שוב; אחרי 3 כישלונות – מסתפקים במה שנמצא
+                scan.Failures++;
+                Log.Write($"headings: attempt failed ({scan.Failures}): {e.Message}");
+                if (scan.Failures < 3)
+                {
+                    s.NotBefore = DateTime.Now.AddSeconds(2);
+                    scan.Time.Stop();
+                    return false;
+                }
+                s.HeadingsError = e.Message;
+                done = true;
+            }
+            scan.Time.Stop();
+            if (!done) return false;                                      // ממשיכים במנה הבאה
 
+            ClearFind(s.Doc, scan);
             s.Scan = null;
             s.NeedsHeadings = false;
             DocText withLevels = scan.Text.WithLevels(scan.Levels);
             if (s.Text == scan.Text) s.Text = withLevels;
-            Log.Write($"headings: {withLevels.Headings} ({scan.Steps} steps)");
+            Log.Write($"headings: {withLevels.Headings} ({(scan.ByOutline ? "outline levels" : "heading styles")}) in {scan.Time.ElapsedMilliseconds}ms");
             BeginIndex(s, s.Text);
+            return true;
         }
 
-        static void Take(HeadingScan scan, Word.Paragraph p)
+        /// <summary>חיפוש של Word לפי הסגנון המובנה "כותרת N" (לא תלוי בשפת Office).</summary>
+        static void StyleFind(Word.Document doc, Word.Find f, int level)
         {
-            int level = (int)p.OutlineLevel;                              // 10 = גוף הטקסט
-            if (level < 1 || level > 9) return;
-            Word.Range pr = p.Range;
-            int idx = scan.Text.MatchParagraph(DocText.Clean(pr.Text), scan.NextPara);
-            if (idx < 0) return;
-            scan.Levels[idx] = level;
-            scan.NextPara = idx + 1;
-            scan.Text.Learn(idx, pr.Start);
+            f.ClearFormatting();
+            f.Text = "";
+            object style = doc.Styles[(object)(Word.WdBuiltinStyle)(-(level + 1))];     // wdStyleHeading1 = -2
+            f.set_Style(ref style);
+            f.Format = true;
+            f.Forward = true;
+            f.Wrap = Word.WdFindWrap.wdFindStop;
+            f.MatchCase = false;
+            f.MatchWholeWord = false;
+            f.MatchWildcards = false;
+        }
+
+        /// <summary>החיפוש של Word זוכר את העיצוב האחרון (גם בחלון "חיפוש והחלפה") – מנקים אחרינו.</summary>
+        static void ClearFind(Word.Document doc, HeadingScan scan)
+        {
+            try { scan.Range?.Find.ClearFormatting(); } catch { }
+            try
+            {
+                var f = doc.Content.Find;
+                f.ClearFormatting();
+                f.Format = false;
+            }
+            catch { }
+            scan.Range = null;
+        }
+
+        /// <summary>כותרות שנמצאו (כמה פסקאות רצופות באותו סגנון חוזרות כטווח אחד) → רמות הפסקאות.</summary>
+        static void TakeFound(HeadingScan scan, string text, int start, int level)
+        {
+            int offset = 0;
+            foreach (string part in (text ?? "").Split('\r'))
+            {
+                string clean = DocText.Clean(part);
+                if (clean.Trim().Length > 0)
+                {
+                    int idx = scan.Text.MatchNear(clean, start + offset);
+                    if (idx >= 0 && scan.Levels[idx] == 0)
+                    {
+                        scan.Levels[idx] = level;
+                        scan.Found++;
+                        if (offset == 0) scan.Text.Learn(idx, start);
+                    }
+                }
+                offset += part.Length + 1;
+            }
+        }
+
+        public bool HeadingsReady(Word.Document doc)
+        {
+            var s = Find(doc);
+            return s != null && s.Text != null && s.Text.HasLevels && !s.NeedsHeadings;
+        }
+
+        public int HeadingsFoundSoFar(Word.Document doc) => Find(doc)?.Scan?.Found ?? 0;
+
+        /// <summary>כשבוחרים "כותרות": משלימים את קריאת הכותרות עכשיו (עד budgetMs בכל קריאה).
+        /// מחזיר true כשהכותרות מוכנות; אחרת – לקרוא שוב בעוד רגע (בינתיים Word מגיב).</summary>
+        public bool EnsureHeadings(Word.Document doc, int budgetMs)
+        {
+            var s = StateOf(doc);
+            if (s.Text == null || !Fresh(s))
+            {
+                DocText previous = s.Text;
+                string raw = ReadText(s);
+                DocText dt = previous != null && previous.TextHash == DocText.Hash(raw) ? previous : DocText.Build(raw, previous);
+                Adopt(s, dt, previous);
+                s.NeedsRead = false;
+            }
+            if (s.Text.HasLevels && !s.NeedsHeadings) return true;
+            s.NeedsHeadings = true;
+            return HeadingSlice(s, budgetMs);
         }
 
         // ================================================================ חיפוש (מהחלונית)
@@ -401,7 +523,24 @@ namespace HebDocSearch.WordAddin
         Dictionary<string, object> Ask(Dictionary<string, object> req, DocText dt)
         {
             bool known;
-            lock (_sent) known = _sent.Contains(dt.Key);
+            string sibling = null;
+            lock (_sent)
+            {
+                known = _sent.Contains(dt.Key);
+                if (!known)
+                    foreach (string k in _sent)
+                        if (k.StartsWith(dt.TextHash + "/")) { sibling = k; break; }
+            }
+            if (!known && sibling != null && dt.HasLevels)
+            {
+                // אותו טקסט, רק רמות הכותרות השתנו – רכיב העזר משתמש שוב במפת החיפוש שכבר בנה
+                var relevel = Call(new Dictionary<string, object> { ["cmd"] = "relevel", ["from"] = sibling, ["doc"] = dt.Key, ["levels"] = dt.Levels });
+                if (Ok(relevel))
+                {
+                    known = true;
+                    lock (_sent) _sent.Add(dt.Key);
+                }
+            }
             if (!known) req["paras"] = dt.Paras();
             var reply = Call(req);
             if (reply.ContainsKey("need_paras"))                  // רכיב העזר הופעל מחדש או פינה את המסמך

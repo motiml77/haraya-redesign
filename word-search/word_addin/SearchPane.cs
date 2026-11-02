@@ -26,6 +26,8 @@ namespace HebDocSearch.WordAddin
         readonly PaneView _view = new PaneView { Dock = DockStyle.Fill };
         readonly Timer _timer = new Timer { Interval = 600 };
         readonly Timer _live = new Timer { Interval = 450 };     // חיפוש תוך כדי הקלדה (כמו ב-Word)
+        readonly Timer _headingsRetry = new Timer { Interval = 150 };   // השלמת קריאת הכותרות במנות
+        int _lastWidth, _savedWidth;
         readonly JavaScriptSerializer _json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
 
         DocText _searched;                       // הגרסה של המסמך שבה נמצאו התוצאות
@@ -60,6 +62,11 @@ namespace HebDocSearch.WordAddin
                 _live.Stop();
                 if (_view.Query.Length >= 2 && Key() != _lastKey) RunSearch();
             };
+            _headingsRetry.Tick += (s, e) =>
+            {
+                _headingsRetry.Stop();
+                if (_view.HeadingsOnly && _view.Query.Length > 0) RunSearch();
+            };
             LoadSettings();
             Reset();
             _timer.Tick += (s, e) => Tick();
@@ -81,6 +88,13 @@ namespace HebDocSearch.WordAddin
                 if (theme != _view.CurrentTheme) _view.ApplyTheme(theme);
             }
             if (_addin.Preparer != null) _view.SetDocStatus(_addin.Preparer.Status(_doc));
+            // רוחב החלונית: נשמר כשהמשתמש גורר את הקצה (אחרי שהגרירה נעצרה)
+            if (Width != _lastWidth) _lastWidth = Width;
+            else if (Width > 50 && Width != _savedWidth)
+            {
+                _savedWidth = Width;
+                SaveSettings();
+            }
         }
 
         void Reset()
@@ -141,8 +155,22 @@ namespace HebDocSearch.WordAddin
             string key = Key();
             bool headings = _view.HeadingsOnly;
             var sw = Stopwatch.StartNew();
+            _headingsRetry.Stop();
             try
             {
+                // "כותרות" לפני שהכותרות נקראו – משלימים עכשיו, במנות קצרות (Word ממשיך להגיב בין המנות)
+                if (headings && !_addin.Preparer.HeadingsReady(_doc))
+                {
+                    int found = _addin.Preparer.HeadingsFoundSoFar(_doc);
+                    _view.BeginSearch(true, found > 0 ? $"קורא את הכותרות… ({found:N0} עד עכשיו)" : "קורא את הכותרות של המסמך…");
+                    _view.Update();
+                    if (!_addin.Preparer.EnsureHeadings(_doc, 700))
+                    {
+                        _busy = false;
+                        _headingsRetry.Start();
+                        return;
+                    }
+                }
                 // אם צריך לקרוא את המסמך מחדש (נערך מאז) – "מחפש…" מוצג לפני הקריאה
                 bool reading = _addin.Preparer.WillRead(_doc);
                 _view.BeginSearch(reading);
@@ -321,6 +349,7 @@ namespace HebDocSearch.WordAddin
                 int Get(string key, int fallback) => s.ContainsKey(key) ? Convert.ToInt32(s[key]) : fallback;
                 bool GetB(string key, bool fallback) => s.ContainsKey(key) ? Convert.ToBoolean(s[key]) : fallback;
                 _view.SetOptions(Get("forms", 1), Get("spelling", 0), Get("distance", 0), Get("near", 3), GetB("ordered", true), GetB("headings", false));
+                _savedWidth = _lastWidth = 0;
             }
             catch (Exception e) { Log.Error("settings", e); }
             finally { _loading = false; }
@@ -339,15 +368,32 @@ namespace HebDocSearch.WordAddin
                     ["ordered"] = _view.Ordered,
                     ["headings"] = _view.HeadingsOnly,
                 };
+                int logical = SavedWidth();
+                if (_savedWidth > 50) logical = (int)Math.Round(_savedWidth / Assets.SystemScale);
+                if (logical > 0) s["pane_width"] = logical;
                 File.WriteAllText(SettingsPath, _json.Serialize(s), Encoding.UTF8);
             }
             catch { }
+        }
+
+        /// <summary>רוחב החלונית שנשמר (בפיקסלים של 100%), או 0.</summary>
+        internal static int SavedWidth()
+        {
+            try
+            {
+                if (!File.Exists(SettingsPath)) return 0;
+                var s = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(SettingsPath, Encoding.UTF8));
+                return s.ContainsKey("pane_width") ? Math.Max(240, Math.Min(1200, Convert.ToInt32(s["pane_width"]))) : 0;
+            }
+            catch { return 0; }
         }
 
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
+                _headingsRetry.Stop();
+                _headingsRetry.Dispose();
                 _timer.Stop();
                 _timer.Dispose();
                 _live.Stop();

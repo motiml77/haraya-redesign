@@ -169,6 +169,26 @@ namespace HebDocSearch.WordAddin
             return -1;
         }
 
+        /// <summary>הפסקה שמתאימה לכותרת שנמצאה במקום actualStart במסמך: אותו טקסט, והקרובה ביותר
+        /// לפני המקום (המיקומים המשוערים קטנים או שווים למיקום האמיתי – שדות מוסיפים מקומות).</summary>
+        public int MatchNear(string headingText, int actualStart)
+        {
+            string want = Norm(headingText);
+            if (want.Length == 0) return -1;
+            if (_byText == null || !_byText.TryGetValue(want, out var list))
+                return headingText.Length > IndexedLength ? MatchParagraph(headingText, 0) : -1;
+            int best = -1;
+            foreach (int i in list)                     // בדרך כלל אחת או שתיים
+            {
+                if (Starts[i] <= actualStart + 2) best = i;
+                else { if (best < 0) best = i; break; }
+            }
+            return best;
+        }
+
+        /// <summary>המיקום המשוער של תחילת פסקה במסמך (כולל ההפרש שנלמד).</summary>
+        public int EstimatedStart(int para) => Math.Max(0, Starts[para] + DriftAt(para));
+
         public static string Clean(string paragraphText)
         {
             if (paragraphText == null) return "";
@@ -264,6 +284,8 @@ namespace HebDocSearch.WordAddin
             if (fullLength > needle.Length) r.End = Math.Min(doc.Content.End, r.Start + fullLength);
             return r;
         }
+
+        public static bool SameText(string a, string b) => Norm(a) == Norm(b);
 
         static bool Same(string a, string b)
         {

@@ -27,7 +27,6 @@ namespace HebDocSearch.WordAddin
         static readonly string[] SpellShort = { "", "מלא וחסר", "כל אהו״י" };
         static readonly string[] SpellExamples = { "שמרה", "שמירה · שומרה", "מילתא · מילתה" };
         public static readonly string[] DistKeys = { "adjacent", "near", "paragraph" };
-        static readonly int[] NearChoices = { 1, 2, 3, 5, 10 };
 
         public readonly SearchBox Search = new SearchBox();
         readonly Chip _words = new Chip { Key = "מילים:" };
@@ -256,7 +255,7 @@ namespace HebDocSearch.WordAddin
                 "מקלידים מילה או ביטוי – התוצאות מופיעות תוך כדי הקלדה.",
                 "ניקוד, גרשיים ואותיות סופיות לא משנים.",
                 "",
-                "ביטוי מדויק – במירכאות: \"איסור ייחוד\".",
+                "ביטוי מדויק – כותבים אותו במירכאות.",
                 "הסמן במסמך זז רק כשבוחרים תוצאה: לחיצה עליה,",
                 "או לחצני הבאה / הקודמת שליד מספר התוצאות.",
             }, false);
@@ -268,10 +267,10 @@ namespace HebDocSearch.WordAddin
             if (List.Count == 0 && _countMain.Length == 0 && !_searchingDelay.Enabled) SetCount("", docStatus, false);
         }
 
-        public void BeginSearch(bool immediate)
+        public void BeginSearch(bool immediate, string text = "מחפש…")
         {
             _searchingDelay.Stop();
-            if (immediate) SetCount("מחפש…", "", false);
+            if (immediate) SetCount(text, "", false);
             else _searchingDelay.Start();                  // חיפוש מהיר לא מהבהב "מחפש…"
         }
 
@@ -424,33 +423,44 @@ namespace HebDocSearch.WordAddin
             Popup(_words, menu);
         }
 
+        /// <summary>"מרחק": צמודות / עד [− N +] מילים ביניהן / באותה פסקה, וסדר המילים. כל שינוי חל מיד.</summary>
         void ShowDistanceMenu()
         {
-            var menu = NewMenu();
-            menu.Items.Add(Header("מרחק בין המילים"));
-            menu.Items.Add(Choice("צמודות", "איסור ייחוד", Distance == 0, () => Distance = 0));
-            var nears = new List<int>(NearChoices);
-            if (!nears.Contains(Near)) { nears.Add(Near); nears.Sort(); }
-            foreach (int n in nears)
+            var panel = new DistancePanel(_t, _m, Distance, Near, Ordered);
+            var host = new ToolStripControlHost(panel) { Margin = Padding.Empty, Padding = Padding.Empty, AutoSize = false, Size = panel.Size };
+            var drop = new ToolStripDropDown
             {
-                int k = n;
-                menu.Items.Add(Choice("עד " + NearText(n) + " ביניהן", null, Distance == 1 && Near == n, () => { Distance = 1; Near = k; }));
-            }
-            menu.Items.Add(Choice("באותה פסקה", null, Distance == 2, () => Distance = 2));
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add(Header("סדר המילים"));
-            menu.Items.Add(Choice("לפי הסדר שהוקלד", null, Ordered, () => Ordered = true));
-            menu.Items.Add(Choice("בכל סדר", null, !Ordered, () => Ordered = false));
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add(new ToolStripMenuItem("חל כשמחפשים שתי מילים או יותר; במירכאות – תמיד ביטוי מדויק") { Enabled = false, Font = _m.Caption });
-            Popup(_dist, menu);
+                Padding = new Padding(1),
+                RightToLeft = RightToLeft.No,
+                Renderer = new MenuRenderer(_t),
+                BackColor = _t.MenuBg,
+            };
+            drop.Items.Add(host);
+            panel.Changed += () =>
+            {
+                Distance = panel.Distance;
+                Near = panel.Near;
+                Ordered = panel.Ordered;
+                RefreshChips();
+                OptionsChanged?.Invoke();
+            };
+            panel.CloseRequested += () => drop.Close();
+            _previewMenu = drop;
+            _dist.Open = true;
+            drop.Closed += (s, e) =>
+            {
+                _dist.Open = false;
+                BeginInvoke(new Action(drop.Dispose));
+            };
+            drop.Show(_dist, new Point(_dist.Width, _dist.Height + _m.S(2)), ToolStripDropDownDirection.BelowLeft);
+            panel.Focus();
         }
 
         // ----- לתצוגה המקדימה בבנייה -----
-        ContextMenuStrip _previewMenu;
-        internal void OpenMenuForPreview()
+        ToolStripDropDown _previewMenu;
+        internal void OpenMenuForPreview(bool distance = false)
         {
-            ShowWordsMenu();
+            if (distance) ShowDistanceMenu(); else ShowWordsMenu();
         }
 
         internal void CloseMenuForPreview()

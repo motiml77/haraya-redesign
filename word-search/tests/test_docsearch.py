@@ -52,6 +52,14 @@ class DocSearchTest(unittest.TestCase):
         r = self.search("הלך", options={"forms": "all"}, headings_only=True)
         self.assertEqual([h["path"] for h in r["hits"]], [[], ["הלכות שבת"]])
 
+    def test_snippet_is_only_from_the_hit_paragraph(self):
+        short = [{"t": "גלות מצרים – הכח להוציא טוב 256", "h": 0}, {"t": "גלות בבל 688", "h": 0},
+                 {"t": "ריבוי עם ישראל 690", "h": 0}]
+        r = self.svc.search({"doc": "idx", "paras": short, "query": "בבל"})
+        segs = r["hits"][0]["snippet"]
+        self.assertEqual("".join(t for t, _ in segs), "גלות בבל 688")          # בלי השורות שלפני ואחרי
+        self.assertNotIn(3, [k for _, k in segs])                               # בלי סימן ¶
+
     def test_options_are_the_same_as_the_program(self):
         self.assertEqual(self.search("הלך", options={"forms": "exact"})["total"], 0)
         self.assertEqual(self.words(self.search("שבת", options={"forms": "prefixes"})), ["שבת", "בשבת"])

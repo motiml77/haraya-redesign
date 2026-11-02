@@ -190,9 +190,9 @@ namespace HebDocSearch.WordAddin
             var marks = new List<CharacterRange>();
             foreach (var seg in it.Snippet)
             {
-                if (seg.Kind == 3)
+                if (seg.Kind == 3)                         // סוף פסקה – בלי סימן ¶
                 {
-                    sb.Append(" ¶ ");
+                    sb.Append("  ");
                     continue;
                 }
                 string text = (seg.Text ?? "").Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ');

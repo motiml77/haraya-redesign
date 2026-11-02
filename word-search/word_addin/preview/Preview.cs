@@ -59,6 +59,12 @@ namespace HebDocSearch.WordAddin
                             v.Query = "הולך בדרך";
                             v.ShowIdle("המסמך מוכן לחיפוש · 1,234 פסקאות · 56 כותרות");
                         }, menu: true);
+                        Render(tag + "-6-distance", theme, scale, v =>
+                        {
+                            v.Query = "הולך בדרך";
+                            v.SetOptions(1, 0, 1, 3, true, false);
+                            v.ShowIdle("המסמך מוכן לחיפוש · 1,234 פסקאות · 56 כותרות");
+                        }, menu: true, distance: true);
                     }
                 return 0;
             }
@@ -70,7 +76,7 @@ namespace HebDocSearch.WordAddin
             }
         }
 
-        static void Render(string name, Theme theme, float scale, Action<PaneView> setup, bool menu = false)
+        static void Render(string name, Theme theme, float scale, Action<PaneView> setup, bool menu = false, bool distance = false)
         {
             int w = (int)(400 * scale), h = (int)(860 * scale);
             using (var form = new BigForm
@@ -98,7 +104,7 @@ namespace HebDocSearch.WordAddin
                 if (menu)
                 {
                     // התפריט הוא חלון נפרד – מצלמים את המסך (אם יש שולחן עבודה גלוי)
-                    view.OpenMenuForPreview();
+                    view.OpenMenuForPreview(distance);
                     Pump();
                     try
                     {

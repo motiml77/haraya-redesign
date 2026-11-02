@@ -142,8 +142,8 @@ namespace HebDocSearch.WordAddin
             BodyBold = F(13, FontStyle.Bold);
             Input = F(14);
             Count = F(14);
-            Result = F(15);
-            ResultBold = F(15, FontStyle.Bold);
+            Result = F(13);
+            ResultBold = F(13, FontStyle.Bold);
             Hero = F(16, FontStyle.Bold);
         }
 

@@ -263,6 +263,7 @@ class Searcher:
     def __init__(self, db, context_words=25):
         self.db = db
         self.context_words = context_words
+        self.neighbors = True          # השלמת הקשר מפסקאות סמוכות (התוסף ל-Word: רק הפסקה עצמה)
 
     # ---------- שלב 1-4: מציאת ההתאמות ----------
     def _occurrences(self, ids, fileset, keys=None, on_bytes=None):
@@ -523,10 +524,10 @@ class Searcher:
         snippet = []
         if last - first <= 2 * ctx:
             lo, hi = first - ctx, last + ctx
-            if lo < 0:
+            if lo < 0 and self.neighbors:
                 snippet += self._neighbor(entry, hit.para_idx, -1, -lo, highlight)
             snippet += self._render(text, toks, max(lo, 0), min(hi, len(toks) - 1), matched, highlight)
-            if hi > len(toks) - 1:
+            if hi > len(toks) - 1 and self.neighbors:
                 snippet += self._neighbor(entry, hit.para_idx, +1, hi - (len(toks) - 1), highlight)
         else:
             r = max(3, ctx // 2)

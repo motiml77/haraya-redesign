@@ -427,3 +427,193 @@ namespace HebDocSearch.WordAddin
         }
     }
 }
+
+namespace HebDocSearch.WordAddin
+{
+    // ==================================================================== בורר המרחק
+    /// <summary>חלונית קטנה ל"מרחק": צמודות / עד [− N +] מילים ביניהן / באותה פסקה, וסדר המילים.
+    /// כל שינוי חל מיד; החלונית נשארת פתוחה עד לחיצה מחוץ לה (או Esc / Enter).</summary>
+    internal sealed class DistancePanel : Control
+    {
+        readonly Theme _t;
+        readonly Metrics _m;
+        public int Distance, Near;
+        public bool Ordered;
+        public event Action Changed;
+        public event Action CloseRequested;
+
+        Rectangle[] _rows = new Rectangle[5];      // 0 צמודות, 1 עד N, 2 באותה פסקה, 3 לפי הסדר, 4 בכל סדר
+        Rectangle _minus, _plus, _number;
+        int _hoverRow = -1, _hoverBtn;
+        int _rowH, _headH, _w;
+
+        public DistancePanel(Theme t, Metrics m, int distance, int near, bool ordered)
+        {
+            _t = t;
+            _m = m;
+            Distance = distance;
+            Near = Math.Max(1, Math.Min(99, near));
+            Ordered = ordered;
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint
+                     | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
+            _rowH = m.S(30);
+            _headH = m.S(26);
+            _w = Math.Max(m.S(250), Draw.Width("עד  מילים ביניהן", m.Body) + m.S(150));
+            int h = m.S(6) + _headH + 3 * _rowH + m.S(9) + _headH + 2 * _rowH + m.S(8);
+            Size = new Size(_w, h);
+            int y = m.S(6) + _headH;
+            for (int i = 0; i < 3; i++) { _rows[i] = new Rectangle(m.S(4), y, _w - m.S(8), _rowH); y += _rowH; }
+            y += m.S(9) + _headH;
+            for (int i = 3; i < 5; i++) { _rows[i] = new Rectangle(m.S(4), y, _w - m.S(8), _rowH); y += _rowH; }
+            BackColor = t.MenuBg;
+        }
+
+        int RadioX => _w - _m.S(14) - _m.S(16);       // העיגול – מימין
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.Clear(_t.MenuBg);
+            int textRight = RadioX - _m.S(8);
+            Draw.Text(g, "מרחק בין המילים", _m.CaptionBold, new Rectangle(_m.S(10), _m.S(6), _w - _m.S(24), _headH), _t.MenuDim);
+            int sepY = _rows[2].Bottom + _m.S(4);
+            using (var p = new Pen(_t.MenuBorder)) g.DrawLine(p, _m.S(10), sepY, _w - _m.S(10), sepY);
+            Draw.Text(g, "סדר המילים", _m.CaptionBold, new Rectangle(_m.S(10), _rows[3].Top - _headH, _w - _m.S(24), _headH), _t.MenuDim);
+
+            for (int i = 0; i < 5; i++)
+            {
+                var r = _rows[i];
+                if (i == _hoverRow) Draw.Fill(g, r, _m.S(3), _t.MenuSel);
+                bool on = i < 3 ? Distance == i : (i == 3) == Ordered;
+                Radio(g, new Rectangle(RadioX, r.Y + (r.Height - _m.S(16)) / 2, _m.S(16), _m.S(16)), on);
+                string label = i == 0 ? "צמודות" : i == 2 ? "באותה פסקה" : i == 3 ? "לפי הסדר שהוקלד" : i == 4 ? "בכל סדר" : null;
+                if (label != null)
+                {
+                    Draw.Text(g, label, _m.Body, new Rectangle(r.Left + _m.S(6), r.Y, textRight - r.Left - _m.S(6), r.Height), _t.MenuText);
+                    continue;
+                }
+                // "עד [− N +] מילים ביניהן"
+                int x = textRight;
+                int w1 = Draw.Width("עד", _m.Body);
+                Draw.Text(g, "עד", _m.Body, new Rectangle(x - w1, r.Y, w1 + 1, r.Height), _t.MenuText);
+                x -= w1 + _m.S(8);
+                int bh = _m.S(24), bw = _m.S(22), nw = _m.S(30);
+                int by = r.Y + (r.Height - bh) / 2;
+                _plus = new Rectangle(x - bw, by, bw, bh);                      // מימין לשמאל: + מספר −
+                _number = new Rectangle(_plus.Left - nw, by, nw, bh);
+                _minus = new Rectangle(_number.Left - bw, by, bw, bh);
+                var box = Rectangle.Union(_minus, _plus);
+                Draw.Box(g, box, _m.S(4), _t.FieldBg, Distance == 1 ? _t.Accent : _t.FieldBorder, 1f);
+                if (_hoverBtn == 1) Draw.Fill(g, Rectangle.Inflate(_minus, -_m.S(2), -_m.S(2)), _m.S(3), Draw.Mix(_t.FieldBg, _t.FieldBorder, 0.5f));
+                if (_hoverBtn == 2) Draw.Fill(g, Rectangle.Inflate(_plus, -_m.S(2), -_m.S(2)), _m.S(3), Draw.Mix(_t.FieldBg, _t.FieldBorder, 0.5f));
+                float stroke = Math.Max(1.4f, _m.Scale * 1.5f), arm = _m.S(4.5f);
+                using (var p = new Pen(Near > 1 ? _t.FieldIcon : Draw.Mix(_t.FieldIcon, _t.FieldBg, 0.6f), stroke))
+                {
+                    float cx = _minus.X + _minus.Width / 2f, cy = _minus.Y + _minus.Height / 2f;
+                    g.DrawLine(p, cx - arm, cy, cx + arm, cy);
+                }
+                using (var p = new Pen(Near < 99 ? _t.FieldIcon : Draw.Mix(_t.FieldIcon, _t.FieldBg, 0.6f), stroke))
+                {
+                    float cx = _plus.X + _plus.Width / 2f, cy = _plus.Y + _plus.Height / 2f;
+                    g.DrawLine(p, cx - arm, cy, cx + arm, cy);
+                    g.DrawLine(p, cx, cy - arm, cx, cy + arm);
+                }
+                using (var p = new Pen(_t.FieldBorder))
+                {
+                    g.DrawLine(p, _number.Left, by + _m.S(4), _number.Left, by + bh - _m.S(4));
+                    g.DrawLine(p, _number.Right, by + _m.S(4), _number.Right, by + bh - _m.S(4));
+                }
+                Draw.Text(g, Near.ToString(), _m.BodyBold, _number, _t.FieldText, 'c', false);
+                x = _minus.Left - _m.S(8);
+                Draw.Text(g, "מילים ביניהן", _m.Body, new Rectangle(r.Left + _m.S(6), r.Y, x - r.Left - _m.S(6), r.Height), _t.MenuText);
+            }
+        }
+
+        void Radio(Graphics g, Rectangle r, bool on)
+        {
+            var old = g.SmoothingMode;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using (var p = new Pen(on ? _t.Accent : _t.MenuDim, Math.Max(1.2f, _m.Scale * 1.3f)))
+                g.DrawEllipse(p, r.X + 1, r.Y + 1, r.Width - 2, r.Height - 2);
+            if (on)
+                using (var b = new SolidBrush(_t.Accent))
+                {
+                    float d = r.Width * 0.5f;
+                    g.FillEllipse(b, r.X + (r.Width - d) / 2f, r.Y + (r.Height - d) / 2f, d, d);
+                }
+            g.SmoothingMode = old;
+        }
+
+        void Set(int distance, int near, bool ordered)
+        {
+            near = Math.Max(1, Math.Min(99, near));
+            if (distance == Distance && near == Near && ordered == Ordered) return;
+            Distance = distance;
+            Near = near;
+            Ordered = ordered;
+            Invalidate();
+            Changed?.Invoke();
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            int row = Array.FindIndex(_rows, r => r.Contains(e.Location));
+            int btn = _minus.Contains(e.Location) ? 1 : _plus.Contains(e.Location) ? 2 : 0;
+            if (row != _hoverRow || btn != _hoverBtn) { _hoverRow = row; _hoverBtn = btn; Invalidate(); }
+            Cursor = row >= 0 ? Cursors.Hand : Cursors.Default;
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            _hoverRow = -1;
+            _hoverBtn = 0;
+            Invalidate();
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button != MouseButtons.Left) return;
+            if (_minus.Contains(e.Location)) { Set(1, Near - 1, Ordered); return; }
+            if (_plus.Contains(e.Location)) { Set(1, Near + 1, Ordered); return; }
+            int row = Array.FindIndex(_rows, r => r.Contains(e.Location));
+            if (row >= 0 && row < 3) Set(row, Near, Ordered);
+            else if (row == 3) Set(Distance, Near, true);
+            else if (row == 4) Set(Distance, Near, false);
+        }
+
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            base.OnMouseWheel(e);
+            if (_rows[1].Contains(e.Location)) Set(1, Near + Math.Sign(e.Delta), Ordered);
+        }
+
+        protected override bool IsInputKey(Keys keyData)
+        {
+            switch (keyData & Keys.KeyCode)
+            {
+                case Keys.Up: case Keys.Down: case Keys.Left: case Keys.Right: case Keys.Enter: case Keys.Escape:
+                case Keys.Add: case Keys.Subtract: case Keys.Oemplus: case Keys.OemMinus:
+                    return true;
+            }
+            return base.IsInputKey(keyData);
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            base.OnKeyDown(e);
+            switch (e.KeyCode)
+            {
+                case Keys.Up: Set(Math.Max(0, Distance - 1), Near, Ordered); break;
+                case Keys.Down: Set(Math.Min(2, Distance + 1), Near, Ordered); break;
+                case Keys.Add: case Keys.Oemplus: case Keys.Left: Set(1, Near + 1, Ordered); break;       // בעברית "קדימה" שמאלה
+                case Keys.Subtract: case Keys.OemMinus: case Keys.Right: Set(1, Near - 1, Ordered); break;
+                case Keys.Enter: case Keys.Escape: CloseRequested?.Invoke(); break;
+                default: return;
+            }
+            e.Handled = e.SuppressKeyPress = true;
+        }
+    }
+}

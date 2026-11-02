@@ -60,6 +60,7 @@ class DocIndex:
         self.file_ids = self.db.file_ids([DOC_PATH])          # {מזהה: נתיב} – כמו שהמנוע מצפה
         self.fid = next(iter(self.file_ids), None)
         self.searcher = Searcher(self.db, context_words=12)       # החלונית ב-Word צרה
+        self.searcher.neighbors = False      # כל תוצאה – רק מהפסקה שלה (בלי ¶ ומילים מפסקאות סמוכות)
         self.paths = self._heading_paths()
 
     def _heading_paths(self):
