@@ -545,7 +545,7 @@ namespace HebDocSearch.WordAddin
         {
             switch (keyData & Keys.KeyCode)
             {
-                case Keys.Up: case Keys.Down: case Keys.PageUp: case Keys.PageDown: case Keys.Home: case Keys.End: case Keys.Enter:
+                case Keys.Up: case Keys.Down: case Keys.PageUp: case Keys.PageDown: case Keys.Home: case Keys.End: case Keys.Enter: case Keys.Space:
                     return true;
             }
             return base.IsInputKey(keyData);
@@ -555,23 +555,27 @@ namespace HebDocSearch.WordAddin
         {
             base.OnKeyDown(e);
             if (_items.Count == 0) return;
-            int target = _sel;
+            // חיצים – רק מסמנים תוצאה ברשימה; Enter (או רווח) – עוברים אליה במסמך, כמו לחיצה
+            if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space)
+            {
+                e.Handled = e.SuppressKeyPress = true;
+                if (_sel < 0) Select(0);
+                ItemActivated?.Invoke(_sel);
+                return;
+            }
+            int target;
             switch (e.KeyCode)
             {
                 case Keys.Down: target = _sel + 1; break;
-                case Keys.Up: target = _sel - 1; break;
+                case Keys.Up: target = _sel < 0 ? 0 : _sel - 1; break;
                 case Keys.Home: target = 0; break;
                 case Keys.End: target = _items.Count - 1; break;
                 case Keys.PageDown: target = Math.Max(_sel + 1, IndexAt(ClientSize.Height - 2)); break;
                 case Keys.PageUp: target = Math.Min(_sel - 1, IndexAt(2)); break;
-                case Keys.Enter: target = _sel + (e.Shift ? -1 : 1); break;
                 default: return;
             }
             e.Handled = e.SuppressKeyPress = true;
-            target = Math.Max(0, Math.Min(_items.Count - 1, target));
-            if (target == _sel && e.KeyCode != Keys.Enter) return;
-            Select(target);
-            ItemActivated?.Invoke(target);
+            Select(Math.Max(0, Math.Min(_items.Count - 1, target)));
         }
 
         protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }

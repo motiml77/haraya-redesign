@@ -32,8 +32,8 @@ namespace HebDocSearch.WordAddin
         public readonly SearchBox Search = new SearchBox();
         readonly Chip _words = new Chip { Key = "מילים:" };
         readonly Chip _dist = new Chip { Key = "מרחק:" };
-        readonly IconButton _next = new IconButton { Glyph = 'd', Tip = "התוצאה הבאה (Enter / F3)" };
-        readonly IconButton _prev = new IconButton { Glyph = 'u', Tip = "התוצאה הקודמת (Shift+Enter / Shift+F3)" };
+        readonly IconButton _next = new IconButton { Glyph = 'd', Tip = "מעבר לתוצאה הבאה במסמך (F3)" };
+        readonly IconButton _prev = new IconButton { Glyph = 'u', Tip = "מעבר לתוצאה הקודמת במסמך (Shift+F3)" };
         readonly TabStrip _tabs = new TabStrip();
         public readonly ResultList List = new ResultList();
         readonly ToolTip _tip = new ToolTip();
@@ -69,7 +69,7 @@ namespace HebDocSearch.WordAddin
             RightToLeft = RightToLeft.No;          // הכיוון מטופל בציור ובפריסה (מימין לשמאל)
             Controls.AddRange(new Control[] { Search, _words, _dist, _next, _prev, _tabs, List });
             Search.Submit += s => SubmitRequested?.Invoke(s);
-            Search.Navigate += d => NavigateRequested?.Invoke(d);
+            Search.Navigate += d => FocusList();             // חץ למטה מהשדה – לרשימה (בלי לזוז במסמך)
             Search.Cleared += () => QueryCleared?.Invoke();
             Search.Box.TextChanged += (s, e) => UpdateDistanceDim();
             _words.Click += (s, e) => ShowWordsMenu();
@@ -95,6 +95,13 @@ namespace HebDocSearch.WordAddin
         {
             get => Search.Box.Text.Trim();
             set => Search.Box.Text = value ?? "";
+        }
+
+        void FocusList()
+        {
+            if (List.Count == 0) return;
+            List.Focus();
+            if (List.SelectedIndex < 0) List.Select(0);
         }
 
         public void FocusSearch()
@@ -250,7 +257,8 @@ namespace HebDocSearch.WordAddin
                 "ניקוד, גרשיים ואותיות סופיות לא משנים.",
                 "",
                 "ביטוי מדויק – במירכאות: \"איסור ייחוד\".",
-                "מעבר בין התוצאות: Enter, או החיצים למעלה ולמטה.",
+                "הסמן במסמך זז רק כשבוחרים תוצאה: לחיצה עליה,",
+                "או לחצני הבאה / הקודמת שליד מספר התוצאות.",
             }, false);
         }
 

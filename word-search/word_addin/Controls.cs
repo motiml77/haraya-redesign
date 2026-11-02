@@ -42,8 +42,8 @@ namespace HebDocSearch.WordAddin
         Rectangle _searchBtn, _clearBtn;
         int _hoverBtn;              // 1 חיפוש, 2 ניקוי
 
-        public event Action<bool> Submit;          // Enter (shift = הקודמת)
-        public event Action<int> Navigate;         // חצים למעלה/למטה
+        public event Action<bool> Submit;          // Enter – חיפוש
+        public event Action<int> Navigate;         // חץ למטה – מעבר לרשימה
         public event Action Cleared;
 
         const string Cue = "חיפוש במסמך";
