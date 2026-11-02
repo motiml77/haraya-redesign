@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- תצוגה מקדימה של חלונית התוסף בלי Word: מציירת את אותם קבצי תצוגה של התוסף לתמונות PNG
+       (בכמה ערכות נושא וגדלים), כדי לבדוק את העיצוב בבנייה. מורץ מ-packaging/build.py. -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>PanePreview</AssemblyName>
+    <RootNamespace>HebDocSearch.WordAddin</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Preview.cs" />
+    <Compile Include="..\Ui.cs" Link="Ui.cs" />
+    <Compile Include="..\Assets.cs" Link="Assets.cs" />
+    <Compile Include="..\Controls.cs" Link="Controls.cs" />
+    <Compile Include="..\ResultList.cs" Link="ResultList.cs" />
+    <Compile Include="..\PaneView.cs" Link="PaneView.cs" />
+    <Compile Include="..\ContextWindow.cs" Link="ContextWindow.cs" />
+    <Compile Include="..\Excerpt.cs" Link="Excerpt.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="Microsoft.CSharp" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\Resources\logo-32.png" LogicalName="logo-32.png" />
+    <EmbeddedResource Include="..\Resources\logo-48.png" LogicalName="logo-48.png" />
+    <EmbeddedResource Include="..\Resources\logo-64.png" LogicalName="logo-64.png" />
+    <EmbeddedResource Include="..\Resources\logo-96.png" LogicalName="logo-96.png" />
+    <EmbeddedResource Include="..\Resources\logo-128.png" LogicalName="logo-128.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

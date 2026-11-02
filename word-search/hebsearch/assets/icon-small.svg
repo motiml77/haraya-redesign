@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- גרסה פשוטה לגדלים קטנים (16–32 פיקסלים): דף אחד, שלוש שורות, זכוכית מגדלת גדולה -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1e40af"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="496" height="496" rx="96" fill="url(#bg)"/>
+  <path d="M110 64 H300 L370 134 V400 A24 24 0 0 1 346 424 H110 A24 24 0 0 1 86 400 V88 A24 24 0 0 1 110 64 Z" fill="#ffffff"/>
+  <path d="M300 64 V114 A20 20 0 0 0 320 134 H370 Z" fill="#cbd5e1"/>
+  <rect x="126" y="160" width="204" height="44" rx="12" fill="#facc15"/>
+  <rect x="146" y="172" width="168" height="20" rx="10" fill="#475569"/>
+  <rect x="150" y="240" width="180" height="22" rx="11" fill="#94a3b8"/>
+  <line x1="390" y1="400" x2="460" y2="470" stroke="#0f172a" stroke-width="64" stroke-linecap="round"/>
+  <circle cx="320" cy="330" r="98" fill="#ffffff"/>
+  <circle cx="320" cy="330" r="98" fill="none" stroke="#0f172a" stroke-width="34"/>
+</svg>

@@ -1,0 +1,597 @@
+"""בדיקות הממשק: מידות סבירות, התאמה למסך, ערכת נושא בהירה, חיפוש ברקע שלא תוקע את החלון.
+
+רצות בלי תצוגה (QT_QPA_PLATFORM=offscreen), ולכן אינן תלויות במסך של המחשב שמריץ אותן.
+"""
+
+import os
+import random
+import sys
+import tempfile
+import time
+import unittest
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from PySide6.QtCore import QRect, QSettings, Qt, QTimer  # noqa: E402
+from PySide6.QtGui import QPalette  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
+
+from hebsearch.gui import icons, main_window as mw, theme  # noqa: E402
+from hebsearch.gui.options import DistancePanel, SearchSettings, WordsPanel  # noqa: E402
+from hebsearch.index import IndexDB  # noqa: E402
+from hebsearch.search import Searcher, SearchOptions  # noqa: E402
+
+from docx_builder import build_docx  # noqa: E402
+
+APP = QApplication.instance() or QApplication([])
+SCREEN = QRect(0, 0, 1366, 728)          # מסך נפוץ של מחשב נייד (בלי שורת המשימות)
+
+
+def settle(win, limit=60.0):
+    """מחכה שכל עבודות הרקע של החלון יסתיימו (בלי לחסום את לולאת האירועים)."""
+    t0 = time.time()
+    while time.time() - t0 < limit:
+        APP.processEvents()
+        if not (win._scan_job or win._search_job or win._search_waiting_scan or win.results.overlay.is_active()):
+            break
+        time.sleep(0.005)
+    for _ in range(10):
+        APP.processEvents()
+        time.sleep(0.005)
+
+
+class GuiBase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.dir = cls.tmp.name
+        cls._old_data = os.environ.get("HEBSEARCH_DATA")
+        os.environ["HEBSEARCH_DATA"] = os.path.join(cls.dir, "data")
+        cls.docs = os.path.join(cls.dir, "מסמכים")
+        os.makedirs(os.path.join(cls.docs, "הלכה"))
+        os.makedirs(os.path.join(cls.docs, "תורה"))
+        build_docx(os.path.join(cls.docs, "הלכה", "שבת.docx"), [
+            "ההולך בשבת ברשות הרבים צריך לשמור שלא יוציא דבר מרשות לרשות.",
+            "כתב הרמב\"ם שההליכה בשבת צריכה להיות שונה מהליכת החול.",
+            "והלכה כרבי יהודה שאסור להלך יותר מאלפיים אמה חוץ לתחום.",
+        ])
+        build_docx(os.path.join(cls.docs, "תורה", "בראשית.docx"), [
+            "וַיֹּאמֶר יְהוָה אֶל-אַבְרָם, לֶךְ-לְךָ מֵאַרְצְךָ וּמִמּוֹלַדְתְּךָ.",
+            "וַיֵּלֶךְ אַבְרָם, כַּאֲשֶׁר דִּבֶּר אֵלָיו יְהוָה.",
+        ])
+        build_docx(os.path.join(cls.docs, "מכתב.docx"), ["שלום וברכה, הלכנו כל המשפחה לטיול בהרי ירושלים."])
+        cls.settings = QSettings(os.path.join(cls.dir, "settings.ini"), QSettings.IniFormat)
+        cls._old_rect = mw.MainWindow._screen_rect
+        mw.MainWindow._screen_rect = lambda self: SCREEN
+        mw.prepare_app(APP, cls.settings)
+
+    @classmethod
+    def tearDownClass(cls):
+        mw.MainWindow._screen_rect = cls._old_rect
+        theme.apply(APP, 1.0)
+        if cls._old_data is None:
+            os.environ.pop("HEBSEARCH_DATA", None)
+        else:
+            os.environ["HEBSEARCH_DATA"] = cls._old_data
+        cls.tmp.cleanup()
+
+    def new_window(self, name="index.sqlite3"):
+        self.settings.clear()
+        win = mw.MainWindow(os.path.join(self.dir, name), self.settings)
+        win.show()
+        self.addCleanup(self.close_window, win)
+        settle(win)
+        return win
+
+    @staticmethod
+    def close_window(win):
+        win.close()
+        win.deleteLater()
+
+
+class LayoutTest(GuiBase):
+    """הפרופורציות: חלון שנכנס במסך, שדה חיפוש קומפקטי, סרגל אוספים גבוה."""
+
+    def test_window_fits_every_common_screen(self):
+        for w, h in ((1366, 728), (1280, 680), (1024, 560), (800, 560), (1920, 1040), (2560, 1400)):
+            geo = theme.fit_geometry(QRect(0, 0, w, h))
+            self.assertLessEqual(geo.width(), w, (w, h))
+            self.assertLessEqual(geo.height(), h, (w, h))
+            self.assertGreaterEqual(geo.left(), 0)
+            self.assertGreaterEqual(geo.top(), 0)
+            self.assertLessEqual(geo.right(), w)
+            self.assertLessEqual(geo.bottom(), h)
+            self.assertLessEqual(geo.width(), 1180)       # גם במסך ענק לא נפתח "ענק"
+
+    def test_main_window_opens_inside_the_screen(self):
+        win = self.new_window()
+        self.assertLessEqual(win.width(), SCREEN.width())
+        self.assertLessEqual(win.height(), SCREEN.height())
+        self.assertGreaterEqual(win.width(), 800)
+
+    def test_search_row_is_compact(self):
+        win = self.new_window()
+        for name in ("search_edit", "search_btn", "sidebar_btn"):
+            h = getattr(win, name).height()
+            self.assertLessEqual(h, 36, f"{name} גבוה מדי: {h}px")
+            self.assertGreaterEqual(h, 24, f"{name} נמוך מדי: {h}px")
+        # כל כותרת החיפוש (שדה + שוליים) לא תופסת יותר מ-10% מגובה החלון, ועוד שורות השבבים
+        # (שהחליפו את שורת "חיפוש ב:" והכפתור "אפשרויות"; בחלון צר הן עוברות שורה בכוונה)
+        card = win.search_edit.parentWidget()
+        rows = round((win.chip_box.height() + 4) / (win.words_chip.height() + 4))
+        self.assertLessEqual(rows, 2)
+        extra = win.chip_box.height() - win.fontMetrics().height()
+        self.assertLessEqual(card.height(), 0.10 * win.height() + 20 + extra)
+
+    def test_option_chips_describe_the_search(self):
+        win = self.new_window()
+        self.assertEqual(win.words_chip.value(), "עם אותיות שימוש")
+        self.assertFalse(win.words_chip.isOn())
+        self.assertTrue(win.reset_btn.isHidden())
+        win.search_edit.setText("הלך")
+        self.assertTrue(win.dist_chip.isDim())                 # מילה אחת: למרחק אין משמעות
+        win.search_edit.setText("הלך בדרך")
+        self.assertFalse(win.dist_chip.isDim())
+        win.options.update(spelling="vy", distance="near", near=2, ordered=False)
+        self.assertEqual(win.words_chip.value(), "עם אותיות שימוש · מלא וחסר")
+        self.assertEqual(win.dist_chip.value(), "עד 2 מילים, בכל סדר")
+        self.assertTrue(win.words_chip.isOn() and win.dist_chip.isOn())
+        self.assertFalse(win.reset_btn.isHidden())
+        win.reset_btn.click()
+        self.assertTrue(win.options.is_default())
+        self.assertTrue(win.reset_btn.isHidden())
+        # שבב פותח ומבטל את החלונית שלו
+        win._toggle_panel(win.words_chip, win.words_panel)
+        self.assertTrue(win.words_panel.isVisible())
+        win.words_panel.close()
+        self.assertFalse(win.words_panel.isVisible())
+
+    def test_fonts_are_professional_sized(self):
+        win = self.new_window()
+        self.assertLessEqual(APP.font().pixelSize(), 14)
+        self.assertGreaterEqual(APP.font().pixelSize(), 12)             # המינימום המומלץ לטקסט
+        self.assertLessEqual(win.search_edit.font().pixelSize(), 15)
+        self.assertLessEqual(win.search_btn.font().pixelSize(), 14)
+
+    def test_basket_tree_gets_most_of_the_sidebar_height(self):
+        win = self.new_window()
+        win.baskets.add_paths([self.docs])
+        settle(win)
+        APP.processEvents()
+        share = win.baskets.tree.height() / win.height()
+        self.assertGreaterEqual(share, 0.5, f"עץ האוספים נמוך מדי: {win.baskets.tree.height()} מתוך {win.height()}")
+        dlg = win.baskets.open_browser(win.db.baskets()[0][0], modal=False)
+        self.addCleanup(dlg.close)
+        APP.processEvents()
+        self.assertGreaterEqual(dlg.browser.view.height() / dlg.height(), 0.6, "עץ הבחירה מהמחשב נמוך מדי")
+
+    def test_zoom_scales_everything_together(self):
+        win = self.new_window()
+        base = win.search_edit.height()
+        win.set_zoom(1.3)
+        self.addCleanup(win.set_zoom, 1.0)
+        APP.processEvents()
+        self.assertGreater(win.search_edit.height(), base)
+        self.assertLessEqual(win.search_edit.height(), round(base * 1.4))
+        win.set_zoom(0.8)
+        self.assertLess(win.search_edit.height(), base)
+
+
+class ThemeTest(GuiBase):
+    def test_light_theme_even_when_the_os_is_dark(self):
+        """בחלונות במצב כהה Qt צובע אזורים בשחור אם לא מגדירים פלטה מפורשת."""
+        from PySide6.QtGui import QColor
+        hints = APP.styleHints()
+        dark = QPalette()
+        for role in (QPalette.Window, QPalette.Base, QPalette.Button):
+            dark.setColor(role, QColor("#202020"))
+        for role in (QPalette.WindowText, QPalette.Text, QPalette.ButtonText):
+            dark.setColor(role, QColor("#f0f0f0"))
+        if hasattr(hints, "setColorScheme"):
+            hints.setColorScheme(Qt.ColorScheme.Dark)
+        APP.setPalette(dark)
+        theme.apply(APP, 1.0)
+        for role in (QPalette.Window, QPalette.Base, QPalette.Button):
+            self.assertGreater(APP.palette().color(role).lightness(), 200, role)
+        self.assertLess(APP.palette().color(QPalette.Text).lightness(), 80)
+
+    def test_every_ui_icon_renders(self):
+        for name in icons._SVG:
+            pm = icons.ui_icon(name).pixmap(16, 16)
+            self.assertFalse(pm.isNull(), name)
+            img = pm.toImage()
+            self.assertTrue(any(img.pixelColor(x, y).alpha() > 0 for x in range(img.width()) for y in range(img.height())),
+                            f"הסמל {name} ריק")
+
+    def test_document_icons_exist_with_fallback(self):
+        for name in ("a.docx", "a.pdf", "a.doc"):
+            self.assertFalse(icons.file_icon(name).isNull(), name)
+            self.assertFalse(icons.file_icon(name).pixmap(16, 16).isNull(), name)
+        self.assertFalse(icons.folder_icon().isNull())
+        self.assertEqual(set(icons.describe_system_icons()), {"docx", "pdf", "doc", "folder"})
+
+
+class OptionsTest(GuiBase):
+    def test_settings_roundtrip(self):
+        o = SearchSettings()
+        self.assertTrue(o.is_default())
+        self.assertEqual(o.words_text(), "עם אותיות שימוש")
+        self.assertEqual(o.distance_text(), "צמודות, לפי הסדר")
+        o.set_term_count(3)
+        o.update(forms="all", spelling="vy", distance="near", near=3, required=2)
+        opts = o.options()
+        self.assertTrue(opts.inflections and opts.prefixes)
+        self.assertEqual((opts.ahevi, opts.max_gap, opts.min_terms, opts.whole_paragraph), ("vy", 3, 2, False))
+        self.assertEqual(o.words_text(), "כל ההטיות · מלא וחסר")
+        self.assertEqual(o.distance_text(), "עד 3 מילים, לפי הסדר · לפחות 2 מתוך 3")
+        self.assertFalse(o.words_default() or o.distance_default())
+        o.save(self.settings)
+        other = SearchSettings()
+        other.restore(self.settings)
+        self.assertEqual((other.forms, other.spelling, other.distance, other.near), ("all", "vy", "near", 3))
+        o.reset()
+        self.assertTrue(o.is_default())
+
+    def test_paragraph_and_adjacent_are_one_choice(self):
+        o = SearchSettings()
+        o.update(distance="paragraph")
+        self.assertTrue(o.options().whole_paragraph)
+        self.assertEqual(o.options().max_gap, 0)
+        o.update(distance="adjacent")
+        self.assertFalse(o.options().whole_paragraph)
+        self.assertEqual(o.options().max_gap, 0)
+
+    def test_old_saved_settings_are_migrated(self):
+        # הגדרות של גרסה קודמת: אותיות שימוש כבויות + הטיות, רווח 4, אהו"י מלא
+        for k, v in (("prefixes", False), ("inflect", True), ("gap", 4), ("ahevi", 2), ("paragraph", False),
+                     ("ordered", False)):
+            self.settings.setValue(k, v)
+        o = SearchSettings()
+        o.restore(self.settings)
+        self.assertEqual((o.forms, o.spelling, o.distance, o.near, o.ordered), ("all", "all", "near", 4, False))
+        self.settings.setValue("paragraph", True)
+        o.restore(self.settings)
+        self.assertEqual(o.distance, "paragraph")
+
+    def test_required_resets_when_query_gets_shorter(self):
+        o = SearchSettings()
+        o.set_term_count(4)
+        o.update(required=3)
+        self.assertEqual(o.options().min_terms, 3)
+        o.set_term_count(2)
+        self.assertEqual(o.required, 0)
+        self.assertEqual([m for m, _ in o.required_choices()], [0, 1])
+
+    def test_panels_follow_settings(self):
+        o = SearchSettings()
+        words, dist = WordsPanel(o), DistancePanel(o)
+        words.forms.setIndex(2, emit=True)
+        self.assertEqual(o.forms, "all")
+        self.assertIn("הלכה", words.forms_example.text())
+        dist.near.setValue(5)                      # שינוי המספר בוחר "עד N מילים"
+        self.assertEqual((o.distance, o.near), ("near", 5))
+        self.assertTrue(dist.r_near.isChecked())
+        dist.r_paragraph.click()
+        self.assertEqual(o.distance, "paragraph")
+        dist.order.setIndex(1, emit=True)
+        self.assertFalse(o.ordered)
+        dist.set_locked(True)
+        self.assertFalse(dist.body.isEnabled())
+
+
+class PersistenceTest(GuiBase):
+    def test_zoom_options_sort_and_sidebar_survive_a_restart(self):
+        win = self.new_window()
+        win.set_zoom(1.2)
+        win.options.update(forms="all", spelling="vy", distance="near", near=4, ordered=False)
+        win.sort_combo.setCurrentIndex(1)
+        win.sidebar_btn.setChecked(False)
+        win.close()
+        theme.T.set_zoom(1.0)
+        mw.prepare_app(APP, self.settings)                 # כמו הפעלה מחדש של התוכנה
+        self.assertAlmostEqual(theme.T.zoom, 1.2)
+        again = mw.MainWindow(os.path.join(self.dir, "index.sqlite3"), self.settings)
+        self.addCleanup(self.close_window, again)
+        again.show()
+        settle(again)
+        o = again.options
+        self.assertEqual((o.forms, o.spelling, o.distance, o.near, o.ordered), ("all", "vy", "near", 4, False))
+        self.assertEqual(again.words_chip.value(), "כל ההטיות · מלא וחסר")
+        self.assertEqual(again.sort_combo.currentIndex(), 1)
+        self.assertFalse(again.sidebar_btn.isChecked())
+        self.assertFalse(again.baskets.isVisible())
+        again.set_zoom(1.0)
+
+
+class HistoryTest(GuiBase):
+    def test_store_dedupes_counts_removes_and_migrates(self):
+        from hebsearch.gui.history import SearchHistory, when_text
+        self.settings.clear()
+        self.settings.setValue("history", ["ישן א", "ישן ב"])          # פורמט של גרסה קודמת
+        h = SearchHistory(self.settings)
+        self.assertEqual(h.queries(), ["ישן א", "ישן ב"])
+        h.add("הלך")
+        h.add("שבת")
+        h.add("הלך")                                                    # חוזר לראש, בלי כפילות
+        self.assertEqual(h.queries()[:2], ["הלך", "שבת"])
+        h.set_count("הלך", 17)
+        h.remove("שבת")
+        again = SearchHistory(self.settings)
+        self.assertEqual(again.queries(), ["הלך", "ישן א", "ישן ב"])
+        self.assertEqual(again.items[0]["n"], 17)
+        self.assertIsNone(self.settings.value("history"))
+        again.clear()
+        self.assertEqual(SearchHistory(self.settings).queries(), [])
+        import time as _t
+        now = _t.time()
+        self.assertTrue(when_text(now, now).startswith("היום"))
+        self.assertEqual(when_text(now - 86400, now), "אתמול")
+
+    def test_completer_filters_by_any_part_and_picks(self):
+        win = self.new_window()
+        for q in ("איסור ייחוד", "הלך בדרך", "שבת"):
+            win.history.add(q)
+        c = win.history_completer
+        c.setCompletionPrefix("ייחוד")                                  # באמצע השאילתה, לא בהתחלה
+        m = c.completionModel()
+        self.assertEqual([m.index(r, 0).data() for r in range(m.rowCount())], ["איסור ייחוד"])
+        c.show_all()
+        m = c.completionModel()
+        self.assertEqual(m.rowCount(), 4)                               # שלושה חיפושים ו"ניקוי ההיסטוריה"
+        c.popup().hide()
+        win.baskets.add_paths([self.docs])
+        settle(win)
+        c._pick("הלך")
+        settle(win)
+        self.assertIsNotNone(win.result)
+        self.assertEqual(win.history.queries()[0], "הלך")
+        self.assertEqual(win.history.items[0]["n"], win.result.total)
+
+
+class SearchFlowTest(GuiBase):
+    def test_search_shows_results_without_blocking(self):
+        win = self.new_window()
+        win.baskets.add_paths([self.docs])
+        settle(win)
+        self.assertEqual(win.db.baskets()[0][2], 3)
+        win.search_edit.setText("הלך")
+        win.options.update(forms="all")
+        win.run_search()
+        settle(win)
+        self.assertIsNotNone(win.result)
+        self.assertGreaterEqual(win.result.total, 4)
+        self.assertEqual(win.results.list.model().rowCount(), min(win.result.total, 30))
+        self.assertIn("תוצאות", win.summary.text())
+
+    def test_quoted_phrase_is_exact_and_marks_only_the_match(self):
+        win = self.new_window()
+        win.baskets.add_paths([self.docs])
+        settle(win)
+        win.options.update(distance="near", near=5)
+        win.search_edit.setText('"ההולך בשבת"')
+        self.assertTrue(win.dist_chip.isLocked())                     # השבב אומר למה ההגדרה לא חלה
+        self.assertIn("ביטוי מדויק", win.dist_chip.value())
+        win.run_search()
+        settle(win)
+        self.assertTrue(win.result.phrase)
+        self.assertGreaterEqual(win.result.total, 1)
+        for h in win.result.hits:
+            self.assertEqual(sorted(h.span), [min(h.span), min(h.span) + 1])   # צמודות
+
+    def test_empty_search_and_missing_basket_selection_are_friendly(self):
+        win = self.new_window()
+        win.baskets.add_paths([self.docs])
+        settle(win)
+        win.search_edit.setText("   ")
+        win.run_search()                    # לא קורס ולא מחפש
+        self.assertIsNone(win._search_job)
+        win.baskets.set_search_ids(set())
+        win.search_edit.setText("הלך")
+        win.run_search()
+        self.assertIsNone(win._search_job)
+
+    def test_new_search_replaces_a_running_one(self):
+        win = self.new_window()
+        win.baskets.add_paths([self.docs])
+        settle(win)
+        win.search_edit.setText("הלך")
+        win.run_search()
+        win.search_edit.setText("שבת")
+        win.run_search()                    # השנייה מבטלת את הראשונה
+        settle(win)
+        self.assertEqual(win.result.highlight and "שבת" in " ".join(win.result.highlight), True)
+
+    def test_basket_tree_counts_follow_exclusions(self):
+        win = self.new_window()
+        win.baskets.add_paths([self.docs])
+        settle(win)
+        model = win.baskets.model
+        basket = model.node_at(model.index(0, 0))
+        self.assertEqual(basket.kind, "basket")
+        node = basket.kids[0]
+        self.assertEqual(node.kind, "top")
+        self.assertEqual(node.total, 3)
+        self.assertEqual(model.included_count(node), 3)
+        sub = next(k for k in node.kids if k.name == "תורה")
+        win.baskets._tree_toggled(basket.bid, sub.path, True, False)          # ביטול הסימון = החרגה
+        self.assertEqual(model.included_count(node), 2)
+        self.assertEqual(model.included_count(sub), 0)
+        win.baskets._tree_toggled(basket.bid, sub.path, True, True)
+        self.assertEqual(model.included_count(node), 3)
+        self.assertEqual(basket.kids[-1].kind, "add")                         # שורת "הוספה לאוסף…"
+
+
+class BasketListTest(GuiBase):
+    """כל האוספים ברשימה אחת: הסימון של אוסף קובע אם מחפשים בו (בלי בורר אוסף נפרד ותגיות)."""
+
+    def test_one_list_and_scope(self):
+        win = self.new_window("test_one_list_and_scope.sqlite3")
+        panel = win.baskets
+        first = win.db.baskets()[0][0]
+        panel.add_paths([os.path.join(self.docs, "הלכה")], first)
+        second = panel.create_basket("תורה")
+        panel.add_paths([os.path.join(self.docs, "תורה")], second)
+        settle(win)
+        model = panel.model
+        self.assertEqual([model.node_at(model.index(r, 0)).kind for r in range(model.rowCount())], ["basket", "basket"])
+        self.assertEqual(panel.search_ids, {first, second})                    # אוסף חדש נכלל בחיפוש מיד
+        self.assertIn("כל האוספים", win.scope_chip.value())
+        # ביטול הסימון של אוסף מוציא אותו מהחיפוש
+        model.setData(model.basket_index(second), Qt.Unchecked, Qt.CheckStateRole)
+        self.assertEqual(panel.search_ids, {first})
+        self.assertNotIn("תורה", win.scope_chip.value())
+        # אותה בחירה גם מהשבב "חיפוש ב:" בלי לפתוח את הסרגל
+        win._toggle_panel(win.scope_chip, win.scope_panel)
+        self.assertEqual(set(win.scope_panel.boxes), {first, second})
+        self.assertFalse(win.scope_panel.boxes[second].isChecked())
+        win.scope_panel.boxes[second].setChecked(True)
+        self.assertEqual(panel.search_ids, {first, second})
+        win.scope_panel.boxes[second].setChecked(False)
+        win.scope_panel.close()
+        self.assertEqual(panel.search_ids, {first})
+        win.search_edit.setText("הלך")
+        win.run_search()
+        settle(win)
+        self.assertTrue(all("הלכה" in h.path for h in win.result.hits))
+        # לחיצה כפולה על אוסף = חיפוש רק בו
+        panel._double_clicked(model.basket_index(second))
+        self.assertEqual(panel.search_ids, {second})
+        settle(win)
+        self.assertTrue(all("תורה" in h.path for h in win.result.hits))
+        # הבחירה נשמרת
+        self.assertEqual(sorted(int(x) for x in self.settings.value("search_baskets")), [second])
+
+    def test_old_default_name_is_renamed(self):
+        # בגרסאות קודמות הקבוצה הראשונה נוצרה בשם "הסל שלי"; עכשיו קוראים לה "האוסף שלי"
+        from hebsearch.index import IndexDB
+        path = os.path.join(self.dir, "test_old_default_name.sqlite3")
+        db = IndexDB(path)
+        db.create_basket("הסל שלי")
+        db.create_basket("שיעורים")
+        db.close()
+        win = self.new_window("test_old_default_name.sqlite3")
+        self.assertEqual(sorted(n for _b, n, _c in win.db.baskets()), sorted(["האוסף שלי", "שיעורים"]))
+
+    def test_browser_dialog_adds_to_that_basket(self):
+        win = self.new_window("test_browser_dialog_adds_to_that_basket.sqlite3")
+        panel = win.baskets
+        bid = panel.create_basket("מכתבים")
+        letter = os.path.join(self.docs, "מכתב.docx")
+        panel._browser_toggled(bid, letter, False, True)                       # ✓ בעץ המחשב
+        self.assertEqual(win.db.basket_items(bid), [(letter, "file")])
+        panel._browser_toggled(bid, letter, False, False)                      # ביטול = הוצאה מהאוסף
+        self.assertEqual(win.db.basket_items(bid), [])
+
+    def test_drop_goes_to_the_basket_under_the_mouse(self):
+        win = self.new_window("test_drop_goes_to_the_basket_under_the_mouse.sqlite3")
+        panel = win.baskets
+        first = win.db.baskets()[0][0]
+        second = panel.create_basket("שני")
+        panel.add_paths([os.path.join(self.docs, "מכתב.docx")], second)
+        self.assertEqual(len(win.db.basket_items(second)), 1)
+        self.assertEqual(win.db.basket_items(first), [])
+
+
+class UnreadDocumentsTest(GuiBase):
+    """"מסמכים שלא נקראו": לכל מסמך – השם, הסיבה והמיקום (התיקייה), וקישור לתיקייה."""
+
+    def test_dialog_shows_the_location_of_each_document(self):
+        from hebsearch.gui.basket_panel import ProblemsDialog, problems_html
+        bad = [(os.path.join(self.docs, "הלכה", "סרוק.pdf"), "אין בקובץ טקסט (ייתכן שזה מסמך סרוק)"),
+               (os.path.join(self.docs, "תורה", "פגום.docx"), "הקובץ פגום")]
+        page = problems_html(bad)
+        page = page.replace("\u200e", "").replace("\u202a", "").replace("\u202c", "")   # סימני כיוון בלתי נראים
+        for path, reason in bad:
+            self.assertIn(os.path.dirname(path), page)                  # התיקייה שבה המסמך נמצא
+            self.assertIn(os.path.splitext(os.path.basename(path))[0], page)
+            self.assertIn(reason.split(" ")[0], page)
+        self.assertEqual(page.count("הצג בתיקייה"), 2)
+        dlg = ProblemsDialog(bad)
+        self.assertIn("(2)", dlg.windowTitle())
+        self.assertIn(bad[1][0], dlg.text())                           # "העתקת הרשימה" – כולל הנתיב המלא
+        dlg.deleteLater()
+
+
+class SnippetMarksTest(unittest.TestCase):
+    """בקטע התצוגה אין סימן ¶ בין פסקאות – רק רווח."""
+
+    def test_no_pilcrow_between_paragraphs(self):
+        from hebsearch.docsearch import DocIndex
+        paras = [{"t": "שורה ראשונה קצרה", "h": 0}, {"t": "גלות מצרים", "h": 0}, {"t": "שורה אחרונה קצרה", "h": 0}]
+        idx = DocIndex(paras)
+        idx.searcher.neighbors = True                                  # כמו בתוכנה: הקשר גם מפסקאות סמוכות
+        res = idx.searcher.search("מצרים", idx.file_ids, SearchOptions())
+        hit = idx.searcher.materialize(res.hits[0], res.highlight)
+        text = "".join(t for t, _ in hit.snippet)
+        self.assertNotIn("¶", text)
+        self.assertIn("ראשונה", text)                                   # ההקשר מהפסקה הקודמת עדיין שם
+        idx.close()
+
+
+class ResponsivenessTest(GuiBase):
+    """הגרסה הראשונה "קפאה" בזמן חיפוש: כל העבודה רצה על חוט הממשק. כאן מוודאים שהלולאה ממשיכה לפעום."""
+
+    def test_event_loop_keeps_running_during_a_heavy_search(self):
+        rng = random.Random(7)
+        vocab = ["של", "את", "על", "אל", "הוא", "היא", "כי", "לא", "אשר", "ויאמר", "משה", "העם", "הלך", "בדרך"] + \
+                [f"מילה{i}" for i in range(200)]
+        big = os.path.join(self.dir, "גדולים")
+        os.makedirs(big)
+        for i in range(6):                                  # עד 8 קבצים: אינדוקס בתהליך אחד, בלי מאגר תהליכים
+            words = [rng.choice(vocab) if rng.random() < 0.6 else rng.choice(vocab[:6]) for _ in range(40_000)]
+            build_docx(os.path.join(big, f"ספר{i}.docx"), [" ".join(words[j:j + 200]) for j in range(0, len(words), 200)])
+        win = self.new_window("big.sqlite3")
+        win.baskets.add_paths([big])
+        gaps, last = [], [time.perf_counter()]
+
+        def tick():
+            now = time.perf_counter()
+            gaps.append(now - last[0])
+            last[0] = now
+
+        timer = QTimer()
+        timer.setInterval(10)
+        timer.timeout.connect(tick)
+        timer.start()
+        settle(win, 120)                                   # אינדוקס
+        win.search_edit.setText("של את על")
+        win.options.update(distance="paragraph")
+        gaps.clear()
+        last[0] = time.perf_counter()
+        t0 = time.perf_counter()
+        win.run_search()
+        settle(win, 120)
+        total = time.perf_counter() - t0
+        timer.stop()
+        self.assertIsNotNone(win.result)
+        self.assertGreater(win.result.total, 1000)
+        worst = max(gaps)
+        # ללא חוט רקע כל החיפוש היה חוסם את הלולאה לכל משך החיפוש; כאן הפער הגדול ביותר קטן בהרבה
+        self.assertLess(worst, max(0.8, total * 0.5), f"הממשק נתקע {worst * 1000:.0f}ms בחיפוש של {total:.2f}s")
+
+
+class EngineProgressTest(unittest.TestCase):
+    def test_progress_is_monotonic_and_cancel_is_fast(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for i in range(5):
+                build_docx(os.path.join(tmp, f"d{i}.docx"), [f"ויאמר משה אל העם הלך בדרך {i}"] * 40)
+            db = IndexDB(os.path.join(tmp, "i.sqlite3"))
+            files = [os.path.join(tmp, f"d{i}.docx") for i in range(5)]
+            db.update(db.stale_files(files))
+            ids = db.file_ids(files)
+            seen = []
+            res = Searcher(db).search("ויאמר משה", ids, SearchOptions(), progress=lambda f, t="": seen.append(f))
+            self.assertEqual(res.total, 200)
+            self.assertTrue(seen)
+            self.assertTrue(all(0.0 <= f <= 1.0 for f in seen))
+            self.assertEqual(seen, sorted(seen))
+            t0 = time.perf_counter()
+            res = Searcher(db).search("ויאמר משה", ids, SearchOptions(), cancelled=lambda: True)
+            self.assertTrue(res.cancelled)
+            self.assertLess(time.perf_counter() - t0, 1.0)
+            db.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

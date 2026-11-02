@@ -1,0 +1,14 @@
+<customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui">
+  <ribbon>
+    <tabs>
+      <tab idMso="TabHome">
+        <group id="HebDocSearchGroup" label="חיפוש עברי" insertAfterMso="GroupEditing">
+          <button id="HebDocSearchPane" size="large" getImage="GetLogo" onAction="OnTogglePane" keytip="ח"
+                  label="חיפוש עברי"
+                  screentip="חיפוש עברי"
+                  supertip="תוסף המאפשר חיפוש רחב ומקצועי בטקסט עברי." />
+        </group>
+      </tab>
+    </tabs>
+  </ribbon>
+</customUI>
