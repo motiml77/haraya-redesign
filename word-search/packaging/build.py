@@ -60,15 +60,74 @@ def selftest():
     print("הבדיקה העצמית עברה", flush=True)
 
 
+VSWHERE = r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+
+
+def visual_studio():
+    """MSBuild של Visual Studio ותיקיית כלי Office (VSTO) – תוסף VSTO לא נבנה ב-dotnet build."""
+    def ask(*args):
+        out = subprocess.run([VSWHERE, "-latest", "-products", "*", *args], capture_output=True, text=True).stdout
+        return [x.strip() for x in out.splitlines() if x.strip()]
+    if not os.path.exists(VSWHERE):
+        sys.exit("לבניית התוסף ל-Word נדרש Visual Studio עם רכיב פיתוח ל-Office (Office/SharePoint development)")
+    msbuild = ask("-requires", "Microsoft.Component.MSBuild", "-find", r"MSBuild\**\Bin\MSBuild.exe")
+    install = ask("-property", "installationPath")
+    targets = glob.glob(os.path.join(install[0], "MSBuild", "Microsoft", "VisualStudio", "v*", "OfficeTools",
+                                     "Microsoft.VisualStudio.Tools.Office.targets")) if install else []
+    if not msbuild or not targets:
+        sys.exit("לא נמצאו MSBuild או כלי VSTO של Visual Studio (רכיב Office/SharePoint development)")
+    return msbuild[0], os.path.dirname(os.path.dirname(targets[0]))
+
+
+def signing_certificate():
+    """תעודה לחתימת המניפסטים של התוסף (VSTO דורש מניפסטים חתומים). נוצרת בבנייה; המפתח הציבורי
+    נכנס לאשף ההתקנה, שרושם אותו ברשימת הפתרונות המהימנים של המשתמש (VSTO Inclusion List)."""
+    script = (
+        "$ErrorActionPreference = 'Stop';"
+        "$c = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=HebDocSearch Word Add-in'"
+        " -CertStoreLocation Cert:\\CurrentUser\\My -KeyExportPolicy Exportable -KeySpec Signature"
+        " -Provider 'Microsoft Enhanced RSA and AES Cryptographic Provider' -KeyAlgorithm RSA -KeyLength 2048"
+        " -HashAlgorithm SHA256 -NotAfter (Get-Date).AddYears(30);"
+        "$k = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPublicKey($c).ToXmlString($false);"
+        "Write-Output ('THUMB=' + $c.Thumbprint); Write-Output ('KEY=' + $k)"
+    )
+    out = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+                         capture_output=True, text=True, check=True).stdout
+    values = dict(line.strip().split("=", 1) for line in out.splitlines() if "=" in line)
+    if not values.get("THUMB") or not values.get("KEY", "").startswith("<RSAKeyValue>"):
+        sys.exit("יצירת תעודת החתימה לתוסף ל-Word נכשלה: " + out[-2000:])
+    return values["THUMB"], values["KEY"]
+
+
+VSTO_KEY_FILE = os.path.join(BUILD, "vsto_key.iss")
+
+
 def word_addin():
-    """התוסף ל-Word (חלונות בלבד): בונה את ה-DLL לתוך <תיקיית התוכנה>\word, ובודק את רכיב העזר
+    """התוסף ל-Word (חלונות בלבד, VSTO): בונה לתוך <תיקיית התוכנה>\\word, ובודק את רכיב העזר
     (HebDocSearchHelper.exe) – חיפוש אמיתי דרך הצינור, כמו שהתוסף עושה בתוך Word."""
+    msbuild, vstools = visual_studio()
+    thumb, key = signing_certificate()
+    project = os.path.join(ROOT, "word_addin")
+    shutil.rmtree(os.path.join(project, "bin"), ignore_errors=True)
+    shutil.rmtree(os.path.join(project, "obj"), ignore_errors=True)
+    sh(msbuild, os.path.join(project, "HebDocSearch.WordAddin.csproj"), "/t:Rebuild", "/p:Configuration=Release",
+       f"/p:VSToolsPath={vstools}", f"/p:ManifestCertificateThumbprint={thumb}", "/p:SignManifests=true",
+       "/nologo", "/v:minimal")
+    built = os.path.join(project, "bin", "Release")
     out = os.path.join(DIST, APP_ID, "word")
-    sh("dotnet", "build", os.path.join(ROOT, "word_addin", "HebDocSearch.WordAddin.csproj"),
-       "-c", "Release", "-o", out, "-nologo")
-    dll = os.path.join(out, "HebDocSearch.WordAddin.dll")
-    if not os.path.exists(dll):
-        sys.exit("בניית התוסף ל-Word נכשלה")
+    shutil.rmtree(out, ignore_errors=True)
+    os.makedirs(out)
+    for name in os.listdir(built):
+        if not name.endswith(".pdb"):
+            shutil.copy2(os.path.join(built, name), out)
+    print("  קבצי התוסף:", sorted(os.listdir(out)))
+    for need in ("HebDocSearch.WordAddin.dll", "HebDocSearch.WordAddin.vsto", "HebDocSearch.WordAddin.dll.manifest"):
+        if not os.path.exists(os.path.join(out, need)):
+            sys.exit(f"בניית התוסף ל-Word נכשלה: חסר {need}")
+    os.makedirs(BUILD, exist_ok=True)
+    with open(VSTO_KEY_FILE, "w", encoding="utf-8-sig") as f:
+        f.write(f'#define VstoPublicKey "{key}"\n')
+
     helper = os.path.join(DIST, APP_ID, "HebDocSearchHelper.exe")
     req = json.dumps({"cmd": "search", "doc": "selftest", "query": "הלך", "headings_only": False,
                       "options": {"forms": "all"},
@@ -92,8 +151,9 @@ def find_iscc():
 
 
 def package_windows():
+    extra = [f"/DVstoKeyFile={VSTO_KEY_FILE}"] if os.path.exists(VSTO_KEY_FILE) else []
     sh(find_iscc(), f"/DAppVersion={__version__}", f"/DSourceDir={os.path.join(DIST, APP_ID)}",
-       f"/DOutputDir={DIST}", os.path.join(ROOT, "packaging", "windows", "installer.iss"))
+       f"/DOutputDir={DIST}", *extra, os.path.join(ROOT, "packaging", "windows", "installer.iss"))
     return glob.glob(os.path.join(DIST, f"{APP_ID}-Setup-*.exe"))
 
 

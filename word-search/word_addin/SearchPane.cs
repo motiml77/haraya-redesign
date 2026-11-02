@@ -13,22 +13,15 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
+using Word = Microsoft.Office.Interop.Word;
 
 namespace HebDocSearch.WordAddin
 {
-    [ComVisible(true)]
-    [Guid(SearchPane.ClassId)]
-    [ProgId(SearchPane.ProgIdName)]
-    [ClassInterface(ClassInterfaceType.AutoDispatch)]
     public class SearchPane : UserControl
     {
-        public const string ClassId = "164C9487-E4CD-4C40-8687-9EC7C9FC3A84";
-        public const string ProgIdName = "HebDocSearch.WordPane";
-
         // צבעים – כמו בתוכנה (hebsearch/gui/theme.py)
         static readonly Color Accent = ColorTranslator.FromHtml("#2563eb");
         static readonly Color AccentSoft = ColorTranslator.FromHtml("#eaf1ff");
@@ -60,12 +53,14 @@ namespace HebDocSearch.WordAddin
         readonly Label _counter = new Label();
 
         readonly JavaScriptSerializer _json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
-        dynamic _app, _window;
-        DocSnapshot _snap;
+        readonly ThisAddIn _addin;
+        readonly Word.Window _window;
+        readonly Word.Document _doc;
+        DocText _searched;                                  // הגרסה של המסמך שבה נמצאו התוצאות
         readonly Timer _stateTimer = new Timer { Interval = 500 };
         List<Hit> _hits = new List<Hit>();
         int _current = -1;
-        bool _loading;
+        bool _loading, _busy, _again;
 
         sealed class Hit
         {
@@ -75,46 +70,28 @@ namespace HebDocSearch.WordAddin
             public int BlockStart, BlockLength;
         }
 
-        public SearchPane()
+        internal SearchPane(ThisAddIn addin, Word.Window window, Word.Document doc)
         {
+            _addin = addin;
+            _window = window;
+            _doc = doc;
             RightToLeft = RightToLeft.Yes;
             BackColor = Color.White;
             Font = new Font("Segoe UI", 9.75f);
             Padding = new Padding(8);
             BuildUi();
             LoadSettings();
-        }
-
-        // ----- חיבור לחלון של Word -----
-        internal void Attach(dynamic app, dynamic window, dynamic pane)
-        {
-            _app = app;
-            _window = window;
             _stateTimer.Tick += (s, e) => ShowDocState();
             _stateTimer.Start();
             ShowDocState();
         }
 
-        /// <summary>כל עוד אין תוצאות: האם המסמך כבר מוכן לחיפוש (ההכנה רצה ברקע).</summary>
+        /// <summary>כל עוד אין תוצאות: האם המסמך כבר מוכן לחיפוש (ההכנה רצה ברקע). בלי גישה ל-Word.</summary>
         void ShowDocState()
         {
-            if (_hits.Count > 0 || _lastQuery.Length > 0 || Connect.Indexer == null || !Visible) return;
-            try
-            {
-                string name = DocSnapshot.NameOf(_window.Document);
-                string state = Connect.Indexer.State(name);
-                _status.ForeColor = Muted;
-                if (state.StartsWith("reading:"))
-                    _status.Text = "מכין את המסמך לחיפוש… " + state.Substring(8) + "%";
-                else if (state == "ready")
-                {
-                    var snap = Connect.Indexer.ReadyFor(name);
-                    _status.Text = $"המסמך מוכן לחיפוש · {snap.Texts.Count:N0} פסקאות · {snap.Headings:N0} כותרות";
-                }
-                else
-                    _status.Text = "מקלידים מילה ולוחצים Enter. ניקוד, גרשיים ואותיות סופיות לא משנים.";
-            }
-            catch { }
+            if (_hits.Count > 0 || _lastQuery.Length > 0 || _busy || !Visible || _addin.Preparer == null) return;
+            _status.ForeColor = Muted;
+            _status.Text = _addin.Preparer.Status(_doc);
         }
 
         protected override void Dispose(bool disposing)
@@ -328,64 +305,64 @@ namespace HebDocSearch.WordAddin
         {
             string q = _query.Text.Trim();
             if (q.Length == 0) return;
-            Cursor = Cursors.WaitCursor;
+            if (_busy) { _again = true; return; }              // החיפוש הבא ירוץ כשהנוכחי יסתיים
+            _busy = true;
+            _again = false;
+            string key = OptionsKey();
+            Cursor = Cursors.AppStarting;
             _status.ForeColor = Muted;
             _status.Text = "מחפש…";
-            _status.Refresh();
+            var req = new Dictionary<string, object>
+            {
+                ["query"] = q,
+                ["headings_only"] = _headings.Checked,
+                ["limit"] = 400,
+                ["options"] = new Dictionary<string, object>
+                {
+                    ["forms"] = FormKeys[_forms.SelectedIndex],
+                    ["spelling"] = SpellKeys[_spelling.SelectedIndex],
+                    ["distance"] = DistKeys[_distance.SelectedIndex],
+                    ["near"] = (int)_near.Value,
+                    ["ordered"] = _ordered.Checked,
+                },
+            };
             try
             {
-                dynamic doc = _window.Document;
-                _snap = Connect.Indexer.Get(doc);           // מוכן מראש מהרקע, או משלים עכשיו
-                var req = new Dictionary<string, object>
+                _addin.Preparer.Search(_doc, req, (reply, text, error) =>
                 {
-                    ["cmd"] = "search",
-                    ["doc"] = _snap.Key,
-                    ["query"] = q,
-                    ["headings_only"] = _headings.Checked,
-                    ["limit"] = 400,
-                    ["options"] = new Dictionary<string, object>
+                    _busy = false;
+                    Cursor = Cursors.Default;
+                    if (IsDisposed) return;
+                    if (_again) { RunSearch(); return; }
+                    try
                     {
-                        ["forms"] = FormKeys[_forms.SelectedIndex],
-                        ["spelling"] = SpellKeys[_spelling.SelectedIndex],
-                        ["distance"] = DistKeys[_distance.SelectedIndex],
-                        ["near"] = (int)_near.Value,
-                        ["ordered"] = _ordered.Checked,
-                    },
-                };
-                if (!Connect.Indexer.Sent(_snap.Key)) req["paras"] = _snap.Paras();
-                var reply = Ask(req);
-                if (reply.ContainsKey("need_paras"))       // רכיב העזר הופעל מחדש ושכח את המסמך
-                {
-                    Connect.Indexer.ForgetSent();
-                    req["paras"] = _snap.Paras();
-                    reply = Ask(req);
-                }
-                Connect.Indexer.MarkSent(_snap.Key);
-                if (!(reply.ContainsKey("ok") && (bool)reply["ok"]))
-                    throw new Exception(reply.ContainsKey("error") ? Convert.ToString(reply["error"]) : "שגיאה בחיפוש");
-                _lastQuery = q;
-                _lastKey = OptionsKey();
-                ShowResults(reply);
+                        if (error != null) throw error;
+                        if (!(reply.ContainsKey("ok") && (bool)reply["ok"]))
+                            throw new Exception(reply.ContainsKey("error") ? Convert.ToString(reply["error"]) : "שגיאה בחיפוש");
+                        _searched = text;
+                        _lastQuery = q;
+                        _lastKey = key;
+                        ShowResults(reply);
+                    }
+                    catch (Exception ex) { SearchFailed(ex); }
+                });
             }
             catch (Exception ex)
             {
-                Log.Error("search", ex);
-                _hits.Clear();
-                _results.Clear();
-                _status.ForeColor = Warn;
-                _status.Text = "לא ניתן לחפש: " + ex.Message;
-                UpdateNav();
-            }
-            finally
-            {
+                _busy = false;
                 Cursor = Cursors.Default;
+                SearchFailed(ex);
             }
         }
 
-        Dictionary<string, object> Ask(Dictionary<string, object> req)
+        void SearchFailed(Exception ex)
         {
-            string line = Connect.Helper.Call(_json.Serialize(req));
-            return _json.Deserialize<Dictionary<string, object>>(line);
+            Log.Error("search", ex);
+            _hits.Clear();
+            _results.Clear();
+            _status.ForeColor = Warn;
+            _status.Text = "לא ניתן לחפש: " + ex.Message;
+            UpdateNav();
         }
 
         void ShowResults(Dictionary<string, object> reply)
@@ -479,7 +456,13 @@ namespace HebDocSearch.WordAddin
             _results.Select(hit.BlockStart, 0);
             _results.ScrollToCaret();
             UpdateNav();
-            try { _snap.Select(_window, hit.Para, hit.Ranges); }
+            try
+            {
+                Word.Range rng = _searched?.Locate(_doc, hit.Para, hit.Ranges);
+                if (rng == null) throw new Exception("הטקסט השתנה מאז החיפוש – חפשו שוב");
+                rng.Select();
+                try { _window.ScrollIntoView(rng, true); } catch { }
+            }
             catch (Exception ex)
             {
                 Log.Error("select", ex);
