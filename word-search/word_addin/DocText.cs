@@ -189,6 +189,13 @@ namespace HebDocSearch.WordAddin
         /// <summary>המיקום המשוער של תחילת פסקה במסמך (כולל ההפרש שנלמד).</summary>
         public int EstimatedStart(int para) => Math.Max(0, Starts[para] + DriftAt(para));
 
+        // ================================================================ קטע סביב תוצאה (לחלון נפרד)
+        /// <summary>כ-before מילים לפני התוצאה ו-after מילים אחריה (גם מפסקאות סמוכות).</summary>
+        public Excerpt Around(int para, List<int[]> ranges, int before, int after)
+        {
+            return Excerpt.Build(Texts, para, ranges, before, after);
+        }
+
         /// <summary>טקסט של פסקה מ-Word (Range.Text) – באותם החלפות של תווים מיוחדים כמו ב-Build,
         /// כדי שההשוואה לפסקאות תהיה מדויקת (למשל מקף לא-שביר בכותרת).</summary>
         public static string Clean(string paragraphText)

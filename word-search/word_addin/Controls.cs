@@ -617,3 +617,53 @@ namespace HebDocSearch.WordAddin
         }
     }
 }
+
+namespace HebDocSearch.WordAddin
+{
+    // ==================================================================== לחצן טקסט
+    internal sealed class TextButton : ThemedControl
+    {
+        public bool Primary;
+
+        public TextButton()
+        {
+            Cursor = Cursors.Hand;
+            TabStop = true;
+        }
+
+        public int PreferredWidth => M == null ? 100 : Draw.Width(Text, M.Body) + M.S(28);
+
+        protected override void OnTextChanged(EventArgs e) { base.OnTextChanged(e); Invalidate(); }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.Clear(T.PaneBg);
+            if (M == null) return;
+            Color bg = Primary ? (Hover ? Draw.Mix(T.Accent, Color.White, 0.15f) : T.Accent) : (Hover ? T.BtnHover : T.BtnBg);
+            Color border = Primary ? T.Accent : (Focused ? T.Accent : T.BtnBorder);
+            Draw.Box(g, new Rectangle(0, 0, Width, Height), M.S(4), bg, border, 1f);
+            Draw.Text(g, Text, Primary ? M.BodyBold : M.Body, new Rectangle(0, 0, Width, Height), Primary ? T.OnAccent : T.BtnGlyph, 'c');
+        }
+
+        public void PerformClick() => OnClick(EventArgs.Empty);
+
+        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
+
+        protected override bool IsInputKey(Keys keyData)
+        {
+            return (keyData & Keys.KeyCode) == Keys.Enter || (keyData & Keys.KeyCode) == Keys.Space || base.IsInputKey(keyData);
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            base.OnKeyDown(e);
+            if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space)
+            {
+                e.Handled = e.SuppressKeyPress = true;
+                PerformClick();
+            }
+        }
+    }
+}

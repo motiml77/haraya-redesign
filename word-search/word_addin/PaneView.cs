@@ -59,6 +59,7 @@ namespace HebDocSearch.WordAddin
         public event Action OptionsChanged;             // מילים / מרחק
         public event Action ModeChanged;                // תוצאות / כותרות
         public event Action<int> ResultActivated;
+        public event Action<int> PopOutRequested;      // "הצג בחלון נפרד"
         public event Action QueryCleared;
 
         public PaneView()
@@ -77,6 +78,7 @@ namespace HebDocSearch.WordAddin
             _prev.Click += (s, e) => NavigateRequested?.Invoke(-1);
             _tabs.SelectedChanged += () => ModeChanged?.Invoke();
             List.ItemActivated += i => ResultActivated?.Invoke(i);
+            List.ItemContextMenu += ShowResultMenu;
             _searchingDelay.Tick += (s, e) =>
             {
                 _searchingDelay.Stop();
@@ -462,6 +464,24 @@ namespace HebDocSearch.WordAddin
             drop.Show(_dist, new Point(_dist.Width, _dist.Height + _m.S(2)), ToolStripDropDownDirection.BelowLeft);
             panel.Focus();
         }
+
+        /// <summary>לחיצה ימנית על תוצאה: הצג בחלון נפרד / עבור למקום במסמך.</summary>
+        void ShowResultMenu(int index, Point screen)
+        {
+            if (_m == null) return;
+            var menu = NewMenu();
+            menu.ShowCheckMargin = false;
+            var pop = new ToolStripMenuItem("הצג בחלון נפרד") { Font = _m.BodyBold };
+            pop.Click += (s, e) => PopOutRequested?.Invoke(index);
+            var go = new ToolStripMenuItem("עבור למקום במסמך");
+            go.Click += (s, e) => ResultActivated?.Invoke(index);
+            menu.Items.Add(pop);
+            menu.Items.Add(go);
+            menu.Closed += (s, e) => BeginInvoke(new Action(menu.Dispose));
+            menu.Show(screen);
+        }
+
+        public Metrics CurrentMetrics => _m;
 
         // ----- לתצוגה המקדימה בבנייה -----
         ToolStripDropDown _previewMenu;

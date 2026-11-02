@@ -65,6 +65,7 @@ namespace HebDocSearch.WordAddin
         int _dragStartY, _dragStartScroll;
 
         public event Action<int> ItemActivated;
+        public event Action<int, Point> ItemContextMenu;         // לחיצה ימנית (מיקום במסך): "הצג בחלון נפרד"
 
         public ResultList()
         {
@@ -305,7 +306,7 @@ namespace HebDocSearch.WordAddin
             if (tag != null)
             {
                 int tw = Draw.Width(tag, _m.Caption) + _m.S(12);
-                var tr = new Rectangle(TextLeft, top + (HeaderH - BadgeH) / 2, tw, BadgeH);
+                var tr = new Rectangle(limit, top + (HeaderH - BadgeH) / 2, tw, BadgeH);
                 Draw.Fill(g, tr, _m.S(4), tagBg);
                 Draw.Text(g, tag, _m.Caption, tr, tagFg, 'c');
                 limit = tr.Right + _m.S(8);
@@ -466,7 +467,18 @@ namespace HebDocSearch.WordAddin
         {
             base.OnMouseDown(e);
             Focus();
-            if (e.Button != MouseButtons.Left || _m == null) return;
+            if (_m == null) return;
+            if (e.Button == MouseButtons.Right)
+            {
+                int ri = e.X < Gutter ? -1 : IndexAt(e.Y);
+                if (ri >= 0)
+                {
+                    Select(ri, false);
+                    ItemContextMenu?.Invoke(ri, PointToScreen(e.Location));
+                }
+                return;
+            }
+            if (e.Button != MouseButtons.Left) return;
             if (_contentH > ClientSize.Height && e.X < Gutter)
             {
                 var th = ThumbRect;
@@ -485,7 +497,7 @@ namespace HebDocSearch.WordAddin
             if (i >= 0)
             {
                 Select(i);
-                ItemActivated?.Invoke(i);
+                ItemActivated?.Invoke(i);                         // לחיצה – ישר למקום במסמך
             }
         }
 
@@ -545,6 +557,7 @@ namespace HebDocSearch.WordAddin
             switch (keyData & Keys.KeyCode)
             {
                 case Keys.Up: case Keys.Down: case Keys.PageUp: case Keys.PageDown: case Keys.Home: case Keys.End: case Keys.Enter: case Keys.Space:
+                case Keys.Apps:
                     return true;
             }
             return base.IsInputKey(keyData);
@@ -554,6 +567,15 @@ namespace HebDocSearch.WordAddin
         {
             base.OnKeyDown(e);
             if (_items.Count == 0) return;
+            // מקש התפריט / Shift+F10 – אותו תפריט כמו לחיצה ימנית, ליד התוצאה המסומנת
+            if (e.KeyCode == Keys.Apps || (e.KeyCode == Keys.F10 && e.Shift))
+            {
+                e.Handled = e.SuppressKeyPress = true;
+                if (_sel < 0) Select(0);
+                var it = _items[_sel];
+                ItemContextMenu?.Invoke(_sel, PointToScreen(new Point(TextRight - _m.S(60), it.Top - _scroll + _m.S(24))));
+                return;
+            }
             // חיצים – רק מסמנים תוצאה ברשימה; Enter (או רווח) – עוברים אליה במסמך, כמו לחיצה
             if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space)
             {

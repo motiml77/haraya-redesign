@@ -59,6 +59,7 @@ namespace HebDocSearch.WordAddin
                             v.Query = "הולך בדרך";
                             v.ShowIdle("המסמך מוכן לחיפוש · 1,234 פסקאות · 56 כותרות");
                         }, menu: true);
+                        RenderWindow(tag + "-7-window", theme, scale);
                         Render(tag + "-6-distance", theme, scale, v =>
                         {
                             v.Query = "הולך בדרך";
@@ -142,6 +143,34 @@ namespace HebDocSearch.WordAddin
 
             [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
             struct MINMAXINFO { public POINT ptReserved, ptMaxSize, ptMaxPosition, ptMinTrackSize, ptMaxTrackSize; }
+        }
+
+        /// <summary>"הצג בחלון נפרד": החלון עם כ-70 מילים סביב תוצאה (מפסקה ארוכה וקצרות סביבה).</summary>
+        static void RenderWindow(string name, Theme theme, float scale)
+        {
+            var texts = new List<string>
+            {
+                "פרק ג – כתובות",
+                "ובמשנה (כתובות ע\"ב ע\"א) מנו את הדברים שבהם אשה עוברת על דת משה ודת יהודית ויוצאת שלא בכתובה.",
+                "ברה\"ר – אם יצאה בקלתה מפסדת כתובתה, כי עברה על 'דת יהודית'. במבוי – אם יצאה ב'קלתה' לא עברה אפילו על דת יהודית – משמע שמותר, ובחצר אין בזה שום חשש כלל, כמבואר בגמרא ובראשונים שם, ועיין עוד בשולחן ערוך אבן העזר סימן קט\"ו.",
+                "ראה במהדורת Microsoft Word 2016, עמ' 120–125.",
+            };
+            string p = texts[2];
+            int a = p.IndexOf("קלתה");
+            var ex = Excerpt.Build(texts, 2, new List<int[]> { new[] { a, a + 4 } }, 35, 35);
+            Metrics.Override = scale;
+            using (var win = new ContextWindow(theme, scale, 3, new[] { "פרק ג – כתובות", "דת יהודית" }, ex, () => { }))
+            {
+                win.Location = new Point(-10000, -10000);
+                win.Show();
+                Pump();
+                using (var bmp = new Bitmap(win.Width, win.Height, PixelFormat.Format32bppArgb))
+                {
+                    win.DrawToBitmap(bmp, new Rectangle(0, 0, win.Width, win.Height));
+                    bmp.Save(Path.Combine(_out, name + ".png"), ImageFormat.Png);
+                }
+                win.Close();
+            }
         }
 
         static void Pump()

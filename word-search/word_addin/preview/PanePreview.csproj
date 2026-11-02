@@ -17,6 +17,8 @@
     <Compile Include="..\Controls.cs" Link="Controls.cs" />
     <Compile Include="..\ResultList.cs" Link="ResultList.cs" />
     <Compile Include="..\PaneView.cs" Link="PaneView.cs" />
+    <Compile Include="..\ContextWindow.cs" Link="ContextWindow.cs" />
+    <Compile Include="..\Excerpt.cs" Link="Excerpt.cs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="System.Windows.Forms" />

@@ -48,6 +48,7 @@ namespace HebDocSearch.WordAddin
             // "הבאה / הקודמת" – ממשיכים מהתוצאה שסומנה ברשימה (גם אם סומנה בחיצים בלי לעבור אליה)
             _view.NavigateRequested += d => Go((_view.List.SelectedIndex >= 0 ? _view.List.SelectedIndex : _current) + d);
             _view.ResultActivated += i => Go(i);
+            _view.PopOutRequested += PopOut;
             _view.OptionsChanged += OnOptionsChanged;
             _view.ModeChanged += OnOptionsChanged;
             _view.QueryCleared += Reset;
@@ -336,6 +337,33 @@ namespace HebDocSearch.WordAddin
                 Log.Error("select", ex);
                 _view.SetNote("לא ניתן להגיע למקום במסמך: " + ex.Message, true);
             }
+        }
+
+        // ================================================================ הצג בחלון נפרד (ניסיוני)
+        /// <summary>חלון קטן עם כ-70 מילים סביב התוצאה (35 לפני, 35 אחרי). לא מזיז את הסמן במסמך;
+        /// "עבור למקום במסמך" בחלון – כמו לחיצה על התוצאה.</summary>
+        void PopOut(int i)
+        {
+            if (i < 0 || i >= _items.Count || _searched == null) return;
+            var hit = _items[i];
+            try
+            {
+                var excerpt = _searched.Around(hit.Para, hit.Ranges, 35, 35);
+                if (excerpt == null) return;
+                float scale = _view.CurrentMetrics?.Scale ?? Assets.SystemScale;
+                var win = new ContextWindow(_view.CurrentTheme, scale, hit.Number, hit.Path, excerpt, () => Go(i));
+                win.PlaceNear(Cursor.Position);
+                win.Show(new WordOwner(FindForm()?.Handle ?? IntPtr.Zero));
+                Log.Write($"pop-out result {hit.Number}: {excerpt.Text.Length} chars");
+            }
+            catch (Exception ex) { Log.Error("pop-out", ex); }
+        }
+
+        /// <summary>הבעלים של החלון: החלון של Word, כדי שיישאר מעליו ולא ייעלם מאחוריו.</summary>
+        sealed class WordOwner : IWin32Window
+        {
+            public WordOwner(IntPtr handle) { Handle = handle != IntPtr.Zero ? handle : System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle; }
+            public IntPtr Handle { get; }
         }
 
         // ================================================================ הגדרות
