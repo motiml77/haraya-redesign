@@ -151,6 +151,35 @@ begin
   end;
 end;
 
+// Word משבית לצמיתות תוסף שתקע אותו (Resiliency\DisabledItems), לפי שם התוסף – גם אחרי שהותקנה גרסה
+// מתוקנת. מוחקים משם רק את הרשומות של התוסף הזה (הטקסט בתוך הרשומה מכיל את שמו), ולא נוגעים באחרות.
+procedure ClearWordDisabledItems;
+var
+  Versions: array of String;
+  Names: TArrayOfString;
+  V, I, J: Integer;
+  Key: String;
+  Data, Plain: AnsiString;
+begin
+  SetArrayLength(Versions, 2);
+  Versions[0] := '16.0'; Versions[1] := '15.0';
+  for V := 0 to GetArrayLength(Versions) - 1 do
+  begin
+    Key := 'Software\Microsoft\Office\' + Versions[V] + '\Word\Resiliency\DisabledItems';
+    if RegGetValueNames(HKCU, Key, Names) then
+      for I := 0 to GetArrayLength(Names) - 1 do
+        if RegQueryBinaryValue(HKCU, Key, Names[I], Data) then
+        begin
+          Plain := '';
+          for J := 1 to Length(Data) do
+            if Data[J] <> #0 then
+              Plain := Plain + Data[J];
+          if Pos('hebdocsearch', Lowercase(String(Plain))) > 0 then
+            RegDeleteValue(HKCU, Key, Names[I]);
+        end;
+  end;
+end;
+
 function VstoRuntimeInstalled: Boolean;
 begin
   Result := RegKeyExists(HKLM64, 'SOFTWARE\Microsoft\VSTO Runtime Setup\v4R')
@@ -168,6 +197,7 @@ begin
   if (CurStep = ssPostInstall) and WizardIsTaskSelected('wordaddin') then
   begin
     TrustAddin;
+    ClearWordDisabledItems;
     if not VstoRuntimeInstalled() and not WizardSilent() then
       if MsgBox(CustomMessage('VstoRuntime'), mbInformation, MB_YESNO) = IDYES then
         ShellExec('open', VstoRuntimePage, '', '', SW_SHOWNORMAL, ewNoWait, Code);
