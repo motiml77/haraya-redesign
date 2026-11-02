@@ -85,6 +85,7 @@ def signing_certificate():
     # קודם מפתח של ספק ההצפנה הקלאסי (הכי נתמך בחתימת מניפסטים), ואם לא – ספק ברירת המחדל
     script = r"""
 $ErrorActionPreference = 'Stop'
+Import-Module Microsoft.PowerShell.Security
 $common = @{ Type = 'CodeSigningCert'; Subject = 'CN=HebDocSearch Word Addin'; CertStoreLocation = 'Cert:\CurrentUser\My';
              KeyExportPolicy = 'Exportable'; KeyAlgorithm = 'RSA'; KeyLength = 2048; NotAfter = (Get-Date).AddYears(30) }
 try {
@@ -99,8 +100,11 @@ $k = '<RSAKeyValue><Modulus>' + [Convert]::ToBase64String($p.Modulus) + '</Modul
 Write-Output ('THUMB=' + $c.Thumbprint)
 Write-Output ('KEY=' + $k)
 """
+    # PSModulePath שעובר מ-PowerShell 7 (כמו ב-GitHub Actions) גורם ל-Windows PowerShell לטעון מודולים
+    # שגויים, ואז אין כונן Cert: – מריצים עם נתיב המודולים של ברירת המחדל
+    env = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
     proc = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, env=env)
     out = proc.stdout
     if proc.stderr.strip():
         print("  powershell:", proc.stderr.strip()[-3000:], flush=True)
