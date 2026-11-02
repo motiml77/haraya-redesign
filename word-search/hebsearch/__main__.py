@@ -1,10 +1,16 @@
 import multiprocessing
+import os
 import sys
 
 
 def main():
     multiprocessing.freeze_support()
     args = sys.argv[1:]
+    # רכיב העזר של התוסף ל-Word (קובץ הפעלה נפרד, בלי חלון): חיפוש במסמך הפתוח דרך stdin/stdout
+    exe = os.path.basename(sys.executable).lower()
+    if (args and args[0] == "--doc-helper") or exe.startswith("hebdocsearchhelper"):
+        from .docsearch import serve
+        return serve()
     if args and args[0] == "--version":
         from . import __version__
         print(__version__)

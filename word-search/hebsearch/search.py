@@ -46,6 +46,22 @@ class SearchOptions:
         return MatchOptions(self.prefixes, self.inflections, self.ahevi)
 
 
+def options_from_choices(forms="prefixes", spelling="none", distance="adjacent", near=3, ordered=True,
+                         required=0, n_terms=0) -> SearchOptions:
+    """הבחירות של השבבים ("מילים", "מרחק") → SearchOptions. משותף לתוכנה ולתוסף ל-Word.
+    forms: exact | prefixes | all;  spelling: none | vy | all;  distance: adjacent | near | paragraph."""
+    near = max(1, min(99, int(near)))
+    return SearchOptions(
+        prefixes=forms != "exact",
+        inflections=forms == "all",
+        ahevi=spelling if spelling in ("none", "vy", "all") else "none",
+        max_gap=near if distance == "near" else 0,
+        whole_paragraph=distance == "paragraph",
+        ordered=bool(ordered),
+        min_terms=required if 0 < required < n_terms else 0,
+    )
+
+
 @dataclass
 class Term:
     text: str

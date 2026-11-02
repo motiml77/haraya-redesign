@@ -60,6 +60,29 @@ def selftest():
     print("הבדיקה העצמית עברה", flush=True)
 
 
+def word_addin():
+    """התוסף ל-Word (חלונות בלבד): בונה את ה-DLL לתוך <תיקיית התוכנה>\word, ובודק את רכיב העזר
+    (HebDocSearchHelper.exe) – חיפוש אמיתי דרך הצינור, כמו שהתוסף עושה בתוך Word."""
+    out = os.path.join(DIST, APP_ID, "word")
+    sh("dotnet", "build", os.path.join(ROOT, "word_addin", "HebDocSearch.WordAddin.csproj"),
+       "-c", "Release", "-o", out, "-nologo")
+    dll = os.path.join(out, "HebDocSearch.WordAddin.dll")
+    if not os.path.exists(dll):
+        sys.exit("בניית התוסף ל-Word נכשלה")
+    helper = os.path.join(DIST, APP_ID, "HebDocSearchHelper.exe")
+    req = json.dumps({"cmd": "search", "doc": "selftest", "query": "הלך", "headings_only": False,
+                      "options": {"forms": "all"},
+                      "paras": [{"t": "הלכות שבת", "h": 1}, {"t": "ההולך בשבת ברשות הרבים", "h": 0}]},
+                     ensure_ascii=False)
+    proc = subprocess.run([helper], input=json.dumps({"cmd": "ping"}) + "\n" + req + "\n", capture_output=True,
+                          text=True, encoding="utf-8", timeout=120)
+    lines = [json.loads(x) for x in proc.stdout.splitlines() if x.strip()]
+    print("  רכיב העזר:", lines)
+    if len(lines) != 2 or not lines[0].get("ok") or lines[1].get("total") != 2:
+        sys.exit("רכיב העזר של התוסף ל-Word לא עבד: " + proc.stderr[-2000:])
+    print("התוסף ל-Word נבנה ורכיב העזר עובד", flush=True)
+
+
 def find_iscc():
     for c in (shutil.which("iscc"), r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
               r"C:\Program Files\Inno Setup 6\ISCC.exe"):
@@ -99,6 +122,7 @@ def main():
     pyinstaller()
     selftest()
     if sys.platform == "win32":
+        word_addin()
         outputs = package_windows()
     elif sys.platform == "darwin":
         outputs = package_macos()

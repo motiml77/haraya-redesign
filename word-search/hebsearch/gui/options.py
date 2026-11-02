@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QFrame, QHBoxLayout, QLabel, QRadioButton, QVBoxLayout, QWidget,
 )
 
-from ..search import SearchOptions
+from ..search import SearchOptions, options_from_choices
 from .theme import C, T
 from .widgets import Combo, Popup, Segmented, Stepper, WrapLabel, link_button
 
@@ -117,15 +117,8 @@ class SearchSettings(QObject):
 
     # ----- תרגום לחיפוש -----
     def options(self) -> SearchOptions:
-        return SearchOptions(
-            prefixes=self.forms != "exact",
-            inflections=self.forms == "all",
-            ahevi=self.spelling,
-            max_gap=self.near if self.distance == "near" else 0,
-            whole_paragraph=self.distance == "paragraph",
-            ordered=self.ordered,
-            min_terms=self.required if self.required < self.n_terms else 0,
-        )
+        return options_from_choices(self.forms, self.spelling, self.distance, self.near, self.ordered,
+                                    self.required, self.n_terms)
 
     # ----- שמירה (מפתחות תואמים לגרסאות קודמות) -----
     def restore(self, s: QSettings):
