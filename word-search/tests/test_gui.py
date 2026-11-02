@@ -116,10 +116,12 @@ class LayoutTest(GuiBase):
             h = getattr(win, name).height()
             self.assertLessEqual(h, 36, f"{name} גבוה מדי: {h}px")
             self.assertGreaterEqual(h, 24, f"{name} נמוך מדי: {h}px")
-        # כל כותרת החיפוש (שדה + שורת השבבים + שוליים) לא תופסת יותר מ-10% מגובה החלון,
-        # ועוד גובה שורת השבבים (שהחליפה את שורת "חיפוש ב:" והכפתור "אפשרויות")
+        # כל כותרת החיפוש (שדה + שוליים) לא תופסת יותר מ-10% מגובה החלון, ועוד שורות השבבים
+        # (שהחליפו את שורת "חיפוש ב:" והכפתור "אפשרויות"; בחלון צר הן עוברות שורה בכוונה)
         card = win.search_edit.parentWidget()
-        extra = win.words_chip.height() - win.fontMetrics().height()
+        rows = round((win.chip_box.height() + 4) / (win.words_chip.height() + 4))
+        self.assertLessEqual(rows, 2)
+        extra = win.chip_box.height() - win.fontMetrics().height()
         self.assertLessEqual(card.height(), 0.10 * win.height() + 20 + extra)
 
     def test_option_chips_describe_the_search(self):
@@ -276,6 +278,30 @@ class OptionsTest(GuiBase):
         self.assertFalse(o.ordered)
         dist.set_locked(True)
         self.assertFalse(dist.body.isEnabled())
+
+
+class PersistenceTest(GuiBase):
+    def test_zoom_options_sort_and_sidebar_survive_a_restart(self):
+        win = self.new_window()
+        win.set_zoom(1.2)
+        win.options.update(forms="all", spelling="vy", distance="near", near=4, ordered=False)
+        win.sort_combo.setCurrentIndex(1)
+        win.sidebar_btn.setChecked(False)
+        win.close()
+        theme.T.set_zoom(1.0)
+        mw.prepare_app(APP, self.settings)                 # כמו הפעלה מחדש של התוכנה
+        self.assertAlmostEqual(theme.T.zoom, 1.2)
+        again = mw.MainWindow(os.path.join(self.dir, "index.sqlite3"), self.settings)
+        self.addCleanup(self.close_window, again)
+        again.show()
+        settle(again)
+        o = again.options
+        self.assertEqual((o.forms, o.spelling, o.distance, o.near, o.ordered), ("all", "vy", "near", 4, False))
+        self.assertEqual(again.words_chip.value(), "כל ההטיות · מלא וחסר")
+        self.assertEqual(again.sort_combo.currentIndex(), 1)
+        self.assertFalse(again.sidebar_btn.isChecked())
+        self.assertFalse(again.baskets.isVisible())
+        again.set_zoom(1.0)
 
 
 class HistoryTest(GuiBase):

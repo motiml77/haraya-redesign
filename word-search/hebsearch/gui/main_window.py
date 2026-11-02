@@ -343,6 +343,7 @@ class MainWindow(QMainWindow):
 
     def _sidebar_toggled(self, on):
         self.baskets.setVisible(on)
+        self.settings.setValue("sidebar", bool(on))
         self._update_scope()
 
     def _focus_search(self):
@@ -357,6 +358,7 @@ class MainWindow(QMainWindow):
         state = self.settings.value("splitter")
         if state:
             self.splitter.restoreState(state)
+        self.sidebar_btn.setChecked(self.settings.value("sidebar", True, bool))
 
     # ================================================================ במה מחפשים
     @property
