@@ -76,11 +76,11 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 ; FriendlyName, Description, LoadBehavior=3 (נטען בהפעלת Word), Manifest=<נתיב ה-.vsto>|vstolocal
 ; (vstolocal – רץ ישירות מתיקיית ההתקנה, בלי מטמון ClickOnce). בשתי תצוגות הרישום – ל-Word של 32 ושל 64 ביט.
 Root: HKA64; Subkey: "Software\Microsoft\Office\Word\Addins\HebDocSearch.WordAddin"; ValueType: string; ValueName: "FriendlyName"; ValueData: "חיפוש עברי"; Flags: uninsdeletekey; Tasks: wordaddin; Check: IsWin64
-Root: HKA64; Subkey: "Software\Microsoft\Office\Word\Addins\HebDocSearch.WordAddin"; ValueType: string; ValueName: "Description"; ValueData: "חיפוש עברי במסמך – מתוך חיפוש במסמכים"; Tasks: wordaddin; Check: IsWin64
+Root: HKA64; Subkey: "Software\Microsoft\Office\Word\Addins\HebDocSearch.WordAddin"; ValueType: string; ValueName: "Description"; ValueData: "תוסף המאפשר חיפוש רחב ומקצועי בטקסט עברי."; Tasks: wordaddin; Check: IsWin64
 Root: HKA64; Subkey: "Software\Microsoft\Office\Word\Addins\HebDocSearch.WordAddin"; ValueType: dword; ValueName: "LoadBehavior"; ValueData: 3; Tasks: wordaddin; Check: IsWin64
 Root: HKA64; Subkey: "Software\Microsoft\Office\Word\Addins\HebDocSearch.WordAddin"; ValueType: string; ValueName: "Manifest"; ValueData: "file:///{app}\word\HebDocSearch.WordAddin.vsto|vstolocal"; Tasks: wordaddin; Check: IsWin64
 Root: HKA32; Subkey: "Software\Microsoft\Office\Word\Addins\HebDocSearch.WordAddin"; ValueType: string; ValueName: "FriendlyName"; ValueData: "חיפוש עברי"; Flags: uninsdeletekey; Tasks: wordaddin
-Root: HKA32; Subkey: "Software\Microsoft\Office\Word\Addins\HebDocSearch.WordAddin"; ValueType: string; ValueName: "Description"; ValueData: "חיפוש עברי במסמך – מתוך חיפוש במסמכים"; Tasks: wordaddin
+Root: HKA32; Subkey: "Software\Microsoft\Office\Word\Addins\HebDocSearch.WordAddin"; ValueType: string; ValueName: "Description"; ValueData: "תוסף המאפשר חיפוש רחב ומקצועי בטקסט עברי."; Tasks: wordaddin
 Root: HKA32; Subkey: "Software\Microsoft\Office\Word\Addins\HebDocSearch.WordAddin"; ValueType: dword; ValueName: "LoadBehavior"; ValueData: 3; Tasks: wordaddin
 Root: HKA32; Subkey: "Software\Microsoft\Office\Word\Addins\HebDocSearch.WordAddin"; ValueType: string; ValueName: "Manifest"; ValueData: "file:///{app}\word\HebDocSearch.WordAddin.vsto|vstolocal"; Tasks: wordaddin
 
