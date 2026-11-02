@@ -38,12 +38,33 @@ namespace HebDocSearch.WordAddin
             try { return Convert.ToString(doc.FullName); } catch { return "document"; }
         }
 
+        /// <summary>כל הטקסט של המסמך (טווח Content זמני משתחרר מיד).</summary>
+        public static string TextOf(dynamic doc)
+        {
+            dynamic c = doc.Content;
+            try { return Convert.ToString(c.Text) ?? ""; }
+            finally { DocIndexer.Release(c); }
+        }
+
+        public static int EndOf(dynamic doc)
+        {
+            dynamic c = doc.Content;
+            try { return (int)c.End; }
+            finally { DocIndexer.Release(c); }
+        }
+
         /// <summary>מוסיף פסקה אחת (נקרא במנות מתוך DocIndexer, או ברצף מ-ReadAll).</summary>
         public void Add(dynamic paragraph)
         {
             dynamic r = paragraph.Range;
-            int start = (int)r.Start;
-            string text = Convert.ToString(r.Text) ?? "";
+            int start;
+            string text;
+            try
+            {
+                start = (int)r.Start;
+                text = Convert.ToString(r.Text) ?? "";
+            }
+            finally { DocIndexer.Release(r); }          // טווח חי מאט את Word – משחררים מיד
             text = text.TrimEnd('\r', '\a', '\n');
             // תווים מיוחדים של Word מוחלפים באורך זהה, כדי שהמיקומים לא יזוזו
             text = text.Replace('\v', ' ').Replace('\a', ' ').Replace('\f', ' ').Replace('\u001e', '-').Replace('\u001f', ' ');
@@ -58,9 +79,17 @@ namespace HebDocSearch.WordAddin
         public static DocSnapshot ReadAll(dynamic doc)
         {
             string name = NameOf(doc);
-            string full = Convert.ToString(doc.Content.Text) ?? "";
-            var snap = new DocSnapshot { Name = name, Key = KeyOf(name, full), End = (int)doc.Content.End };
-            foreach (dynamic p in doc.Paragraphs) snap.Add(p);
+            var snap = new DocSnapshot { Name = name, Key = KeyOf(name, TextOf(doc)), End = EndOf(doc) };
+            dynamic paras = doc.Paragraphs;
+            dynamic p = paras.First;
+            DocIndexer.Release(paras);
+            while (p != null)
+            {
+                snap.Add(p);
+                dynamic next = p.Next();
+                DocIndexer.Release(p);
+                p = next;
+            }
             return snap;
         }
 
@@ -144,7 +173,7 @@ namespace HebDocSearch.WordAddin
                 if (Convert.ToString(d["name"]) != name
                     || Convert.ToString(d["mtime"]) != file.LastWriteTimeUtc.Ticks.ToString()
                     || Convert.ToString(d["size"]) != file.Length.ToString()
-                    || Convert.ToInt32(d["end"]) != (int)doc.Content.End)
+                    || Convert.ToInt32(d["end"]) != EndOf(doc))
                     return null;
                 var snap = new DocSnapshot { Name = name, Key = Convert.ToString(d["key"]), End = Convert.ToInt32(d["end"]) };
                 foreach (object x in (System.Collections.IList)d["starts"]) snap.Starts.Add(Convert.ToInt32(x));

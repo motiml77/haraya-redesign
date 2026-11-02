@@ -369,6 +369,7 @@ namespace HebDocSearch.WordAddin
             }
             catch (Exception ex)
             {
+                Log.Error("search", ex);
                 _hits.Clear();
                 _results.Clear();
                 _status.ForeColor = Warn;
@@ -481,6 +482,7 @@ namespace HebDocSearch.WordAddin
             try { _snap.Select(_window, hit.Para, hit.Ranges); }
             catch (Exception ex)
             {
+                Log.Error("select", ex);
                 _status.ForeColor = Warn;
                 _status.Text = "לא ניתן להגיע למקום במסמך: " + ex.Message;
             }

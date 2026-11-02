@@ -29,6 +29,7 @@ namespace HebDocSearch.WordAddin
         public void OnConnection(object Application, ext_ConnectMode ConnectMode, object AddInInst, ref Array custom)
         {
             _app = Application;
+            Log.Write("connect: mode=" + ConnectMode + " clr=" + Environment.Version + " 64bit=" + Environment.Is64BitProcess);
             Indexer = new DocIndexer(_app);
             // נטען אחרי ש-Word כבר פעל (למשל הופעל מחדש מהגדרות התוספים) – OnStartupComplete לא ייקרא
             if (ConnectMode == ext_ConnectMode.ext_cm_AfterStartup) Indexer.Start();
@@ -95,6 +96,7 @@ namespace HebDocSearch.WordAddin
             }
             catch (Exception e)
             {
+                Log.Error("toggle pane", e);
                 System.Windows.Forms.MessageBox.Show("לא ניתן לפתוח את חלונית החיפוש:\n" + e.Message, Title);
             }
         }
