@@ -73,7 +73,7 @@ namespace HebDocSearch.WordAddin
         static void Render(string name, Theme theme, float scale, Action<PaneView> setup, bool menu = false)
         {
             int w = (int)(400 * scale), h = (int)(860 * scale);
-            using (var form = new Form
+            using (var form = new BigForm
             {
                 FormBorderStyle = FormBorderStyle.None,
                 StartPosition = FormStartPosition.Manual,
@@ -86,6 +86,7 @@ namespace HebDocSearch.WordAddin
                 var view = new PaneView { Dock = DockStyle.Fill };
                 form.Controls.Add(view);
                 form.Show();
+                form.ClientSize = new Size(w, h);
                 view.ApplyTheme(theme, true);
                 setup(view);
                 Pump();
@@ -114,6 +115,27 @@ namespace HebDocSearch.WordAddin
                 }
                 form.Close();
             }
+        }
+
+        /// <summary>חלון שמותר לו להיות גדול מהמסך (במכונת הבנייה המסך קטן), כדי לצלם את כל החלונית.</summary>
+        sealed class BigForm : Form
+        {
+            protected override void WndProc(ref Message m)
+            {
+                base.WndProc(ref m);
+                if (m.Msg == 0x0024)          // WM_GETMINMAXINFO
+                {
+                    var info = (MINMAXINFO)System.Runtime.InteropServices.Marshal.PtrToStructure(m.LParam, typeof(MINMAXINFO));
+                    info.ptMaxSize = info.ptMaxTrackSize = new POINT { X = 8000, Y = 8000 };
+                    System.Runtime.InteropServices.Marshal.StructureToPtr(info, m.LParam, false);
+                }
+            }
+
+            [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+            struct POINT { public int X, Y; }
+
+            [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+            struct MINMAXINFO { public POINT ptReserved, ptMaxSize, ptMaxPosition, ptMinTrackSize, ptMaxTrackSize; }
         }
 
         static void Pump()

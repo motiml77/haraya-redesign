@@ -1,14 +1,17 @@
-// רשימת התוצאות – בבסיס כמו בחלונית "ניווט" של Word (קווים דקים בין התוצאות, ההתאמה מודגשת),
+// רשימת התוצאות – בבסיס כמו בחלונית "ניווט" של Word (קווים דקים בין התוצאות, ההתאמה בולטת),
 // ובנוסף: מספר לכל תוצאה, שרשרת הכותרות שהיא נמצאת תחתיהן, והמילים שנמצאו מסומנות במרקר.
 //
 // מצוירת בקוד ווירטואלית: רק התוצאות שעל המסך מצוירות, והפריסה של כל תוצאה מחושבת פעם אחת
-// לכל רוחב (מידות המילים נשמרות) – כך שגם מאות תוצאות מוצגות מיד, בלי לעכב את Word.
+// לכל רוחב – כך שגם מאות תוצאות מוצגות מיד, בלי לעכב את Word.
 //
-// הפריסה של הטקסט: פסקה מימין לשמאל; מילים בעברית מימין לשמאל, ורצף מילים באנגלית (עם המספרים
-// והפיסוק שביניהן) נשאר רצף משמאל לימין – כמו באלגוריתם הדו-כיווני של Unicode במקרים הנפוצים.
+// הטקסט של כל תוצאה נפרס כפסקה אחת על-ידי מנוע הטקסט של Windows (GDI+, מימין לשמאל) – אותו
+// טיפול דו-כיווני כמו ב-Word לאנגלית, מספרים ופיסוק בתוך עברית, ורווחים טבעיים. מקום המרקר
+// נמדד על אותה פריסה (MeasureCharacterRanges), והטקסט שבתוכו נצבע מחדש בדיו כהה.
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Text;
 using System.Text;
 using System.Windows.Forms;
 
@@ -33,15 +36,9 @@ namespace HebDocSearch.WordAddin
         public List<Seg> Snippet = new List<Seg>();
 
         // פריסה (לפי רוחב)
-        internal int LayoutWidth = -1, Height, Top, Lines;
-        internal List<Piece> Pieces;
-    }
-
-    internal struct Piece
-    {
-        public string Text;
-        public int Kind, X, W, Line, Word;
-        public bool Rtl;
+        internal int LayoutWidth = -1, Height, Top, TextHeight;
+        internal string Text = "";
+        internal List<RectangleF> Marks = new List<RectangleF>();     // יחסית לפינת הטקסט
     }
 
     internal sealed class ResultList : Control
@@ -50,8 +47,12 @@ namespace HebDocSearch.WordAddin
         Metrics _m;
         List<ResultItem> _items = new List<ResultItem>();
         int _scroll, _contentH, _sel = -1, _hover = -1;
-        readonly Dictionary<string, int> _wReg = new Dictionary<string, int>(), _wBold = new Dictionary<string, int>();
-        int _space, _resultH, _captionH, _lineH;
+        int _captionH;
+        readonly StringFormat _format = new StringFormat(StringFormatFlags.DirectionRightToLeft)
+        {
+            Alignment = StringAlignment.Near,          // בכיוון מימין לשמאל: מיושר לימין
+            Trimming = StringTrimming.None,
+        };
 
         // הודעה כשאין תוצאות (מסך פתיחה / אין תוצאות / שגיאה)
         Bitmap _msgImage;
@@ -76,12 +77,7 @@ namespace HebDocSearch.WordAddin
         {
             _t = t;
             _m = m;
-            _wReg.Clear();
-            _wBold.Clear();
-            _resultH = Draw.Height(m.Result);
             _captionH = Draw.Height(m.Caption);
-            _lineH = (int)Math.Round(_resultH * 1.32);
-            _space = Math.Max(1, Draw.Width("א א", m.Result) - 2 * Draw.Width("א", m.Result));
             foreach (var it in _items) it.LayoutWidth = -1;
             Relayout();
         }
@@ -122,9 +118,9 @@ namespace HebDocSearch.WordAddin
 
         void EnsureVisible(int index)
         {
-            if (index < 0 || index >= _items.Count) return;
+            if (index < 0 || index >= _items.Count || _m == null) return;
             var it = _items[index];
-            int margin = _m == null ? 4 : _m.S(4);
+            int margin = _m.S(4);
             if (it.Top < _scroll) SetScroll(it.Top - margin);
             else if (it.Top + it.Height > _scroll + ClientSize.Height) SetScroll(it.Top + it.Height - ClientSize.Height + margin);
         }
@@ -147,24 +143,36 @@ namespace HebDocSearch.WordAddin
         int PadBottom => _m.S(10);
         int BadgeH => _captionH + _m.S(4);
         int HeaderH => Math.Max(_captionH, BadgeH);
-        int HeaderGap => _m.S(5);
+        int HeaderGap => _m.S(4);
         int TextLeft => Gutter + PadX;
         int TextRight => ClientSize.Width - PadX;
         int TextWidth => Math.Max(_m.S(60), TextRight - TextLeft);
 
+        Font TextFont(ResultItem it) => it.HeadingHit ? _m.ResultBold : _m.Result;
+
         void Relayout()
         {
-            if (_m == null) return;
+            if (_m == null || !IsHandleCreated) { Invalidate(); return; }
             int width = TextWidth, top = 0;
-            foreach (var it in _items)
+            using (var g = CreateGraphics())
             {
-                if (it.LayoutWidth != width) LayoutItem(it, width);
-                it.Top = top;
-                top += it.Height;
+                g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+                foreach (var it in _items)
+                {
+                    if (it.LayoutWidth != width) LayoutItem(g, it, width);
+                    it.Top = top;
+                    top += it.Height;
+                }
             }
             _contentH = top;
             SetScroll(_scroll);
             Invalidate();
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            Relayout();
         }
 
         protected override void OnResize(EventArgs e)
@@ -175,179 +183,63 @@ namespace HebDocSearch.WordAddin
         }
 
         // ================================================================ פריסת הטקסט של תוצאה
-        static bool IsRtlChar(char c)
+        void LayoutItem(Graphics g, ResultItem it, int width)
         {
-            return (c >= '֐' && c <= 'ࣿ') || (c >= 'יִ' && c <= '﷿') || (c >= 'ﹰ' && c <= '﻿');
-        }
-
-        const int R = 1, L = 2, EN = 3, N = 0;
-
-        static int StrongOf(string s)
-        {
-            bool digit = false;
-            foreach (char c in s)
-            {
-                if (IsRtlChar(c)) return R;
-                if (char.IsLetter(c)) return L;
-                if (char.IsDigit(c)) digit = true;
-            }
-            return digit ? EN : N;
-        }
-
-        int Measure(string text, bool bold)
-        {
-            var cache = bold ? _wBold : _wReg;
-            if (cache.TryGetValue(text, out int w)) return w;
-            w = Draw.Width(text, bold ? _m.ResultBold : _m.Result, true);
-            if (cache.Count > 20000) cache.Clear();
-            cache[text] = w;
-            return w;
-        }
-
-        bool BoldFor(ResultItem it, int kind) => it.HeadingHit || kind == 1;
-
-        void LayoutItem(ResultItem it, int width)
-        {
-            // 1. מילים, וכל מילה – חלקים לפי סוג (התאמה יכולה להתחיל או להסתיים באמצע "מילה" עם פיסוק)
-            var words = new List<List<KeyValuePair<string, int>>>();
-            List<KeyValuePair<string, int>> cur = null;
+            // הטקסט כמחרוזת אחת, ומקומות ההתאמות בתוכה (התאמות צמודות – מרקר רציף אחד)
             var sb = new StringBuilder();
-            int kindNow = 0;
-            Action flushPiece = () =>
-            {
-                if (sb.Length == 0) return;
-                if (cur == null) cur = new List<KeyValuePair<string, int>>();
-                cur.Add(new KeyValuePair<string, int>(sb.ToString(), kindNow));
-                sb.Clear();
-            };
-            Action flushWord = () =>
-            {
-                flushPiece();
-                if (cur != null && cur.Count > 0) words.Add(cur);
-                cur = null;
-            };
+            var marks = new List<CharacterRange>();
             foreach (var seg in it.Snippet)
             {
                 if (seg.Kind == 3)
                 {
-                    flushWord();
-                    words.Add(new List<KeyValuePair<string, int>> { new KeyValuePair<string, int>("¶", 3) });
+                    sb.Append(" ¶ ");
                     continue;
                 }
-                foreach (char ch in seg.Text ?? "")
+                string text = (seg.Text ?? "").Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ');
+                if (seg.Kind == 1 && text.Length > 0)
                 {
-                    if (char.IsWhiteSpace(ch) || ch == ' ') { flushWord(); continue; }
-                    if (sb.Length > 0 && kindNow != seg.Kind) flushPiece();
-                    kindNow = seg.Kind;
-                    sb.Append(ch);
-                }
-                flushPiece();
-            }
-            flushWord();
-
-            int n = words.Count;
-            var dir = new int[n];
-            var wWord = new int[n];
-            var pieceW = new List<int[]>(n);
-            for (int i = 0; i < n; i++)
-            {
-                var text = new StringBuilder();
-                var ws = new int[words[i].Count];
-                for (int k = 0; k < words[i].Count; k++)
-                {
-                    text.Append(words[i][k].Key);
-                    ws[k] = Measure(words[i][k].Key, BoldFor(it, words[i][k].Value));
-                    wWord[i] += ws[k];
-                }
-                pieceW.Add(ws);
-                dir[i] = StrongOf(text.ToString());
-            }
-
-            // 2. כיוון: מספר אחרי אנגלית – אנגלית; סימן ניטרלי בין שתי מילים באנגלית – אנגלית; אחרת – עברית
-            var next = new int[n];
-            int strong = R;
-            for (int i = n - 1; i >= 0; i--)
-            {
-                next[i] = strong;
-                if (dir[i] == R || dir[i] == L) strong = dir[i];
-            }
-            strong = R;
-            for (int i = 0; i < n; i++)
-            {
-                if (dir[i] == EN) dir[i] = strong == L ? L : R;
-                else if (dir[i] == N) dir[i] = strong == L && next[i] == L ? L : R;
-                else strong = dir[i];
-            }
-
-            // 3. שבירת שורות
-            var line = new int[n];
-            int x = 0, ln = 0;
-            for (int i = 0; i < n; i++)
-            {
-                int need = x == 0 ? wWord[i] : x + _space + wWord[i];
-                if (need > width && x > 0)
-                {
-                    ln++;
-                    x = wWord[i];
-                }
-                else x = need;
-                line[i] = ln;
-            }
-
-            // 4. מיקום: מימין לשמאל, ורצף אנגלית כגוש משמאל לימין
-            var wordX = new int[n];
-            int idx = 0;
-            while (idx < n)
-            {
-                int l = line[idx], cursor = width, j = idx;
-                int end = idx;
-                while (end < n && line[end] == l) end++;
-                while (j < end)
-                {
-                    if (dir[j] == R)
+                    int start = sb.Length;
+                    if (marks.Count > 0)
                     {
-                        wordX[j] = cursor - wWord[j];
-                        cursor = wordX[j] - _space;
-                        j++;
-                    }
-                    else
-                    {
-                        int k = j, runW = 0;
-                        while (k < end && dir[k] == L)
+                        var last = marks[marks.Count - 1];
+                        int end = last.First + last.Length;
+                        if (sb.ToString(end, start - end).Trim().Length == 0)
                         {
-                            runW += wWord[k] + (k > j ? _space : 0);
-                            k++;
+                            marks[marks.Count - 1] = new CharacterRange(last.First, start + text.Length - last.First);
+                            sb.Append(text);
+                            continue;
                         }
-                        int left = cursor - runW;
-                        for (int q = j; q < k; q++)
-                        {
-                            wordX[q] = left;
-                            left += wWord[q] + _space;
-                        }
-                        cursor = cursor - runW - _space;
-                        j = k;
                     }
+                    marks.Add(new CharacterRange(start, text.Length));
                 }
-                idx = end;
+                sb.Append(text);
             }
+            it.Text = sb.ToString();
+            var font = TextFont(it);
+            var size = g.MeasureString(it.Text.Length == 0 ? " " : it.Text, font, width, _format);
+            it.TextHeight = (int)Math.Ceiling(size.Height);
 
-            var pieces = new List<Piece>();
-            for (int i = 0; i < n; i++)
+            it.Marks = new List<RectangleF>();
+            var layout = new RectangleF(0, 0, width, it.TextHeight + 2);
+            for (int i = 0; i < marks.Count; i += 32)                       // עד 32 טווחים בכל מדידה
             {
-                bool rtl = dir[i] == R;
-                int px = rtl ? wordX[i] + wWord[i] : wordX[i];
-                for (int k = 0; k < words[i].Count; k++)
+                int n = Math.Min(32, marks.Count - i);
+                var ranges = marks.GetRange(i, n).ToArray();
+                using (var fmt = (StringFormat)_format.Clone())
                 {
-                    int w = pieceW[i][k];
-                    if (rtl) px -= w;
-                    pieces.Add(new Piece { Text = words[i][k].Key, Kind = words[i][k].Value, X = px, W = w, Line = line[i], Word = i, Rtl = rtl });
-                    if (!rtl) px += w;
+                    fmt.SetMeasurableCharacterRanges(ranges);
+                    var regions = g.MeasureCharacterRanges(it.Text, font, layout, fmt);
+                    using (var identity = new Matrix())
+                        foreach (var region in regions)
+                        {
+                            foreach (var r in region.GetRegionScans(identity))      // התאמה שגולשת לשורה הבאה – כמה מלבנים
+                                if (r.Width > 0.5f) it.Marks.Add(r);
+                            region.Dispose();
+                        }
                 }
             }
-            it.Pieces = pieces;
-            it.Lines = n == 0 ? 1 : ln + 1;
             it.LayoutWidth = width;
-            it.Height = PadTop + HeaderH + HeaderGap + it.Lines * _lineH + PadBottom;
+            it.Height = PadTop + HeaderH + HeaderGap + it.TextHeight + PadBottom;
         }
 
         // ================================================================ ציור
@@ -361,6 +253,7 @@ namespace HebDocSearch.WordAddin
                 PaintMessage(g);
                 return;
             }
+            if (_items.Count > 0 && _items[0].LayoutWidth != TextWidth) Relayout();
             int h = ClientSize.Height;
             foreach (var it in FindVisible(_scroll, _scroll + h))
                 PaintItem(g, it, it.Top - _scroll);
@@ -419,42 +312,35 @@ namespace HebDocSearch.WordAddin
             }
             PaintPath(g, it, new Rectangle(limit, top, badge.Left - _m.S(8) - limit, HeaderH));
 
-            // ----- הקטע -----
-            int textTop = top + HeaderH + HeaderGap;
-            int dy = (_lineH - _resultH) / 2;
-            var pieces = it.Pieces;
-            int pad = _m.S(2);
-            for (int i = 0; i < pieces.Count; i++)                   // מרקר מתחת לטקסט, רציף בין מילים צמודות
+            // ----- הקטע: מרקר, טקסט, ובתוך המרקר – הטקסט שוב בדיו כהה -----
+            float tx = TextLeft, ty = top + HeaderH + HeaderGap;
+            var layout = new RectangleF(tx, ty, TextWidth, it.TextHeight + 2);
+            var font = TextFont(it);
+            var oldHint = g.TextRenderingHint;
+            g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+            var marks = new List<RectangleF>(it.Marks.Count);
+            float pad = _m.S(2);
+            foreach (var r in it.Marks)
             {
-                var p = pieces[i];
-                if (p.Kind != 1) continue;
-                int py = textTop + p.Line * _lineH + dy;
-                var r = new Rectangle(TextLeft + p.X - pad, py - _m.S(1), p.W + 2 * pad, _resultH + _m.S(2));
-                if (i + 1 < pieces.Count)
+                var m = new RectangleF(tx + r.X - pad, ty + r.Y + _m.S(1), r.Width + 2 * pad, r.Height - _m.S(1));
+                marks.Add(m);
+                Draw.Fill(g, m, _m.S(3), _t.Marker);
+            }
+            using (var b = new SolidBrush(_t.Text))
+                g.DrawString(it.Text, font, b, layout, _format);
+            if (marks.Count > 0)
+            {
+                var oldClip = g.Clip;
+                using (var region = new Region(RectangleF.Empty))
                 {
-                    var q = pieces[i + 1];
-                    if (q.Kind == 1 && q.Line == p.Line && q.Word != p.Word)
-                    {
-                        // הרווח שבין שתי מילים מסומנות צמודות (בעברית הבאה משמאל, באנגלית – מימין)
-                        int gapL = p.X <= q.X ? p.X + p.W : q.X + q.W;
-                        int gapR = p.X <= q.X ? q.X : p.X;
-                        if (gapR >= gapL && gapR - gapL <= _space + 2 * pad)
-                            using (var mb = new SolidBrush(_t.Marker))
-                                g.FillRectangle(mb, new Rectangle(TextLeft + gapL, r.Y, gapR - gapL, r.Height));
-                    }
+                    foreach (var m in marks) region.Union(m);
+                    g.SetClip(region, CombineMode.Intersect);
+                    using (var b = new SolidBrush(_t.MarkerText))
+                        g.DrawString(it.Text, font, b, layout, _format);
                 }
-                Draw.Fill(g, r, _m.S(3), _t.Marker);
+                g.Clip = oldClip;
             }
-            foreach (var p in pieces)
-            {
-                int py = textTop + p.Line * _lineH + dy;
-                Color fg = p.Kind == 1 ? _t.MarkerText : p.Kind == 2 ? _t.TextFaint : p.Kind == 3 ? _t.Pilcrow : _t.Text;
-                var font = BoldFor(it, p.Kind) ? _m.ResultBold : _m.Result;
-                var r = new Rectangle(TextLeft + p.X, py, p.W + 1, _resultH);
-                if (r.Right > TextRight + _m.S(2) || r.Left < TextLeft - _m.S(2))
-                    r.Intersect(new Rectangle(TextLeft, py, TextWidth, _resultH));
-                TextRenderer.DrawText(g, p.Text, font, r, fg, (p.Rtl ? Draw.Rtl | TextFormatFlags.Right : Draw.Plain | TextFormatFlags.Left) | TextFormatFlags.EndEllipsis);
-            }
+            g.TextRenderingHint = oldHint;
 
             // קו דק בין התוצאות, כמו ב-Word
             using (var pen = new Pen(_t.Separator))
@@ -470,8 +356,7 @@ namespace HebDocSearch.WordAddin
                 if (it.NoPathText.Length > 0) Draw.Text(g, it.NoPathText, _m.Caption, area, _t.TextFaint);
                 return;
             }
-            const string sep = "‹";
-            int sepW = Draw.Width(sep, _m.Caption, false) + _m.S(10);
+            int sepW = _m.S(14);
             int ellW = Draw.Width("…", _m.Caption, false) + _m.S(2);
             var widths = new int[path.Length];
             for (int i = 0; i < path.Length; i++)
@@ -486,23 +371,31 @@ namespace HebDocSearch.WordAddin
             while (start < path.Length - 1 && total() > area.Width) start++;   // מוותרים קודם על הכותרות העליונות
 
             int xr = area.Right;
-            Action<string, Font, Color, int, bool> put = (text, font, color, w, rtl) =>
+            Action separator = () =>                    // ‹ – מצויר, כדי שלא יתהפך בטקסט מימין לשמאל
+            {
+                if (xr - area.Left < sepW) { xr = area.Left; return; }
+                float s = _m.S(9);
+                Draw.Chevron(g, new RectangleF(xr - sepW + (sepW - s) / 2f, area.Y + (area.Height - s) / 2f, s, s), _t.TextFaint,
+                             Math.Max(1.1f, _m.Scale * 1.2f), 'l');
+                xr -= sepW;
+            };
+            Action<string, Font, Color, int> put = (text, font, color, w) =>
             {
                 w = Math.Min(w, xr - area.Left);
                 if (w <= 0) return;
-                Draw.Text(g, text, font, new Rectangle(xr - w, area.Y, w, area.Height), color, 'r', rtl);
+                Draw.Text(g, text, font, new Rectangle(xr - w, area.Y, w, area.Height), color);
                 xr -= w;
             };
             if (start > 0)
             {
-                put("…", _m.Caption, _t.TextFaint, ellW, false);
-                put(sep, _m.Caption, _t.TextFaint, sepW, false);
+                put("…", _m.Caption, _t.TextFaint, ellW);
+                separator();
             }
             for (int i = start; i < path.Length; i++)
             {
                 bool last = i == path.Length - 1;
-                put(path[i], last ? _m.CaptionBold : _m.Caption, last ? _t.Heading : _t.TextDim, widths[i] + 1, true);
-                if (!last) put(sep, _m.Caption, _t.TextFaint, sepW, false);
+                put(path[i], last ? _m.CaptionBold : _m.Caption, last ? _t.Heading : _t.TextDim, widths[i] + 1);
+                if (!last) separator();
             }
         }
 
@@ -515,7 +408,7 @@ namespace HebDocSearch.WordAddin
             if (_msgImage != null)
             {
                 int s = _m.S(48);
-                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
                 g.DrawImage(_msgImage, new Rectangle(cx - s / 2, y, s, s));
                 y += s + _m.S(14);
             }
@@ -645,7 +538,7 @@ namespace HebDocSearch.WordAddin
             base.OnMouseWheel(e);
             if (_m == null) return;
             int lines = Math.Max(1, SystemInformation.MouseWheelScrollLines);
-            SetScroll(_scroll - e.Delta * lines * _lineH / 120);
+            SetScroll(_scroll - e.Delta * lines * _m.S(20) / 120);
         }
 
         protected override bool IsInputKey(Keys keyData)
@@ -683,5 +576,11 @@ namespace HebDocSearch.WordAddin
 
         protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
         protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) _format.Dispose();
+            base.Dispose(disposing);
+        }
     }
 }
