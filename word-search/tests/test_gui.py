@@ -278,6 +278,51 @@ class OptionsTest(GuiBase):
         self.assertFalse(dist.body.isEnabled())
 
 
+class HistoryTest(GuiBase):
+    def test_store_dedupes_counts_removes_and_migrates(self):
+        from hebsearch.gui.history import SearchHistory, when_text
+        self.settings.clear()
+        self.settings.setValue("history", ["ישן א", "ישן ב"])          # פורמט של גרסה קודמת
+        h = SearchHistory(self.settings)
+        self.assertEqual(h.queries(), ["ישן א", "ישן ב"])
+        h.add("הלך")
+        h.add("שבת")
+        h.add("הלך")                                                    # חוזר לראש, בלי כפילות
+        self.assertEqual(h.queries()[:2], ["הלך", "שבת"])
+        h.set_count("הלך", 17)
+        h.remove("שבת")
+        again = SearchHistory(self.settings)
+        self.assertEqual(again.queries(), ["הלך", "ישן א", "ישן ב"])
+        self.assertEqual(again.items[0]["n"], 17)
+        self.assertIsNone(self.settings.value("history"))
+        again.clear()
+        self.assertEqual(SearchHistory(self.settings).queries(), [])
+        import time as _t
+        now = _t.time()
+        self.assertTrue(when_text(now, now).startswith("היום"))
+        self.assertEqual(when_text(now - 86400, now), "אתמול")
+
+    def test_completer_filters_by_any_part_and_picks(self):
+        win = self.new_window()
+        for q in ("איסור ייחוד", "הלך בדרך", "שבת"):
+            win.history.add(q)
+        c = win.history_completer
+        c.setCompletionPrefix("ייחוד")                                  # באמצע השאילתה, לא בהתחלה
+        m = c.completionModel()
+        self.assertEqual([m.index(r, 0).data() for r in range(m.rowCount())], ["איסור ייחוד"])
+        c.show_all()
+        m = c.completionModel()
+        self.assertEqual(m.rowCount(), 4)                               # שלושה חיפושים ו"ניקוי ההיסטוריה"
+        c.popup().hide()
+        win.baskets.add_paths([self.docs])
+        settle(win)
+        c._pick("הלך")
+        settle(win)
+        self.assertIsNotNone(win.result)
+        self.assertEqual(win.history.queries()[0], "הלך")
+        self.assertEqual(win.history.items[0]["n"], win.result.total)
+
+
 class SearchFlowTest(GuiBase):
     def test_search_shows_results_without_blocking(self):
         win = self.new_window()

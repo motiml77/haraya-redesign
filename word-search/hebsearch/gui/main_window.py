@@ -16,10 +16,10 @@ from __future__ import annotations
 import sys
 import time
 
-from PySide6.QtCore import QEvent, QRect, QSettings, QSize, QStringListModel, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QEvent, QRect, QSettings, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QGuiApplication, QIcon, QKeySequence
 from PySide6.QtWidgets import (
-    QApplication, QCompleter, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow,
+    QApplication, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow,
     QMessageBox, QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
@@ -30,6 +30,7 @@ from ..search import SearchOptions, Searcher, parse_query, quoted_phrase
 from . import pdf_viewer, theme
 from .basket_panel import BasketPanel
 from .doc_viewer import DocViewer
+from .history import HistoryCompleter, SearchHistory
 from .icons import file_icon
 from .options import DistancePanel, ScopePanel, SearchSettings, WordsPanel
 from .results import ResultsView, doc_name, form_of, ltr, message_html, syntax_table
@@ -73,13 +74,14 @@ class MainWindow(QMainWindow):
         self._scan_ui_timer.timeout.connect(self._show_scan_progress)
         self._scan_last = (-1.0, "")
         self._search_job = None
+        self._search_query = ""
         self._search_seq = 0
         self._search_waiting_scan = False
         self.result = None
         self.pending_docs = 0
         self.form_filter = None
         self.viewers = []
-        self.history = self.settings.value("history", [], list) or []
+        self.history = SearchHistory(self.settings, self)
 
         from .. import APP_NAME
         self.statusMessage.connect(self._show_status)
@@ -176,10 +178,9 @@ class MainWindow(QMainWindow):
         self.search_edit.setPlaceholderText("חיפוש במסמכים…  למשל: הלך בדרך")
         self.search_edit.returnPressed.connect(self.run_search)
         self.search_edit.textChanged.connect(self._query_changed)
-        self.history_model = QStringListModel(self.history)
-        completer = QCompleter(self.history_model, self)
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
-        self.search_edit.setCompleter(completer)
+        self.history_completer = HistoryCompleter(self.history, self.search_edit, self)
+        self.history_completer.picked.connect(lambda _q: self.run_search())
+        self.search_edit.historyRequested.connect(self.history_completer.show_all)
         self.search_btn = QPushButton("חיפוש")
         self.search_btn.setObjectName("primary")
         self.search_btn.setToolTip("חיפוש (Enter)")
@@ -562,12 +563,10 @@ class MainWindow(QMainWindow):
         if not self.search_ids:
             self.results.show_message(message_html("לא סומן אף אוסף לחיפוש", "סמנו ✓ ליד אוסף בסרגל האוספים", C.warn))
             return
-        if q in self.history:
-            self.history.remove(q)
-        self.history.insert(0, q)
-        del self.history[50:]
-        self.history_model.setStringList(self.history)
-        self.settings.setValue("history", self.history)
+        if self._search_job is not None and self._search_query == q and self.history_completer.just_picked(q):
+            return                                  # Enter ברשימת ההיסטוריה – החיפוש כבר רץ
+        self.history.add(q)
+        self._search_query = q
         self._cancel_search(quiet=True)
         if self.scan is None or self._scan_job is not None:
             # הסריקה רצה (ראשונית, או אחרי שינוי באוסף) – מחכים לה, עם התקדמות, ואז מחפשים
@@ -626,6 +625,8 @@ class MainWindow(QMainWindow):
     # ================================================================ תוצאות
     def _show_result(self, res):
         self.result = res
+        if self._search_query:
+            self.history.set_count(self._search_query, res.total)
         self.form_filter = None
         self.file_list.blockSignals(True)
         self.file_list.clear()

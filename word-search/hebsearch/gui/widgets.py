@@ -376,7 +376,9 @@ class Combo(QComboBox):
 
 # ---------------------------------------------------------------- שדה חיפוש
 class SearchField(QLineEdit):
-    """שדה חיפוש קומפקטי: סמל זכוכית מגדלת בהתחלה וכפתור ניקוי (✕) בסוף."""
+    """שדה חיפוש קומפקטי: זכוכית מגדלת בהתחלה; בסוף – שעון (היסטוריה) וכפתור ניקוי (✕).
+    לחיצה על השדה כשהוא ריק, או חץ למטה, מבקשות את היסטוריית החיפוש."""
+    historyRequested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -386,9 +388,24 @@ class SearchField(QLineEdit):
         self._clear.setVisible(False)
         self._clear.setToolTip("ניקוי")
         self._clear.triggered.connect(self.clear)
+        self.history_action = self.addAction(ui_icon("clock", C.muted, C.accent), QLineEdit.TrailingPosition)
+        self.history_action.setToolTip("חיפושים אחרונים (חץ למטה)")
+        self.history_action.triggered.connect(self.historyRequested)
         self.textChanged.connect(lambda t: self._clear.setVisible(bool(t)))
         T.sized(self, h="h_search")
         self.shortcut_hint = "Ctrl+F"
+
+    def mousePressEvent(self, e):
+        super().mousePressEvent(e)
+        if not self.text() and e.button() == Qt.LeftButton:
+            self.historyRequested.emit()
+
+    def keyPressEvent(self, e):
+        popup = self.completer().popup() if self.completer() else None
+        if e.key() == Qt.Key_Down and not (popup and popup.isVisible()):
+            self.historyRequested.emit()
+            return
+        super().keyPressEvent(e)
 
     def paintEvent(self, e):
         super().paintEvent(e)
@@ -401,7 +418,8 @@ class SearchField(QLineEdit):
         p.setFont(f)
         fm = QFontMetrics(f)
         w, h = fm.horizontalAdvance(self.shortcut_hint) + 10, fm.height() + 4
-        r = QRectF(T.gap + 2, (self.height() - h) / 2, w, h)      # בקצה השמאלי (סוף השדה בעברית)
+        start = T.gap + 2 + (T.icon + 10 if self.history_action.isVisible() else 0)   # אחרי סמל השעון
+        r = QRectF(start, (self.height() - h) / 2, w, h)            # בקצה השמאלי (סוף השדה בעברית)
         p.setPen(QPen(QColor(C.border_strong), 1))
         p.setBrush(QColor(C.surface))
         p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)

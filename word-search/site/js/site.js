@@ -70,16 +70,17 @@
     if (!rels.length) return;
     rels.sort(function (a, b) { return a.published_at < b.published_at ? 1 : -1; });
     var last = rels[0], ver = last.tag_name.replace("word-search-v", "");
-    var total = 0;
-    rels.forEach(function (r) { r.assets.forEach(function (a) { total += a.download_count; }); });
+    var total = 0;                       // כל הגרסאות, וגם ההורדות דרך הקישור הקבוע (word-search-latest)
+    list.forEach(function (r) {
+      if (!r.draft && /^word-search-/.test(r.tag_name)) r.assets.forEach(function (a) { total += a.download_count; });
+    });
 
     document.querySelectorAll("[data-ver]").forEach(function (e) { e.textContent = ver; });
 
     var assets = last.assets.slice().sort(function (a, b) { return kindIndex(a) - kindIndex(b); });
     var exe = assets.filter(function (a) { return KINDS[0].re.test(a.name); })[0];
     var btn = document.getElementById("dl-main");
-    if (btn && exe) {
-      btn.href = exe.browser_download_url;
+    if (btn && exe) {                    // הכפתור נשאר על הקישור הקבוע; רק הגודל מתעדכן
       btn.querySelector(".size").textContent = mb(exe.size);
     }
 

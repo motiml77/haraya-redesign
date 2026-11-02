@@ -129,3 +129,28 @@ jobs:
             * **לינוקס** – `*-linux-x86_64.tar.gz` (לחלץ ולהריץ `./install.sh`)
 
             בהפעלה הראשונה חלונות עשויה להציג "Windows protected your PC" – לוחצים "More info" ← "Run anyway".
+
+      # קישור קבוע שתמיד מוריד את הגרסה האחרונה, בלי מספר גרסה בכתובת:
+      #   https://github.com/<owner>/<repo>/releases/download/word-search-latest/HebDocSearch-Setup.exe
+      # (Release נפרד שהקבצים בו מוחלפים בכל גרסה; מסומן "טרום-הפצה" כדי לא להפוך ל-"latest" של המאגר)
+      - name: Version-less copies for the permanent link
+        run: |
+          mkdir -p latest
+          for f in out/*; do
+            n=$(basename "$f")
+            n=$(echo "$n" | sed -E 's/-[0-9]+(\.[0-9]+)+//')
+            cp "$f" "latest/$n"
+          done
+          ls -la latest
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: word-search-latest
+          target_commitish: ${{ github.sha }}
+          name: חיפוש במסמכים – הגרסה האחרונה (קישור קבוע)
+          prerelease: true
+          files: latest/*
+          body: |
+            הקבצים כאן מתחלפים אוטומטית בכל גרסה חדשה (עכשיו: ${{ steps.tag.outputs.name }}).
+            קישור קבוע להתקנה בחלונות:
+            https://github.com/${{ github.repository }}/releases/download/word-search-latest/HebDocSearch-Setup.exe
