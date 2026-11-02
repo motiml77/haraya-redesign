@@ -3,9 +3,12 @@
 //   * עבודה כבדה (חלוקה, טביעת אצבע, בניית מפת החיפוש) – על תהליך נפרד / ברכיב העזר;
 //   * שום דבר בזמן הפתיחה: אחרי שהמסמך נפתח מחכים שהמשתמש לא נוגע במקלדת ובעכבר,
 //     ש-Word לא מציג חלון דו-שיח ולא שומר/מדפיס ברקע – ורק אז קוראים את הטקסט (קריאה אחת).
-//   * הכותרות נקראות במנות קצרות (עד ~40ms) בזמני מנוחה, כך ש-Word אף פעם לא נתקע: חיפוש של Word
-//     לפי סגנונות "כותרת 1" עד "כותרת 9" (Find עם Style – רק הכותרות עצמן, בלי לעבור על כל פסקה);
-//     ואם אין כאלה – רמת החלוקה (OutlineLevel) של הפסקאות הקצרות. כשבוחרים "כותרות" – משלימים מיד.
+//   * הכותרות נקראות במנות קצרות (עד ~40ms) בזמני מנוחה, כך ש-Word אף פעם לא נתקע. כותרת = פסקה עם
+//     רמת חלוקה 1–9, כמו בחלונית הניווט של Word (סגנונות "כותרת 1–9" וגם סגנונות אישיים עם רמת חלוקה):
+//     1. חיפוש של Word לפי רמת חלוקה (Find עם ParagraphFormat.OutlineLevel) – רק הכותרות עצמן;
+//     2. חיפוש לפי הסגנונות המובנים "כותרת 1" עד "כותרת 9" – משלים;
+//     3. אם החיפוש לפי רמת חלוקה לא מצא כלום – בדיקת רמת החלוקה של כל פסקה קצרה.
+//     כשבוחרים "חיפוש בכותרות" לפני שהסתיים – משלימים מיד.
 //   * בחיפוש קוראים את הטקסט מחדש רק אם ייתכן שהמסמך השתנה מאז הקריאה הקודמת: האורך השתנה,
 //     המסמך נשמר, או שהסמן זז במסמך שיש בו שינויים שלא נשמרו (כל הקלדה מזיזה את הסמן).
 using System;
@@ -43,12 +46,12 @@ namespace HebDocSearch.WordAddin
         {
             public DocText Text;
             public int[] Levels;
-            public int Style = 1;               // סגנון "כותרת N" שמחפשים עכשיו (1–9)
+            public int Phase;                   // 0 חיפוש לפי רמת חלוקה, 1 לפי סגנון "כותרת N", 2 פסקה אחר פסקה
+            public int Level = 1;               // הרמה / הסגנון שמחפשים עכשיו (1–9)
             public Word.Range Range;            // הטווח של החיפוש הנוכחי (מתקדם אחרי כל כותרת)
             public int LastEnd = -1;
-            public bool ByOutline;              // אין סגנונות כותרת – בודקים רמת חלוקה של פסקאות קצרות
             public int OutlineIndex;
-            public int Found, Failures;
+            public int Found, FoundByOutline, FoundByStyle, Failures;
             public Stopwatch Time = new Stopwatch();
         }
 
@@ -335,32 +338,52 @@ namespace HebDocSearch.WordAddin
                 int docEnd = s.Doc.Content.End;
                 while (!done && sw.ElapsedMilliseconds < budgetMs)
                 {
-                    if (!scan.ByOutline)
+                    if (scan.Phase < 2)
                     {
-                        if (scan.Style > 9)
+                        if (scan.Level > 9)
                         {
-                            if (scan.Found > 0 || scan.Text.Texts.Count > 60000) { done = true; break; }
-                            scan.ByOutline = true;                  // אין סגנונות כותרת – לפי רמת חלוקה
+                            scan.Phase++;
+                            scan.Level = 1;
+                            scan.Range = null;
+                            // שלב 3 רק אם החיפוש לפי רמת חלוקה לא מצא כלום (לא נתמך, או שאין במסמך כותרות)
+                            if (scan.Phase == 2 && (scan.FoundByOutline > 0 || scan.Text.Texts.Count > 60000)) done = true;
                             continue;
                         }
-                        if (scan.Range == null)
+                        bool found;
+                        try
                         {
-                            scan.Range = s.Doc.Content;
-                            StyleFind(s.Doc, scan.Range.Find, scan.Style);
-                            scan.LastEnd = -1;
+                            if (scan.Range == null)
+                            {
+                                scan.Range = s.Doc.Content;
+                                if (scan.Phase == 0) OutlineFind(scan.Range.Find, scan.Level);
+                                else StyleFind(s.Doc, scan.Range.Find, scan.Level);
+                                scan.LastEnd = -1;
+                            }
+                            found = scan.Range.Find.Execute() && scan.Range.End > scan.LastEnd;
                         }
-                        if (!scan.Range.Find.Execute() || scan.Range.End <= scan.LastEnd)
+                        catch (COMException e) when (scan.Phase == 0)
+                        {
+                            Log.Write("headings: find by outline level not available: " + e.Message);
+                            scan.Phase = 1;                     // ממשיכים לפי סגנונות
+                            scan.Level = 1;
+                            scan.Range = null;
+                            continue;
+                        }
+                        if (!found)
                         {
                             scan.Range = null;
-                            scan.Style++;
+                            scan.Level++;
                             continue;
                         }
                         scan.LastEnd = scan.Range.End;
-                        TakeFound(scan, scan.Range.Text, scan.Range.Start, scan.Style);
+                        int before = scan.Found;
+                        TakeFound(scan, scan.Range.Text, scan.Range.Start, scan.Level);
+                        if (scan.Phase == 0) scan.FoundByOutline += scan.Found - before;
+                        else scan.FoundByStyle += scan.Found - before;
                         if (scan.LastEnd >= docEnd)
                         {
                             scan.Range = null;
-                            scan.Style++;
+                            scan.Level++;
                             continue;
                         }
                         scan.Range.Collapse(Word.WdCollapseDirection.wdCollapseEnd);
@@ -369,6 +392,7 @@ namespace HebDocSearch.WordAddin
                     {
                         if (scan.OutlineIndex >= scan.Text.Texts.Count) { done = true; break; }
                         int i = scan.OutlineIndex++;
+                        if (scan.Levels[i] != 0) continue;
                         string t = scan.Text.Texts[i];
                         if (t.Trim().Length == 0 || t.Length > 200) continue;
                         int pos = scan.Text.EstimatedStart(i);
@@ -406,9 +430,31 @@ namespace HebDocSearch.WordAddin
             s.NeedsHeadings = false;
             DocText withLevels = scan.Text.WithLevels(scan.Levels);
             if (s.Text == scan.Text) s.Text = withLevels;
-            Log.Write($"headings: {withLevels.Headings} ({(scan.ByOutline ? "outline levels" : "heading styles")}) in {scan.Time.ElapsedMilliseconds}ms");
+            var perLevel = new int[10];
+            foreach (int l in scan.Levels) if (l > 0 && l < 10) perLevel[l]++;
+            var levels = new System.Text.StringBuilder();
+            for (int l = 1; l <= 9; l++) if (perLevel[l] > 0) levels.Append($" L{l}={perLevel[l]}");
+            Log.Write($"headings: {withLevels.Headings} (outline find {scan.FoundByOutline}, style find {scan.FoundByStyle}, " +
+                      $"per paragraph {scan.Found - scan.FoundByOutline - scan.FoundByStyle}){levels} in {scan.Time.ElapsedMilliseconds}ms");
             BeginIndex(s, s.Text);
             return true;
+        }
+
+        /// <summary>חיפוש של Word לפי רמת חלוקה (כמו "עיצוב ← פסקה ← רמת חלוקה" בחלון החיפוש):
+        /// מוצא גם כותרות בסגנונות אישיים, לא רק "כותרת 1–9".</summary>
+        static void OutlineFind(Word.Find f, int level)
+        {
+            f.ClearFormatting();
+            f.Text = "";
+            Word.ParagraphFormat pf = f.ParagraphFormat;
+            pf.OutlineLevel = (Word.WdOutlineLevel)level;
+            f.ParagraphFormat = pf;
+            f.Format = true;
+            f.Forward = true;
+            f.Wrap = Word.WdFindWrap.wdFindStop;
+            f.MatchCase = false;
+            f.MatchWholeWord = false;
+            f.MatchWildcards = false;
         }
 
         /// <summary>חיפוש של Word לפי הסגנון המובנה "כותרת N" (לא תלוי בשפת Office).</summary>

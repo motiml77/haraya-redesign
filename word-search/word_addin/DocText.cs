@@ -189,12 +189,25 @@ namespace HebDocSearch.WordAddin
         /// <summary>המיקום המשוער של תחילת פסקה במסמך (כולל ההפרש שנלמד).</summary>
         public int EstimatedStart(int para) => Math.Max(0, Starts[para] + DriftAt(para));
 
+        /// <summary>טקסט של פסקה מ-Word (Range.Text) – באותם החלפות של תווים מיוחדים כמו ב-Build,
+        /// כדי שההשוואה לפסקאות תהיה מדויקת (למשל מקף לא-שביר בכותרת).</summary>
         public static string Clean(string paragraphText)
         {
             if (paragraphText == null) return "";
             var sb = new StringBuilder(paragraphText.Length);
-            foreach (char c in paragraphText)
-                if (c != '\r' && c != '\a') sb.Append(c == '\v' || c == '\f' ? ' ' : c);
+            foreach (char ch in paragraphText)
+            {
+                char c = ch;
+                if (c == '\r') continue;
+                switch (c)
+                {
+                    case '\v': case '\a': case '\f': case '\u001f': case '\u0001': case '\u0002': case '\u0013': case '\u0014': case '\u0015':
+                        c = ' '; break;
+                    case '\u001e':
+                        c = '-'; break;
+                }
+                sb.Append(c);
+            }
             return sb.ToString();
         }
 
