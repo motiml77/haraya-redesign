@@ -318,13 +318,12 @@ namespace HebDocSearch.WordAddin
             var font = TextFont(it);
             var oldHint = g.TextRenderingHint;
             g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
-            var marks = new List<RectangleF>(it.Marks.Count);
+            var marks = new List<RectangleF>(it.Marks.Count);          // רק האותיות שנמצאו (בלי השוליים של המרקר)
             float pad = _m.S(2);
             foreach (var r in it.Marks)
             {
-                var m = new RectangleF(tx + r.X - pad, ty + r.Y + _m.S(1), r.Width + 2 * pad, r.Height - _m.S(1));
-                marks.Add(m);
-                Draw.Fill(g, m, _m.S(3), _t.Marker);
+                marks.Add(new RectangleF(tx + r.X, ty + r.Y, r.Width, r.Height));
+                Draw.Fill(g, new RectangleF(tx + r.X - pad, ty + r.Y + _m.S(1), r.Width + 2 * pad, r.Height - _m.S(1)), _m.S(3), _t.Marker);
             }
             using (var b = new SolidBrush(_t.Text))
                 g.DrawString(it.Text, font, b, layout, _format);

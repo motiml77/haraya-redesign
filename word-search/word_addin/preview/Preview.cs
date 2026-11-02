@@ -185,7 +185,7 @@ namespace HebDocSearch.WordAddin
                 Item(7, new[] { "פרק ה" }, "מבוי דמשום בני מבוי איכא משום פריעת ראש ואי ", 0, "קלתה", 1, " בראשה שפיר דמי שהרי אינה שוה כלום ואין", 0),
                 Item(8, new[] { "פרק ה", "סיכום" }, "וּבְ", 0, "קַלְתָּהּ", 1, " – בניקוד מלא, כמו בכתבי יד.", 0),
             };
-            items[5].Terms = 2;
+            items[5].Terms = 2; items[5].Covered = 2;
             items[6].Terms = 2; items[6].Covered = 1;
             return items;
         }
