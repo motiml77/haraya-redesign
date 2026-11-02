@@ -174,16 +174,14 @@ class HitDelegate(QStyledItemDelegate):
         match.setForeground(QColor(C.marker_text))
         gap = QTextCharFormat()
         gap.setForeground(QColor(C.muted))
-        para = QTextCharFormat()
-        para.setForeground(QColor("#b4bcc9"))
         for text, kind in hit.snippet:
             text = text.replace("\n", " ").replace("\t", " ")
             if kind == SEG_MATCH:
                 cur.insertText(text, match)
             elif kind == SEG_GAP:
                 cur.insertText(text, gap)
-            elif kind == SEG_PARA:
-                cur.insertText(" ¶ ", para)
+            elif kind == SEG_PARA:                     # גבול בין פסקאות – רווח רגיל, בלי סימן
+                cur.insertText(" ", normal)
             else:
                 cur.insertText(text, normal)
         doc.setTextWidth(width)

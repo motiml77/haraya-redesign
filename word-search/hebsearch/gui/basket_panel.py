@@ -14,12 +14,14 @@
 
 from __future__ import annotations
 
+import html
 import os
 
 from PySide6.QtCore import QSettings, QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QAbstractItemView, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox,
-    QProgressBar, QPushButton, QStackedWidget, QTreeView, QVBoxLayout, QWidget,
+    QAbstractItemView, QApplication, QDialog, QDialogButtonBox, QFileDialog, QFrame, QHBoxLayout, QInputDialog,
+    QLabel, QLineEdit, QMenu, QMessageBox, QProgressBar, QPushButton, QStackedWidget, QTextBrowser, QTreeView,
+    QVBoxLayout, QWidget,
 )
 
 from ..index import is_supported
@@ -30,6 +32,69 @@ from .icons import doc_kind, ui_icon
 from .results import doc_name, ltr
 from .theme import C, T
 from .widgets import ElidedLabel, WrapLabel, text_icon_button
+
+
+PROBLEMS_LIMIT = 1000        # כמה מסמכים מוצגים בחלון "מסמכים שלא נקראו" לכל היותר
+
+
+def path_ltr(path: str) -> str:
+    """נתיב לתצוגה משמאל לימין: סימן כיוון אחרי כל לוכסן, כדי שכמה תיקיות בעברית ברצף יופיעו
+    בסדר האמיתי שלהן (C:\\מסמכים\\שיעורים) ולא בסדר הפוך."""
+    return "\u202a" + path.replace("\\", "\\\u200e").replace("/", "/\u200e") + "\u202c"
+
+
+def problems_html(bad) -> str:
+    """רשימת המסמכים שלא נקראו: שם, הסיבה, והמיקום (התיקייה) עם קישור "הצג בתיקייה"."""
+    rows = []
+    for i, (path, reason) in enumerate(bad[:PROBLEMS_LIMIT]):
+        folder = os.path.dirname(path) or path
+        rows.append(                                        # שורה 1: שם – סיבה · קישור;  שורה 2: התיקייה (משמאל לימין)
+            f'<p dir="rtl" style="margin:0"><b>{html.escape(doc_name(path))}</b>'
+            f' – <span style="color:{C.warn}">{html.escape(str(reason or "לא נקרא"))}</span>'
+            f' · <a href="#{i}" style="color:{C.accent}; text-decoration:none">הצג בתיקייה</a></p>'
+            f'<p align="right" style="margin:0 0 10px 0; color:{C.muted}">{html.escape(path_ltr(folder))}</p>')
+    if len(bad) > PROBLEMS_LIMIT:
+        rows.append(f'<p style="color:{C.muted}">… ועוד {len(bad) - PROBLEMS_LIMIT:,} מסמכים</p>')
+    return "".join(rows)
+
+
+class ProblemsDialog(QDialog):
+    """המסמכים שלא נקראו (ולכן לא נכללים בחיפוש): לכל מסמך – השם, הסיבה והתיקייה שבה הוא נמצא,
+    וקישור שפותח את התיקייה עם המסמך מסומן. אפשר גם להעתיק את כל הרשימה."""
+
+    def __init__(self, bad, parent=None):
+        super().__init__(parent)
+        self.bad = list(bad)
+        self.setWindowTitle(f"מסמכים שלא נקראו ({len(self.bad):,})")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(T.pad + 4, T.pad + 4, T.pad + 4, T.pad)
+        lay.setSpacing(T.gap)
+        lay.addWidget(WrapLabel("המסמכים האלה לא נכללים בחיפוש. ליד כל מסמך – הסיבה, והתיקייה שבה הוא נמצא."))
+        self.view = QTextBrowser()
+        self.view.setOpenLinks(False)
+        self.view.setLayoutDirection(Qt.RightToLeft)
+        self.view.anchorClicked.connect(self._reveal)
+        self.view.setHtml(problems_html(self.bad))
+        lay.addWidget(self.view, 1)
+        buttons = QDialogButtonBox()
+        copy_btn = buttons.addButton("העתקת הרשימה", QDialogButtonBox.ActionRole)
+        copy_btn.clicked.connect(self._copy)
+        close_btn = buttons.addButton("סגירה", QDialogButtonBox.RejectRole)
+        close_btn.clicked.connect(self.reject)
+        lay.addWidget(buttons)
+        self.resize(max(560, T.pad * 60), 440)
+
+    def _reveal(self, url):
+        try:
+            reveal_in_folder(self.bad[int(url.fragment())][0])
+        except (ValueError, IndexError):
+            pass
+
+    def text(self) -> str:
+        return "\n".join(f"{doc_name(p)} – {m}\t{p}" for p, m in self.bad)
+
+    def _copy(self):
+        QApplication.clipboard().setText(self.text())
 
 
 class BasketTree(QTreeView):
@@ -523,10 +588,10 @@ class BasketPanel(QFrame):
                 files += self.scan.files.get(b) or []
         bad = [(f, self.scan.status[f][1]) for f in dict.fromkeys(files)
                if f in self.scan.status and self.scan.status[f][0] != "ok"]
-        lines = [f"• {doc_name(p)} – {m}" for p, m in bad[:40]]
-        if len(bad) > 40:
-            lines.append(f"… ועוד {len(bad) - 40}")
-        QMessageBox.information(self, "מסמכים שלא נקראו", "\n".join(lines) or "אין")
+        if not bad:
+            QMessageBox.information(self, "מסמכים שלא נקראו", "כל המסמכים נקראו.")
+            return
+        ProblemsDialog(bad, self.window()).exec()
 
     # ================================================================ התקדמות
     def show_progress(self, frac, text=""):

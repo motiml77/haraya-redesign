@@ -2,7 +2,7 @@
 
 import os
 
-__version__ = "1.0.4"
+__version__ = "1.0.5"
 
 APP_NAME = "חיפוש במסמכים"          # השם שמוצג למשתמש
 APP_ID = "HebDocSearch"              # שם הקובץ / ההתקנה

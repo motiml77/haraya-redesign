@@ -493,6 +493,42 @@ class BasketListTest(GuiBase):
         self.assertEqual(win.db.basket_items(first), [])
 
 
+class UnreadDocumentsTest(GuiBase):
+    """"מסמכים שלא נקראו": לכל מסמך – השם, הסיבה והמיקום (התיקייה), וקישור לתיקייה."""
+
+    def test_dialog_shows_the_location_of_each_document(self):
+        from hebsearch.gui.basket_panel import ProblemsDialog, problems_html
+        bad = [(os.path.join(self.docs, "הלכה", "סרוק.pdf"), "אין בקובץ טקסט (ייתכן שזה מסמך סרוק)"),
+               (os.path.join(self.docs, "תורה", "פגום.docx"), "הקובץ פגום")]
+        page = problems_html(bad)
+        page = page.replace("\u200e", "").replace("\u202a", "").replace("\u202c", "")   # סימני כיוון בלתי נראים
+        for path, reason in bad:
+            self.assertIn(os.path.dirname(path), page)                  # התיקייה שבה המסמך נמצא
+            self.assertIn(os.path.splitext(os.path.basename(path))[0], page)
+            self.assertIn(reason.split(" ")[0], page)
+        self.assertEqual(page.count("הצג בתיקייה"), 2)
+        dlg = ProblemsDialog(bad)
+        self.assertIn("(2)", dlg.windowTitle())
+        self.assertIn(bad[1][0], dlg.text())                           # "העתקת הרשימה" – כולל הנתיב המלא
+        dlg.deleteLater()
+
+
+class SnippetMarksTest(unittest.TestCase):
+    """בקטע התצוגה אין סימן ¶ בין פסקאות – רק רווח."""
+
+    def test_no_pilcrow_between_paragraphs(self):
+        from hebsearch.docsearch import DocIndex
+        paras = [{"t": "שורה ראשונה קצרה", "h": 0}, {"t": "גלות מצרים", "h": 0}, {"t": "שורה אחרונה קצרה", "h": 0}]
+        idx = DocIndex(paras)
+        idx.searcher.neighbors = True                                  # כמו בתוכנה: הקשר גם מפסקאות סמוכות
+        res = idx.searcher.search("מצרים", idx.file_ids, SearchOptions())
+        hit = idx.searcher.materialize(res.hits[0], res.highlight)
+        text = "".join(t for t, _ in hit.snippet)
+        self.assertNotIn("¶", text)
+        self.assertIn("ראשונה", text)                                   # ההקשר מהפסקה הקודמת עדיין שם
+        idx.close()
+
+
 class ResponsivenessTest(GuiBase):
     """הגרסה הראשונה "קפאה" בזמן חיפוש: כל העבודה רצה על חוט הממשק. כאן מוודאים שהלולאה ממשיכה לפעום."""
 

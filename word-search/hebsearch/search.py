@@ -597,10 +597,10 @@ class Searcher:
                 if direction < 0:
                     a = max(0, len(toks) - need)
                     collected = (self._render(paras[j][0], toks, a, len(toks) - 1, (), highlight)
-                                 + [(" ¶ ", SEG_PARA)] + collected)
+                                 + [(" ", SEG_PARA)] + collected)
                 else:
                     b = min(len(toks) - 1, need - 1)
-                    collected += [(" ¶ ", SEG_PARA)] + self._render(paras[j][0], toks, 0, b, (), highlight)
+                    collected += [(" ", SEG_PARA)] + self._render(paras[j][0], toks, 0, b, (), highlight)
                 need -= len(toks)
             j += direction
         return collected
