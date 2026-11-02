@@ -82,20 +82,31 @@ def visual_studio():
 def signing_certificate():
     """תעודה לחתימת המניפסטים של התוסף (VSTO דורש מניפסטים חתומים). נוצרת בבנייה; המפתח הציבורי
     נכנס לאשף ההתקנה, שרושם אותו ברשימת הפתרונות המהימנים של המשתמש (VSTO Inclusion List)."""
-    script = (
-        "$ErrorActionPreference = 'Stop';"
-        "$c = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=HebDocSearch Word Add-in'"
-        " -CertStoreLocation Cert:\\CurrentUser\\My -KeyExportPolicy Exportable -KeySpec Signature"
-        " -Provider 'Microsoft Enhanced RSA and AES Cryptographic Provider' -KeyAlgorithm RSA -KeyLength 2048"
-        " -HashAlgorithm SHA256 -NotAfter (Get-Date).AddYears(30);"
-        "$k = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPublicKey($c).ToXmlString($false);"
-        "Write-Output ('THUMB=' + $c.Thumbprint); Write-Output ('KEY=' + $k)"
-    )
-    out = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
-                         capture_output=True, text=True, check=True).stdout
+    # קודם מפתח של ספק ההצפנה הקלאסי (הכי נתמך בחתימת מניפסטים), ואם לא – ספק ברירת המחדל
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$common = @{ Type = 'CodeSigningCert'; Subject = 'CN=HebDocSearch Word Addin'; CertStoreLocation = 'Cert:\CurrentUser\My';
+             KeyExportPolicy = 'Exportable'; KeyAlgorithm = 'RSA'; KeyLength = 2048; NotAfter = (Get-Date).AddYears(30) }
+try {
+    $c = New-SelfSignedCertificate @common -KeySpec Signature -Provider 'Microsoft Enhanced RSA and AES Cryptographic Provider'
+} catch {
+    [Console]::Error.WriteLine('legacy provider failed: ' + $_)
+    $c = New-SelfSignedCertificate @common
+}
+$rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPublicKey($c)
+$p = $rsa.ExportParameters($false)
+$k = '<RSAKeyValue><Modulus>' + [Convert]::ToBase64String($p.Modulus) + '</Modulus><Exponent>' + [Convert]::ToBase64String($p.Exponent) + '</Exponent></RSAKeyValue>'
+Write-Output ('THUMB=' + $c.Thumbprint)
+Write-Output ('KEY=' + $k)
+"""
+    proc = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+                          capture_output=True, text=True)
+    out = proc.stdout
+    if proc.stderr.strip():
+        print("  powershell:", proc.stderr.strip()[-3000:], flush=True)
     values = dict(line.strip().split("=", 1) for line in out.splitlines() if "=" in line)
-    if not values.get("THUMB") or not values.get("KEY", "").startswith("<RSAKeyValue>"):
-        sys.exit("יצירת תעודת החתימה לתוסף ל-Word נכשלה: " + out[-2000:])
+    if proc.returncode != 0 or not values.get("THUMB") or not values.get("KEY", "").startswith("<RSAKeyValue>"):
+        sys.exit("יצירת תעודת החתימה לתוסף ל-Word נכשלה: " + out[-2000:] + proc.stderr[-2000:])
     return values["THUMB"], values["KEY"]
 
 
