@@ -27,7 +27,7 @@ namespace HebDocSearch.WordAddin
         readonly Timer _timer = new Timer { Interval = 600 };
         readonly Timer _live = new Timer { Interval = 450 };     // חיפוש תוך כדי הקלדה (כמו ב-Word)
         readonly Timer _headingsRetry = new Timer { Interval = 150 };   // השלמת קריאת הכותרות במנות
-        int _lastWidth, _savedWidth;
+        int _lastWidth, _initialWidth, _savedWidth;           // רוחב החלונית – נשמר רק אחרי גרירה של המשתמש
         readonly JavaScriptSerializer _json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
 
         DocText _searched;                       // הגרסה של המסמך שבה נמצאו התוצאות
@@ -60,7 +60,10 @@ namespace HebDocSearch.WordAddin
             _live.Tick += (s, e) =>
             {
                 _live.Stop();
-                if (_view.Query.Length >= 2 && Key() != _lastKey) RunSearch();
+                if (_view.Query.Length < 2 || Key() == _lastKey) return;
+                // תוך כדי הקלדה מחפשים רק כשמפת החיפוש של המסמך כבר מוכנה לגמרי; אחרת – רק ב-Enter
+                if (_addin.Preparer.ReadyForLive(_doc, _view.HeadingsOnly)) RunSearch();
+                else _view.ShowHint("לחצו Enter לחיפוש");
             };
             _headingsRetry.Tick += (s, e) =>
             {
@@ -89,8 +92,9 @@ namespace HebDocSearch.WordAddin
             }
             if (_addin.Preparer != null) _view.SetDocStatus(_addin.Preparer.Status(_doc));
             // רוחב החלונית: נשמר כשהמשתמש גורר את הקצה (אחרי שהגרירה נעצרה)
-            if (Width != _lastWidth) _lastWidth = Width;
-            else if (Width > 50 && Width != _savedWidth)
+            if (_initialWidth == 0 && Width > 50) _initialWidth = _savedWidth = Width;
+            if (Width != _lastWidth) _lastWidth = Width;                       // עדיין נגרר
+            else if (_initialWidth > 0 && Math.Abs(Width - _savedWidth) > 4)
             {
                 _savedWidth = Width;
                 SaveSettings();
@@ -313,13 +317,19 @@ namespace HebDocSearch.WordAddin
             var hit = _items[i];
             try
             {
-                Word.Range rng = _searched?.Locate(_doc, hit.Para, hit.Ranges);
-                if (rng == null) throw new Exception("הטקסט השתנה מאז החיפוש – חפשו שוב");
-                _addin.Preparer.SelectInDocument(() =>
+                // המיקוד נשאר בחלונית (כדי שהקלדה לא תגיע למסמך); לעריכה – לוחצים במסמך
+                bool found = FocusGuard.Run(() =>
                 {
-                    rng.Select();
-                    try { _window.ScrollIntoView(rng, true); } catch { }
+                    Word.Range rng = _searched?.Locate(_doc, hit.Para, hit.Ranges);
+                    if (rng == null) return false;
+                    _addin.Preparer.SelectInDocument(() =>
+                    {
+                        rng.Select();
+                        try { _window.ScrollIntoView(rng, true); } catch { }
+                    });
+                    return true;
                 });
+                if (!found) throw new Exception("הטקסט השתנה מאז החיפוש – חפשו שוב");
             }
             catch (Exception ex)
             {
@@ -349,7 +359,7 @@ namespace HebDocSearch.WordAddin
                 int Get(string key, int fallback) => s.ContainsKey(key) ? Convert.ToInt32(s[key]) : fallback;
                 bool GetB(string key, bool fallback) => s.ContainsKey(key) ? Convert.ToBoolean(s[key]) : fallback;
                 _view.SetOptions(Get("forms", 1), Get("spelling", 0), Get("distance", 0), Get("near", 3), GetB("ordered", true), GetB("headings", false));
-                _savedWidth = _lastWidth = 0;
+                _savedWidth = _lastWidth = _initialWidth = 0;
             }
             catch (Exception e) { Log.Error("settings", e); }
             finally { _loading = false; }
@@ -369,8 +379,8 @@ namespace HebDocSearch.WordAddin
                     ["headings"] = _view.HeadingsOnly,
                 };
                 int logical = SavedWidth();
-                if (_savedWidth > 50) logical = (int)Math.Round(_savedWidth / Assets.SystemScale);
-                if (logical > 0) s["pane_width"] = logical;
+                if (_initialWidth > 0 && _savedWidth != _initialWidth) logical = (int)Math.Round(_savedWidth / Assets.SystemScale);
+                if (logical > 0) s["pane_w"] = logical;
                 File.WriteAllText(SettingsPath, _json.Serialize(s), Encoding.UTF8);
             }
             catch { }
@@ -383,7 +393,7 @@ namespace HebDocSearch.WordAddin
             {
                 if (!File.Exists(SettingsPath)) return 0;
                 var s = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(SettingsPath, Encoding.UTF8));
-                return s.ContainsKey("pane_width") ? Math.Max(240, Math.Min(1200, Convert.ToInt32(s["pane_width"]))) : 0;
+                return s.ContainsKey("pane_w") ? Math.Max(240, Math.Min(1200, Convert.ToInt32(s["pane_w"]))) : 0;
             }
             catch { return 0; }
         }

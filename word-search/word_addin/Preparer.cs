@@ -167,8 +167,19 @@ namespace HebDocSearch.WordAddin
         public bool WillRead(Word.Document doc)
         {
             var s = Find(doc);
-            try { return s == null || !Fresh(s); }
+            try { return s == null || !FocusGuard.Run(() => Fresh(s)); }
             catch { return true; }
+        }
+
+        /// <summary>האם אפשר לחפש תוך כדי הקלדה: המסמך כבר נקרא, לא השתנה, ורכיב העזר כבר בנה את מפת החיפוש
+        /// (וגם הכותרות, לחיפוש בכותרות). אחרת חיפוש תוך כדי הקלדה היה קורא את המסמך ומעכב את Word.</summary>
+        public bool ReadyForLive(Word.Document doc, bool headings)
+        {
+            var s = Find(doc);
+            if (s == null || s.Text == null || s.Reading || s.Indexing || s.IndexedKey != s.Text.Key) return false;
+            if (headings && (!s.Text.HasLevels || s.NeedsHeadings)) return false;
+            try { return FocusGuard.Run(() => Fresh(s)); }
+            catch { return false; }
         }
 
         string ReadText(DocState s)
@@ -209,11 +220,11 @@ namespace HebDocSearch.WordAddin
 
                 if (next.NeedsRead)
                 {
-                    if (WordIsFree(ReadIdleMs)) BeginRead(next);
+                    if (WordIsFree(ReadIdleMs)) FocusGuard.Run(() => BeginRead(next));
                 }
                 else if (WordIsFree(SliceIdleMs))
                 {
-                    HeadingSlice(next, SliceMs);
+                    FocusGuard.Run(() => HeadingSlice(next, SliceMs));
                 }
             }
             catch (COMException e)
@@ -462,6 +473,11 @@ namespace HebDocSearch.WordAddin
         /// מחזיר true כשהכותרות מוכנות; אחרת – לקרוא שוב בעוד רגע (בינתיים Word מגיב).</summary>
         public bool EnsureHeadings(Word.Document doc, int budgetMs)
         {
+            return FocusGuard.Run(() => EnsureHeadingsCore(doc, budgetMs));
+        }
+
+        bool EnsureHeadingsCore(Word.Document doc, int budgetMs)
+        {
             var s = StateOf(doc);
             if (s.Text == null || !Fresh(s))
             {
@@ -485,7 +501,7 @@ namespace HebDocSearch.WordAddin
             var s = StateOf(doc);
             DocText previous = s.Text;
             string raw = null;
-            if (reuse == null && !Fresh(s)) raw = ReadText(s);
+            if (reuse == null) raw = FocusGuard.Run(() => Fresh(s) ? null : ReadText(s));
             DocText known = reuse ?? (raw == null ? previous : null);
             Task.Run(() =>
             {
@@ -560,6 +576,8 @@ namespace HebDocSearch.WordAddin
 
         bool WordIsFree(int idleMs)
         {
+            // המשתמש בשדה החיפוש (באמצע כתיבת מילה) – מחכים להפסקה ארוכה יותר, כדי לא לעכב את ההקלדה
+            if (FocusGuard.InAddIn) idleMs = Math.Max(idleMs, 3000);
             if (!UserIdle(idleMs)) return false;
             IntPtr main = Process.GetCurrentProcess().MainWindowHandle;
             if (main != IntPtr.Zero && !IsWindowEnabled(main)) return false;     // חלון דו-שיח פתוח

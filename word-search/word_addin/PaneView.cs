@@ -310,6 +310,13 @@ namespace HebDocSearch.WordAddin
                 SetCount(_countMain, $"{index + 1:N0} מתוך {List.Count:N0}", false);
         }
 
+        /// <summary>רמז בשורת המספר (למשל "לחצו Enter לחיפוש"), בלי לשנות את התוצאות.</summary>
+        public void ShowHint(string text)
+        {
+            if (_searchingDelay.Enabled) return;
+            SetCount(_countMain, text, false);
+        }
+
         public void SetNote(string note, bool warn)
         {
             SetCount(_countMain, note, warn && _countMain.Length == 0);

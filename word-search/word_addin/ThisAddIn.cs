@@ -98,9 +98,9 @@ namespace HebDocSearch.WordAddin
                 {
                     var control = new SearchPane(this, win, doc);
                     pane = CustomTaskPanes.Add(control, "חיפוש עברי", win);
-                    // ברירת מחדל 380 (בפיקסלים של 100%, כפול קנה המידה של המסך), או הרוחב שהמשתמש גרר בפעם הקודמת
+                    // ברירת מחדל 342 (בפיקסלים של 100%, כפול קנה המידה של המסך), או הרוחב שהמשתמש גרר בפעם הקודמת
                     int logical = SearchPane.SavedWidth();
-                    pane.Width = (int)Math.Round((logical > 0 ? logical : 380) * Assets.SystemScale);
+                    pane.Width = (int)Math.Round((logical > 0 ? logical : 342) * Assets.SystemScale);
                     pane.VisibleChanged += (s, e) =>
                     {
                         if (((CustomTaskPane)s).Visible) control.FocusSearch();

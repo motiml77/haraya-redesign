@@ -118,6 +118,7 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="Ui.cs" />
+    <Compile Include="FocusGuard.cs" />
     <Compile Include="Assets.cs" />
     <Compile Include="DocText.cs" />
     <Compile Include="Preparer.cs" />

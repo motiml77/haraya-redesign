@@ -273,7 +273,7 @@ namespace HebDocSearch.WordAddin
     // ==================================================================== לשוניות
     internal sealed class TabStrip : ThemedControl
     {
-        public readonly string[] Labels = { "תוצאות", "כותרות" };
+        public readonly string[] Labels = { "תוצאות", "חיפוש בכותרות" };
         public readonly int?[] Counts = { null, null };
         public readonly string[] Tips = { "חיפוש בכל הטקסט של המסמך", "חיפוש רק בכותרות (סגנונות 'כותרת 1' עד 'כותרת 9')" };
         int _selected, _hoverTab = -1;
