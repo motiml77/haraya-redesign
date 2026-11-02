@@ -114,6 +114,30 @@ Write-Output ('KEY=' + $k)
     return values["THUMB"], values["KEY"]
 
 
+def vsto_overrides(vstools):
+    """היעדים של Visual Studio מוסיפים את פלט הבנייה לרשימת המהימנים של מחשב הבנייה (SetInclusionListEntry) –
+    נוחות למפתח שמריץ מ-Visual Studio, שדורשת את VSTO Runtime במחשב הבנייה. אצל המשתמש אשף ההתקנה עושה זאת.
+    יוצרים העתק של אותם יעדים בלי המשימה הזו בלבד, ומייבאים אותו אחרי היעדים המקוריים (ההגדרה האחרונה גוברת)."""
+    import xml.etree.ElementTree as ET
+    src = os.path.join(vstools, "OfficeTools", "Microsoft.VisualStudio.Tools.Office.targets")
+    ns = "http://schemas.microsoft.com/developer/msbuild/2003"
+    ET.register_namespace("", ns)
+    root = ET.parse(src).getroot()
+    out = ET.Element(f"{{{ns}}}Project")
+    for target in root.iter(f"{{{ns}}}Target"):
+        parents = [(p, c) for p in target.iter() for c in list(p) if c.tag == f"{{{ns}}}SetInclusionListEntry"]
+        if not parents:
+            continue
+        for parent, child in parents:
+            parent.remove(child)
+        out.append(target)
+        print(f"  בלי SetInclusionListEntry ביעד {target.get('Name')}", flush=True)
+    path = os.path.join(BUILD, "vsto_overrides.targets")
+    os.makedirs(BUILD, exist_ok=True)
+    ET.ElementTree(out).write(path, encoding="utf-8", xml_declaration=True)
+    return path
+
+
 VSTO_KEY_FILE = os.path.join(BUILD, "vsto_key.iss")
 
 
@@ -127,6 +151,7 @@ def word_addin():
     shutil.rmtree(os.path.join(project, "obj"), ignore_errors=True)
     sh(msbuild, os.path.join(project, "HebDocSearch.WordAddin.csproj"), "/t:Rebuild", "/p:Configuration=Release",
        f"/p:VSToolsPath={vstools}", f"/p:ManifestCertificateThumbprint={thumb}", "/p:SignManifests=true",
+       f"/p:HebVstoOverrides={vsto_overrides(vstools)}",
        "/nologo", "/v:minimal")
     built = os.path.join(project, "bin", "Release")
     out = os.path.join(DIST, APP_ID, "word")
