@@ -5,3 +5,5 @@ dist/
 .venv/
 word_addin/bin/
 word_addin/obj/
+word_addin/preview/bin/
+word_addin/preview/obj/

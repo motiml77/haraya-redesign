@@ -40,6 +40,18 @@ class DocSearchTest(unittest.TestCase):
         self.assertEqual(r["hits"][1]["heading"], "הלכות שבת")
         self.assertEqual(r["hits"][4]["heading"], "מהלכות יום טוב")
 
+    def test_heading_path_of_each_hit(self):
+        r = self.search("הלך", options={"forms": "all"})
+        paths = [h["path"] for h in r["hits"]]
+        self.assertEqual(paths[0], [])                              # "הלכות שבת" – כותרת עליונה
+        self.assertEqual(paths[1], ["הלכות שבת"])
+        self.assertEqual(paths[2], ["הלכות שבת"])                   # "מהלכות יום טוב" – כותרת 2 תחת כותרת 1
+        self.assertEqual(paths[4], ["הלכות שבת", "מהלכות יום טוב"])
+        r = self.search("ייחוד")
+        self.assertEqual(r["hits"][-1]["path"], ["איסור ייחוד – דיני איסור ייחוד"])   # כותרת 1 חדשה סוגרת את הקודמות
+        r = self.search("הלך", options={"forms": "all"}, headings_only=True)
+        self.assertEqual([h["path"] for h in r["hits"]], [[], ["הלכות שבת"]])
+
     def test_options_are_the_same_as_the_program(self):
         self.assertEqual(self.search("הלך", options={"forms": "exact"})["total"], 0)
         self.assertEqual(self.words(self.search("שבת", options={"forms": "prefixes"})), ["שבת", "בשבת"])
@@ -70,6 +82,32 @@ class DocSearchTest(unittest.TestCase):
         hit = self.svc.search({"doc": "pre", "query": "הלך", "options": {"forms": "all"}, "headings_only": True})
         self.assertEqual(hit["total"], 2)                     # בלי לשלוח שוב את הפסקאות
         self.assertEqual(self.svc.index({"doc": "missing"}), {"ok": False, "need_paras": True})
+
+    def test_relevel_reuses_the_index_with_new_heading_levels(self):
+        flat = [{"t": p["t"], "h": 0} for p in PARAS]               # לפני שהתוסף קרא את הכותרות
+        self.svc.index({"doc": "v1", "paras": flat})
+        full_db = self.svc.docs["v1"][False].db
+        r = self.svc.relevel({"from": "v1", "doc": "v2", "levels": [p["h"] for p in PARAS]})
+        self.assertEqual((r["ok"], r["headings"]), (True, 3))
+        self.assertIs(self.svc.docs["v2"][False].db, full_db)          # בלי לבנות מחדש
+        hit = self.svc.search({"doc": "v2", "query": "הלך", "options": {"forms": "all"}})
+        self.assertEqual(hit["hits"][4]["path"], ["הלכות שבת", "מהלכות יום טוב"])
+        self.assertEqual(self.svc.search({"doc": "v2", "query": "הלך", "options": {"forms": "all"},
+                                          "headings_only": True})["total"], 2)
+        self.assertEqual(self.svc.search({"doc": "v1", "query": "הלך", "options": {"forms": "all"},
+                                          "headings_only": True})["total"], 0)     # הגרסה הקודמת לא השתנתה
+        self.assertEqual(self.svc.relevel({"from": "missing", "doc": "x", "levels": []}),
+                         {"ok": False, "need_paras": True})
+        self.assertEqual(self.svc.relevel({"from": "v2", "doc": "x", "levels": [1]}),
+                         {"ok": False, "need_paras": True})                         # מספר פסקאות לא תואם
+
+    def test_shared_index_survives_eviction_of_the_old_version(self):
+        svc = docsearch.DocSearchService(keep=2)
+        svc.index({"doc": "a1", "paras": PARAS})
+        svc.relevel({"from": "a1", "doc": "a2", "levels": [0] * len(PARAS)})
+        svc.index({"doc": "other", "paras": [{"t": "שלום", "h": 0}]})         # a1 יוצא מהמטמון
+        self.assertNotIn("a1", svc.docs)
+        self.assertEqual(svc.search({"doc": "a2", "query": "שבת"})["total"], 2)   # המפה המשותפת לא נסגרה
 
     def test_document_without_headings(self):
         svc = docsearch.DocSearchService()

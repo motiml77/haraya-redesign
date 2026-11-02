@@ -1,17 +1,12 @@
-// חלונית החיפוש שבצד המסמך. פקדי חלונות רגילים (ולא דפדפן משובץ – בחלוניות של Office מקשים
-// כמו Backspace וחיצים לא תמיד מגיעים אליו). התוצאות מוצגות בתיבת טקסט עשיר: היא מסדרת עברית
-// ומספרים נכון, ומסמנת בצהוב את המילים שנמצאו.
+// חלונית החיפוש שבצד המסמך: מחברת את התצוגה (PaneView) ל-Word ולרכיב החיפוש.
 //
-//   [שדה חיפוש ··········] [חיפוש]
-//   מילים [עם אותיות שימוש ⌄]  כתיב [כפי שהוקלד ⌄]
-//   מרחק [צמודות ⌄] [3]  ☑ לפי הסדר   ☐ בכותרות בלבד
-//   נמצאו 12 תוצאות
-//   ┌ תוצאות: הכותרת שמעל + הקטע, המילים בצהוב ┐
-//   [‹] 3 מתוך 12 [›]
+// היענות: החיפוש עצמו רץ ברכיב העזר על תהליך נפרד; בתהליך הראשי של Word נעשים רק קריאת הטקסט
+// (ורק אם המסמך השתנה מאז הקריאה הקודמת), הצגת התוצאות (רשימה מצוירת שמציירת רק מה שעל המסך)
+// והקפיצה לתוצאה במסמך.
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Drawing;
+using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Web.Script.Serialization;
@@ -22,327 +17,134 @@ namespace HebDocSearch.WordAddin
 {
     public class SearchPane : UserControl
     {
-        // צבעים – כמו בתוכנה (hebsearch/gui/theme.py)
-        static readonly Color Accent = ColorTranslator.FromHtml("#2563eb");
-        static readonly Color AccentSoft = ColorTranslator.FromHtml("#eaf1ff");
-        static readonly Color Text1 = ColorTranslator.FromHtml("#1c2330");
-        static readonly Color Muted = ColorTranslator.FromHtml("#7b8596");
-        static readonly Color Marker = ColorTranslator.FromHtml("#ffe94a");
-        static readonly Color Border = ColorTranslator.FromHtml("#e1e5ec");
-        static readonly Color Warn = ColorTranslator.FromHtml("#a55a00");
-
-        static readonly string[] FormKeys = { "exact", "prefixes", "all" };
-        static readonly string[] FormLabels = { "מדויק", "עם אותיות שימוש", "כל ההטיות" };
-        static readonly string[] SpellKeys = { "none", "vy", "all" };
-        static readonly string[] SpellLabels = { "כפי שהוקלד", "מלא וחסר (ו׳ י׳)", "כל אהו״י" };
-        static readonly string[] DistKeys = { "adjacent", "near", "paragraph" };
-        static readonly string[] DistLabels = { "צמודות", "עד N מילים ביניהן", "באותה פסקה" };
-
-        readonly TextBox _query = new TextBox();
-        readonly Button _go = new Button();
-        readonly ComboBox _forms = new ComboBox();
-        readonly ComboBox _spelling = new ComboBox();
-        readonly ComboBox _distance = new ComboBox();
-        readonly NumericUpDown _near = new NumericUpDown();
-        readonly CheckBox _ordered = new CheckBox();
-        readonly CheckBox _headings = new CheckBox();
-        readonly Label _status = new Label();
-        readonly RichTextBox _results = new RichTextBox();
-        readonly Button _prev = new Button();
-        readonly Button _next = new Button();
-        readonly Label _counter = new Label();
-
-        readonly JavaScriptSerializer _json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
         readonly ThisAddIn _addin;
         readonly Word.Window _window;
         readonly Word.Document _doc;
-        DocText _searched;                                  // הגרסה של המסמך שבה נמצאו התוצאות
-        readonly Timer _stateTimer = new Timer { Interval = 500 };
-        List<Hit> _hits = new List<Hit>();
-        int _current = -1;
-        bool _loading, _busy, _again;
+        readonly PaneView _view = new PaneView { Dock = DockStyle.Fill };
+        readonly Timer _timer = new Timer { Interval = 600 };
+        readonly JavaScriptSerializer _json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
 
-        sealed class Hit
-        {
-            public int Para;
-            public List<int[]> Ranges = new List<int[]>();
-            public List<int[]> Marks = new List<int[]>();       // מיקומי המרקר הצהוב בתיבת התוצאות
-            public int BlockStart, BlockLength;
-        }
+        DocText _searched;                       // הגרסה של המסמך שבה נמצאו התוצאות
+        List<ResultItem> _items = new List<ResultItem>();
+        int _current = -1;
+        string _lastKey;                         // השאילתה + האפשרויות של התוצאות המוצגות
+        bool _busy, _again, _loading;
+        int _generation;
 
         internal SearchPane(ThisAddIn addin, Word.Window window, Word.Document doc)
         {
             _addin = addin;
             _window = window;
             _doc = doc;
-            RightToLeft = RightToLeft.Yes;
-            BackColor = Color.White;
-            Font = new Font("Segoe UI", 9.75f);
-            Padding = new Padding(8);
-            BuildUi();
+            Controls.Add(_view);
+            _view.ApplyTheme(Theme.Current());
+            _view.SubmitRequested += OnSubmit;
+            _view.NavigateRequested += d => Go(_current + d);
+            _view.ResultActivated += i => Go(i);
+            _view.OptionsChanged += OnOptionsChanged;
+            _view.ModeChanged += OnOptionsChanged;
+            _view.QueryCleared += Reset;
             LoadSettings();
-            _stateTimer.Tick += (s, e) => ShowDocState();
-            _stateTimer.Start();
-            ShowDocState();
-        }
-
-        /// <summary>כל עוד אין תוצאות: האם המסמך כבר מוכן לחיפוש (ההכנה רצה ברקע). בלי גישה ל-Word.</summary>
-        void ShowDocState()
-        {
-            if (_hits.Count > 0 || _lastQuery.Length > 0 || _busy || !Visible || _addin.Preparer == null) return;
-            _status.ForeColor = Muted;
-            _status.Text = _addin.Preparer.Status(_doc);
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing) { _stateTimer.Stop(); _stateTimer.Dispose(); }
-            base.Dispose(disposing);
+            Reset();
+            _timer.Tick += (s, e) => Tick();
+            _timer.Start();
         }
 
         internal void FocusSearch()
         {
-            BeginInvoke(new Action(() => { _query.Focus(); _query.SelectAll(); }));
+            BeginInvoke(new Action(_view.FocusSearch));
         }
 
-        // ================================================================ ממשק
-        void BuildUi()
+        /// <summary>כל ~חצי שנייה: ערכת הנושא של Office (אם הוחלפה) ומצב ההכנה של המסמך. בלי גישה למסמך.</summary>
+        void Tick()
         {
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, RightToLeft = RightToLeft.Yes };
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            Controls.Add(root);
-
-            // שורת החיפוש
-            var row = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 2, AutoSize = true, RightToLeft = RightToLeft.Yes, Margin = new Padding(0, 0, 0, 6) };
-            row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            _query.Dock = DockStyle.Fill;
-            _query.Font = new Font("Segoe UI", 11f);
-            _query.Margin = new Padding(0, 0, 6, 0);
-            _query.KeyDown += QueryKeyDown;
-            _go.Text = "חיפוש";
-            _go.AutoSize = true;
-            _go.FlatStyle = FlatStyle.Flat;
-            _go.FlatAppearance.BorderColor = Accent;
-            _go.BackColor = Accent;
-            _go.ForeColor = Color.White;
-            _go.Font = new Font("Segoe UI", 9.75f, FontStyle.Bold);
-            _go.Cursor = Cursors.Hand;
-            _go.Margin = new Padding(0);
-            _go.Click += (s, e) => RunSearch();
-            row.Controls.Add(_query, 0, 0);
-            row.Controls.Add(_go, 1, 0);
-            root.Controls.Add(row, 0, 0);
-
-            // אפשרויות: מילים, כתיב
-            var opts1 = Flow();
-            opts1.Controls.Add(Caption("מילים:"));
-            Combo(_forms, FormLabels, 130);
-            opts1.Controls.Add(_forms);
-            opts1.Controls.Add(Caption("כתיב:"));
-            Combo(_spelling, SpellLabels, 110);
-            opts1.Controls.Add(_spelling);
-            root.Controls.Add(opts1, 0, 1);
-
-            // מרחק, סדר, כותרות
-            var opts2 = Flow();
-            opts2.Controls.Add(Caption("מרחק:"));
-            Combo(_distance, DistLabels, 130);
-            opts2.Controls.Add(_distance);
-            _near.Minimum = 1;
-            _near.Maximum = 99;
-            _near.Value = 3;
-            _near.Width = 46;
-            _near.Margin = new Padding(2, 3, 2, 3);
-            opts2.Controls.Add(_near);
-            _ordered.Text = "לפי הסדר";
-            _ordered.AutoSize = true;
-            _ordered.Checked = true;
-            opts2.Controls.Add(_ordered);
-            _headings.Text = "בכותרות בלבד";
-            _headings.AutoSize = true;
-            _headings.Font = new Font("Segoe UI", 9.75f, FontStyle.Bold);
-            _headings.ForeColor = Accent;
-            opts2.Controls.Add(_headings);
-            root.Controls.Add(opts2, 0, 2);
-
-            _status.AutoSize = false;
-            _status.Dock = DockStyle.Top;
-            _status.Height = 22;
-            _status.ForeColor = Muted;
-            _status.TextAlign = ContentAlignment.MiddleRight;
-            _status.Text = "מקלידים מילה ולוחצים Enter. ניקוד, גרשיים ואותיות סופיות לא משנים.";
-            root.Controls.Add(_status, 0, 3);
-
-            _results.Dock = DockStyle.Fill;
-            _results.ReadOnly = true;
-            _results.BorderStyle = BorderStyle.None;
-            _results.BackColor = Color.White;
-            _results.RightToLeft = RightToLeft.Yes;
-            _results.ScrollBars = RichTextBoxScrollBars.Vertical;
-            _results.DetectUrls = false;
-            _results.Cursor = Cursors.Hand;
-            _results.ShortcutsEnabled = true;
-            _results.MouseUp += ResultsMouseUp;
-            _results.KeyDown += ResultsKeyDown;
-            var frame = new Panel { Dock = DockStyle.Fill, Padding = new Padding(1), BackColor = Border, Margin = new Padding(0, 2, 0, 4) };
-            var inner = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(6, 4, 6, 4) };
-            inner.Controls.Add(_results);
-            frame.Controls.Add(inner);
-            root.Controls.Add(frame, 0, 4);
-
-            // מעבר בין התוצאות: בממשק מימין לשמאל "הקודמת" מימין
-            var nav = Flow();
-            _prev.Text = "›";
-            _next.Text = "‹";
-            foreach (var b in new[] { _prev, _next })
-            {
-                b.Width = 34;
-                b.FlatStyle = FlatStyle.Flat;
-                b.FlatAppearance.BorderColor = Border;
-                b.Font = new Font("Segoe UI", 11f, FontStyle.Bold);
-                b.Cursor = Cursors.Hand;
-            }
-            _prev.Click += (s, e) => Go(_current - 1);
-            _next.Click += (s, e) => Go(_current + 1);
-            _counter.AutoSize = true;
-            _counter.Margin = new Padding(6, 9, 6, 0);
-            _counter.ForeColor = Text1;
-            nav.Controls.Add(_prev);
-            nav.Controls.Add(_counter);
-            nav.Controls.Add(_next);
-            var tips = Caption("Enter – הבאה · Shift+Enter – הקודמת");
-            tips.Margin = new Padding(10, 9, 0, 0);
-            nav.Controls.Add(tips);
-            root.Controls.Add(nav, 0, 5);
-
-            foreach (Control c in new Control[] { _forms, _spelling, _distance, _ordered, _headings })
-            {
-                if (c is ComboBox cb) cb.SelectedIndexChanged += (s, e) => OptionsChanged();
-                if (c is CheckBox ch) ch.CheckedChanged += (s, e) => OptionsChanged();
-            }
-            _near.ValueChanged += (s, e) => { if (!_loading) { _distance.SelectedIndex = 1; OptionsChanged(); } };
-            UpdateNav();
+            if (!Visible) return;
+            var theme = Theme.Current();
+            if (theme != _view.CurrentTheme) _view.ApplyTheme(theme);
+            if (_addin.Preparer != null) _view.SetDocStatus(_addin.Preparer.Status(_doc));
         }
 
-        static FlowLayoutPanel Flow()
+        void Reset()
         {
-            return new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true, FlowDirection = FlowDirection.RightToLeft, Margin = new Padding(0, 0, 0, 2) };
-        }
-
-        static Label Caption(string text)
-        {
-            return new Label { Text = text, AutoSize = true, ForeColor = Muted, Margin = new Padding(2, 7, 2, 0) };
-        }
-
-        static void Combo(ComboBox c, string[] items, int width)
-        {
-            c.DropDownStyle = ComboBoxStyle.DropDownList;
-            c.Items.AddRange(items);
-            c.SelectedIndex = 0;
-            c.Width = width;
-            c.Margin = new Padding(2, 3, 8, 3);
-        }
-
-        // ================================================================ מקלדת
-        void QueryKeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.KeyCode == Keys.Enter)
-            {
-                e.SuppressKeyPress = true;
-                if (_hits.Count > 0 && _lastQuery == _query.Text.Trim() && _lastKey == OptionsKey())
-                    Go(e.Shift ? _current - 1 : _current + 1);      // Enter נוסף – לתוצאה הבאה, כמו ב-Word
-                else
-                    RunSearch();
-            }
-            else if (e.KeyCode == Keys.Down && _hits.Count > 0)
-            {
-                e.SuppressKeyPress = true;
-                Go(_current + 1);
-            }
-            else if (e.KeyCode == Keys.Up && _hits.Count > 0)
-            {
-                e.SuppressKeyPress = true;
-                Go(_current - 1);
-            }
-        }
-
-        void ResultsKeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.KeyCode == Keys.Down || e.KeyCode == Keys.Enter && !e.Shift) { e.SuppressKeyPress = true; Go(_current + 1); }
-            else if (e.KeyCode == Keys.Up || e.KeyCode == Keys.Enter && e.Shift) { e.SuppressKeyPress = true; Go(_current - 1); }
-        }
-
-        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
-        {
-            if (keyData == Keys.F3) { Go(_current + 1); return true; }
-            if (keyData == (Keys.F3 | Keys.Shift)) { Go(_current - 1); return true; }
-            return base.ProcessCmdKey(ref msg, keyData);
+            _generation++;
+            _items = new List<ResultItem>();
+            _current = -1;
+            _lastKey = null;
+            _view.ShowIdle(_addin.Preparer?.Status(_doc) ?? "");
         }
 
         // ================================================================ חיפוש
-        string _lastQuery = "", _lastKey = "";
-
-        string OptionsKey()
+        string Key()
         {
-            return string.Join("|", _forms.SelectedIndex, _spelling.SelectedIndex, _distance.SelectedIndex, _near.Value, _ordered.Checked, _headings.Checked);
+            return string.Join("|", _view.Query, _view.Forms, _view.Spelling, _view.Distance, _view.Near, _view.Ordered, _view.HeadingsOnly);
         }
 
-        void OptionsChanged()
+        void OnSubmit(bool shift)
+        {
+            if (_view.Query.Length == 0) return;
+            if (_items.Count > 0 && Key() == _lastKey)
+                Go(_current + (shift ? -1 : 1));           // Enter נוסף – לתוצאה הבאה, כמו ב-Word
+            else
+                RunSearch();
+        }
+
+        void OnOptionsChanged()
         {
             if (_loading) return;
-            _near.Enabled = _distance.SelectedIndex == 1;
             SaveSettings();
-            if (_query.Text.Trim().Length > 0 && _lastQuery.Length > 0) RunSearch();
+            if (_view.Query.Length > 0 && _lastKey != null) RunSearch();
+        }
+
+        Dictionary<string, object> Request(bool headingsOnly, int limit)
+        {
+            return new Dictionary<string, object>
+            {
+                ["query"] = _view.Query,
+                ["headings_only"] = headingsOnly,
+                ["limit"] = limit,
+                ["options"] = new Dictionary<string, object>
+                {
+                    ["forms"] = PaneView.FormKeys[_view.Forms],
+                    ["spelling"] = PaneView.SpellKeys[_view.Spelling],
+                    ["distance"] = PaneView.DistKeys[_view.Distance],
+                    ["near"] = _view.Near,
+                    ["ordered"] = _view.Ordered,
+                },
+            };
         }
 
         void RunSearch()
         {
-            string q = _query.Text.Trim();
-            if (q.Length == 0) return;
-            if (_busy) { _again = true; return; }              // החיפוש הבא ירוץ כשהנוכחי יסתיים
+            if (_view.Query.Length == 0) return;
+            if (_busy) { _again = true; return; }          // החיפוש הבא ירוץ כשהנוכחי יסתיים
             _busy = true;
             _again = false;
-            string key = OptionsKey();
-            Cursor = Cursors.AppStarting;
-            _status.ForeColor = Muted;
-            _status.Text = "מחפש…";
-            var req = new Dictionary<string, object>
-            {
-                ["query"] = q,
-                ["headings_only"] = _headings.Checked,
-                ["limit"] = 400,
-                ["options"] = new Dictionary<string, object>
-                {
-                    ["forms"] = FormKeys[_forms.SelectedIndex],
-                    ["spelling"] = SpellKeys[_spelling.SelectedIndex],
-                    ["distance"] = DistKeys[_distance.SelectedIndex],
-                    ["near"] = (int)_near.Value,
-                    ["ordered"] = _ordered.Checked,
-                },
-            };
+            int generation = ++_generation;
+            string key = Key();
+            bool headings = _view.HeadingsOnly;
+            var sw = Stopwatch.StartNew();
             try
             {
-                _addin.Preparer.Search(_doc, req, (reply, text, error) =>
+                // אם צריך לקרוא את המסמך מחדש (נערך מאז) – "מחפש…" מוצג לפני הקריאה
+                bool reading = _addin.Preparer.WillRead(_doc);
+                _view.BeginSearch(reading);
+                if (reading) _view.Update();
+                _addin.Preparer.Search(_doc, Request(headings, 300), (reply, text, error) =>
                 {
                     _busy = false;
-                    Cursor = Cursors.Default;
                     if (IsDisposed) return;
                     if (_again) { RunSearch(); return; }
+                    if (generation != _generation) return;
                     try
                     {
                         if (error != null) throw error;
                         if (!(reply.ContainsKey("ok") && (bool)reply["ok"]))
                             throw new Exception(reply.ContainsKey("error") ? Convert.ToString(reply["error"]) : "שגיאה בחיפוש");
                         _searched = text;
-                        _lastQuery = q;
                         _lastKey = key;
-                        ShowResults(reply);
+                        ShowResults(reply, text, headings);
+                        Log.Write($"search '{_view.Query}' headings={headings}: {reply["total"]} hits in {sw.ElapsedMilliseconds}ms");
+                        CountOtherMode(text, headings, generation);
                     }
                     catch (Exception ex) { SearchFailed(ex); }
                 });
@@ -350,145 +152,134 @@ namespace HebDocSearch.WordAddin
             catch (Exception ex)
             {
                 _busy = false;
-                Cursor = Cursors.Default;
                 SearchFailed(ex);
             }
+        }
+
+        /// <summary>המספר בלשונית השנייה (כמה תוצאות יש בכותרות / בכל הטקסט), בלי לקרוא שוב את המסמך.</summary>
+        void CountOtherMode(DocText text, bool headings, int generation)
+        {
+            if (!headings && (text == null || !text.HasLevels)) return;      // הכותרות עוד לא נקראו – לא מציגים 0 מטעה
+            try
+            {
+                _addin.Preparer.Search(_doc, Request(!headings, 1), (reply, t, error) =>
+                {
+                    if (IsDisposed || generation != _generation) return;
+                    if (error == null && reply != null && reply.ContainsKey("ok") && (bool)reply["ok"])
+                        _view.SetTabCount(!headings, Convert.ToInt32(reply["total"]));
+                }, text);
+            }
+            catch (Exception ex) { Log.Error("count", ex); }
         }
 
         void SearchFailed(Exception ex)
         {
             Log.Error("search", ex);
-            _hits.Clear();
-            _results.Clear();
-            _status.ForeColor = Warn;
-            _status.Text = "לא ניתן לחפש: " + ex.Message;
-            UpdateNav();
+            _items = new List<ResultItem>();
+            _current = -1;
+            _lastKey = null;
+            _view.ShowMessage("", "לא ניתן לחפש", new[] { ex.Message }, true);
         }
 
-        void ShowResults(Dictionary<string, object> reply)
+        void ShowResults(Dictionary<string, object> reply, DocText text, bool headings)
         {
             int total = Convert.ToInt32(reply["total"]);
-            int headings = Convert.ToInt32(reply["headings"]);
+            int docHeadings = Convert.ToInt32(reply["headings"]);
+            int terms = reply.ContainsKey("n_terms") ? Convert.ToInt32(reply["n_terms"]) : 1;
             var hits = (IList)reply["hits"];
-            _hits = new List<Hit>();
+            _items = new List<ResultItem>(hits.Count);
             _current = -1;
-            _results.SuspendLayout();
-            _results.Clear();
-            _status.ForeColor = Text1;
-            if (_headings.Checked && headings == 0)
-            {
-                _status.ForeColor = Warn;
-                _status.Text = "אין במסמך כותרות (סגנונות 'כותרת 1' עד 'כותרת 9', או רמת חלוקה לרמות).";
-            }
-            else if (total == 0)
-            {
-                _status.Text = _headings.Checked ? $"לא נמצא בכותרות ({headings:N0} כותרות במסמך)" : "לא נמצאו תוצאות במסמך";
-            }
-            else
-            {
-                string what = total == 1 ? "תוצאה אחת" : $"{total:N0} תוצאות";
-                _status.Text = _headings.Checked ? $"נמצאו {what} ב-{headings:N0} הכותרות" : $"נמצאו {what}";
-                if (hits.Count < total) _status.Text += $" (מוצגות {hits.Count:N0})";
-            }
+            string noPath = docHeadings > 0 && !headings ? "לפני הכותרת הראשונה" : "";
             foreach (Dictionary<string, object> h in hits)
             {
-                var hit = new Hit { Para = Convert.ToInt32(h["para"]) };
-                foreach (IList r in (IList)h["ranges"])
-                    hit.Ranges.Add(new[] { Convert.ToInt32(r[0]), Convert.ToInt32(r[1]) });
-                hit.BlockStart = _results.TextLength;
-                string heading = Convert.ToString(h["heading"]);
-                if (heading.Length > 0)
-                    Append("◂ " + Shorten(heading, 70) + "\n", Muted, Color.White, 8.5f, false);
-                foreach (IList seg in (IList)h["snippet"])
+                var item = new ResultItem
                 {
-                    string text = Convert.ToString(seg[0]).Replace("\n", " ");
-                    int kind = Convert.ToInt32(seg[1]);
-                    if (kind == 3) text = " ¶ ";
-                    if (kind == 1) hit.Marks.Add(new[] { _results.TextLength, text.Length });
-                    Append(text, kind == 2 ? Muted : Text1, kind == 1 ? Marker : Color.White, 10f, false);
+                    Number = _items.Count + 1,
+                    Para = Convert.ToInt32(h["para"]),
+                    Level = h.ContainsKey("level") ? Convert.ToInt32(h["level"]) : 0,
+                    Covered = h.ContainsKey("covered") ? Convert.ToInt32(h["covered"]) : terms,
+                    Terms = terms,
+                    HeadingHit = headings,
+                    NoPathText = noPath,
+                };
+                foreach (IList r in (IList)h["ranges"])
+                    item.Ranges.Add(new[] { Convert.ToInt32(r[0]), Convert.ToInt32(r[1]) });
+                if (h.ContainsKey("path") && h["path"] is IList path)
+                {
+                    var p = new List<string>();
+                    foreach (object s in path) p.Add(Convert.ToString(s));
+                    item.Path = p.ToArray();
                 }
-                Append("\n", Text1, Color.White, 6f, false);
-                hit.BlockLength = _results.TextLength - hit.BlockStart;
-                Append("\n", Text1, Color.White, 5f, false);
-                _hits.Add(hit);
+                else if (h.ContainsKey("heading") && Convert.ToString(h["heading"]).Length > 0)
+                    item.Path = new[] { Convert.ToString(h["heading"]) };
+                foreach (IList seg in (IList)h["snippet"])
+                    item.Snippet.Add(new Seg { Text = Convert.ToString(seg[0]), Kind = Convert.ToInt32(seg[1]) });
+                _items.Add(item);
             }
-            _results.Select(0, 0);
-            _results.ResumeLayout();
-            UpdateNav();
-            if (_hits.Count > 0) Go(0, focusDocument: false);
+
+            if (_items.Count == 0)
+            {
+                if (headings && docHeadings == 0)
+                    _view.ShowMessage("אין כותרות", "אין במסמך כותרות", new[]
+                    {
+                        "כותרות הן פסקאות בסגנונות 'כותרת 1' עד 'כותרת 9', או פסקאות עם רמת חלוקה.",
+                        "בלשונית 'תוצאות' מחפשים בכל הטקסט.",
+                    }, false);
+                else
+                {
+                    var tips = new List<string>();
+                    if (_view.Forms < 2) tips.Add("אפשר להרחיב: מילים ← כל ההטיות.");
+                    if (_view.Spelling == 0) tips.Add("או: מילים ← כתיב מלא וחסר.");
+                    if (_view.Distance == 0 && _view.Query.Contains(" ")) tips.Add("או: מרחק ← באותה פסקה.");
+                    if (headings) tips.Add($"החיפוש היה בכותרות בלבד ({Words.Headings(docHeadings)}).");
+                    _view.ShowMessage(Words.Results(0), "לא נמצאו תוצאות", tips.ToArray(), false);
+                }
+                _view.SetTabCount(headings, 0);
+                return;
+            }
+            _view.ShowResults(_items, total, FormsText(reply));
+            Go(0);
         }
 
-        static string Shorten(string s, int max)
+        static string FormsText(Dictionary<string, object> reply)
         {
-            return s.Length <= max ? s : s.Substring(0, max - 1) + "…";
-        }
-
-        void Append(string text, Color fore, Color back, float size, bool bold)
-        {
-            int start = _results.TextLength;
-            _results.AppendText(text);
-            _results.Select(start, text.Length);
-            _results.SelectionColor = fore;
-            _results.SelectionBackColor = back;
-            _results.SelectionFont = new Font("Segoe UI", size, bold ? FontStyle.Bold : FontStyle.Regular);
+            if (!reply.ContainsKey("forms") || !(reply["forms"] is IList forms) || forms.Count < 2) return "";
+            var sb = new StringBuilder("נמצא: ");
+            int shown = 0;
+            foreach (IList f in forms)
+            {
+                if (shown == 6) { sb.Append(" · …"); break; }
+                if (shown > 0) sb.Append(" · ");
+                sb.Append(Convert.ToString(f[0])).Append(' ').Append(Convert.ToInt32(f[1]).ToString("N0"));
+                shown++;
+            }
+            return sb.ToString();
         }
 
         // ================================================================ מעבר לתוצאה במסמך
-        void ResultsMouseUp(object sender, MouseEventArgs e)
+        void Go(int i)
         {
-            int pos = _results.GetCharIndexFromPosition(e.Location);
-            for (int i = 0; i < _hits.Count; i++)
-            {
-                var h = _hits[i];
-                if (pos >= h.BlockStart && pos < h.BlockStart + h.BlockLength + 1) { Go(i); return; }
-            }
-        }
-
-        void Go(int i, bool focusDocument = false)
-        {
-            if (_hits.Count == 0) return;
-            if (i < 0) i = _hits.Count - 1;                     // מתחילים מחדש מהסוף / מההתחלה
-            if (i >= _hits.Count) i = 0;
-            Shade(_current, Color.White);
+            if (_items.Count == 0) return;
+            if (i < 0) i = _items.Count - 1;                     // מתחילים מחדש מהסוף / מההתחלה
+            if (i >= _items.Count) i = 0;
             _current = i;
-            Shade(_current, AccentSoft);
-            var hit = _hits[i];
-            _results.Select(hit.BlockStart, 0);
-            _results.ScrollToCaret();
-            UpdateNav();
+            _view.SetCurrent(i, _items.Count);
+            var hit = _items[i];
             try
             {
                 Word.Range rng = _searched?.Locate(_doc, hit.Para, hit.Ranges);
                 if (rng == null) throw new Exception("הטקסט השתנה מאז החיפוש – חפשו שוב");
-                rng.Select();
-                try { _window.ScrollIntoView(rng, true); } catch { }
+                _addin.Preparer.SelectInDocument(() =>
+                {
+                    rng.Select();
+                    try { _window.ScrollIntoView(rng, true); } catch { }
+                });
             }
             catch (Exception ex)
             {
                 Log.Error("select", ex);
-                _status.ForeColor = Warn;
-                _status.Text = "לא ניתן להגיע למקום במסמך: " + ex.Message;
+                _view.SetNote("לא ניתן להגיע למקום במסמך: " + ex.Message, true);
             }
-        }
-
-        void Shade(int i, Color back)
-        {
-            if (i < 0 || i >= _hits.Count) return;
-            var h = _hits[i];
-            _results.Select(h.BlockStart, h.BlockLength);       // רקע לכל הקטע, ואז המרקר הצהוב בחזרה
-            _results.SelectionBackColor = back;
-            foreach (var m in h.Marks)
-            {
-                _results.Select(m[0], m[1]);
-                _results.SelectionBackColor = Marker;
-            }
-            _results.Select(h.BlockStart, 0);
-        }
-
-        void UpdateNav()
-        {
-            _prev.Enabled = _next.Enabled = _hits.Count > 1;
-            _counter.Text = _hits.Count == 0 ? "" : $"{_current + 1:N0} מתוך {_hits.Count:N0}";
         }
 
         // ================================================================ הגדרות
@@ -509,27 +300,12 @@ namespace HebDocSearch.WordAddin
             {
                 if (!File.Exists(SettingsPath)) return;
                 var s = _json.Deserialize<Dictionary<string, object>>(File.ReadAllText(SettingsPath, Encoding.UTF8));
-                _forms.SelectedIndex = Clamp(s, "forms", 1);
-                _spelling.SelectedIndex = Clamp(s, "spelling", 0);
-                _distance.SelectedIndex = Clamp(s, "distance", 0);
-                if (s.ContainsKey("near")) _near.Value = Math.Max(1, Math.Min(99, Convert.ToInt32(s["near"])));
-                if (s.ContainsKey("ordered")) _ordered.Checked = Convert.ToBoolean(s["ordered"]);
-                if (s.ContainsKey("headings")) _headings.Checked = Convert.ToBoolean(s["headings"]);
+                int Get(string key, int fallback) => s.ContainsKey(key) ? Convert.ToInt32(s[key]) : fallback;
+                bool GetB(string key, bool fallback) => s.ContainsKey(key) ? Convert.ToBoolean(s[key]) : fallback;
+                _view.SetOptions(Get("forms", 1), Get("spelling", 0), Get("distance", 0), Get("near", 3), GetB("ordered", true), GetB("headings", false));
             }
-            catch { }
-            finally
-            {
-                if (_forms.SelectedIndex < 0) _forms.SelectedIndex = 1;
-                _near.Enabled = _distance.SelectedIndex == 1;
-                _loading = false;
-            }
-        }
-
-        static int Clamp(Dictionary<string, object> s, string key, int fallback)
-        {
-            if (!s.ContainsKey(key)) return fallback;
-            int v = Convert.ToInt32(s[key]);
-            return v >= 0 && v <= 2 ? v : fallback;
+            catch (Exception e) { Log.Error("settings", e); }
+            finally { _loading = false; }
         }
 
         void SaveSettings()
@@ -538,16 +314,26 @@ namespace HebDocSearch.WordAddin
             {
                 var s = new Dictionary<string, object>
                 {
-                    ["forms"] = _forms.SelectedIndex,
-                    ["spelling"] = _spelling.SelectedIndex,
-                    ["distance"] = _distance.SelectedIndex,
-                    ["near"] = (int)_near.Value,
-                    ["ordered"] = _ordered.Checked,
-                    ["headings"] = _headings.Checked,
+                    ["forms"] = _view.Forms,
+                    ["spelling"] = _view.Spelling,
+                    ["distance"] = _view.Distance,
+                    ["near"] = _view.Near,
+                    ["ordered"] = _view.Ordered,
+                    ["headings"] = _view.HeadingsOnly,
                 };
                 File.WriteAllText(SettingsPath, _json.Serialize(s), Encoding.UTF8);
             }
             catch { }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _timer.Stop();
+                _timer.Dispose();
+            }
+            base.Dispose(disposing);
         }
     }
 }

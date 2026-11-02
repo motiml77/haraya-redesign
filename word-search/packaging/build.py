@@ -189,6 +189,22 @@ def word_addin():
     print("התוסף ל-Word נבנה ורכיב העזר עובד", flush=True)
 
 
+def pane_preview():
+    """תמונות של חלונית התוסף (PaneView) עם תוצאות לדוגמה, בכמה ערכות נושא וגדלים – לבדיקת העיצוב
+    בלי Word (build/pane-preview). אותם קבצי תצוגה של התוסף; תקלה כאן לא עוצרת את ההתקנה."""
+    out = os.path.join(BUILD, "pane-preview")
+    shutil.rmtree(out, ignore_errors=True)
+    bin_dir = os.path.join(BUILD, "pane-preview-bin")
+    try:
+        sh("dotnet", "build", os.path.join(ROOT, "word_addin", "preview", "PanePreview.csproj"), "-c", "Release",
+           "-o", bin_dir, "-nologo")
+        proc = subprocess.run([os.path.join(bin_dir, "PanePreview.exe"), out], timeout=600)
+        shots = sorted(glob.glob(os.path.join(out, "*")))
+        print(f"  תצוגה מקדימה של החלונית: {len(shots)} קבצים (קוד יציאה {proc.returncode})", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  אזהרה: התצוגה המקדימה של החלונית נכשלה: {e}", flush=True)
+
+
 def find_iscc():
     for c in (shutil.which("iscc"), r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
               r"C:\Program Files\Inno Setup 6\ISCC.exe"):
@@ -230,6 +246,7 @@ def main():
     selftest()
     if sys.platform == "win32":
         word_addin()
+        pane_preview()
         outputs = package_windows()
     elif sys.platform == "darwin":
         outputs = package_macos()

@@ -108,12 +108,38 @@
     <Compile Include="SearchPane.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="PaneView.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="ResultList.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="Controls.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="Ui.cs" />
+    <Compile Include="Assets.cs" />
     <Compile Include="DocText.cs" />
     <Compile Include="Preparer.cs" />
     <Compile Include="HelperClient.cs" />
     <Compile Include="Log.cs" />
     <EmbeddedResource Include="ribbon.xml">
       <LogicalName>ribbon.xml</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources\logo-32.png">
+      <LogicalName>logo-32.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources\logo-48.png">
+      <LogicalName>logo-48.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources\logo-64.png">
+      <LogicalName>logo-64.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources\logo-96.png">
+      <LogicalName>logo-96.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources\logo-128.png">
+      <LogicalName>logo-128.png</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
   <PropertyGroup>

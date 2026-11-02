@@ -25,8 +25,11 @@ namespace HebDocSearch.WordAddin
             {
                 Helper = new HelperClient();
                 Preparer = new Preparer(this, Helper);
-                Application.DocumentOpen += OnDocumentOpen;
-                ((Word.ApplicationEvents4_Event)Application).DocumentBeforeClose += OnDocumentBeforeClose;
+                var events = (Word.ApplicationEvents4_Event)Application;
+                events.DocumentOpen += OnDocumentOpen;
+                events.DocumentBeforeClose += OnDocumentBeforeClose;
+                events.DocumentBeforeSave += OnDocumentBeforeSave;
+                events.WindowSelectionChange += OnSelectionChange;
                 Log.Write("startup");
             }
             catch (Exception ex)
@@ -58,6 +61,18 @@ namespace HebDocSearch.WordAddin
             catch (Exception ex) { Log.Error("open", ex); }
         }
 
+        // הסמן זז (קורה בכל הקלדה) – רק מסמנים "ייתכן שהשתנה", בלי שום קריאה ל-Word
+        void OnSelectionChange(Word.Selection sel)
+        {
+            Preparer?.OnSelectionChange();
+        }
+
+        void OnDocumentBeforeSave(Word.Document doc, ref bool saveAsUI, ref bool cancel)
+        {
+            try { Preparer?.OnBeforeSave(doc); }
+            catch (Exception ex) { Log.Error("save", ex); }
+        }
+
         void OnDocumentBeforeClose(Word.Document doc, ref bool cancel)
         {
             try
@@ -83,7 +98,7 @@ namespace HebDocSearch.WordAddin
                 {
                     var control = new SearchPane(this, win, doc);
                     pane = CustomTaskPanes.Add(control, "חיפוש עברי", win);
-                    pane.Width = 380;
+                    pane.Width = 300;                         // בנקודות (לא תלוי ב-DPI): ~400 פיקסלים ב-100%
                     pane.VisibleChanged += (s, e) =>
                     {
                         if (((CustomTaskPane)s).Visible) control.FocusSearch();

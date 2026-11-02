@@ -8,6 +8,9 @@
     {"cmd": "ping"}                                   → {"ok": true, "version": "..."}
     {"cmd": "index", "doc": "<מפתח>", "paras": [...]}  → {"ok": true, "paras": n, "headings": n, "elapsed": שניות}
         בונה מראש (ברקע, אחרי שהמסמך נטען) את מפת החיפוש של המסמך – גם המלאה וגם של הכותרות
+    {"cmd": "relevel", "from": "<מפתח קודם>", "doc": "<מפתח חדש>", "levels": [0..9, ...]}
+        אותו טקסט עם רמות כותרות חדשות (אחרי שהתוסף קרא את הכותרות): משתמשים שוב במפת החיפוש
+        המלאה שכבר נבנתה, ובונים רק את מפת הכותרות → כמו index; need_paras אם המפתח הקודם לא במטמון
     {"cmd": "search", "doc": "<מפתח>", "paras": [{"t": "...", "h": 0..9}, ...],   (paras – רק כשהמסמך השתנה)
      "query": "...", "options": {"forms": "prefixes", "spelling": "none", "distance": "adjacent",
      "near": 3, "ordered": true, "required": 0}, "headings_only": false, "limit": 500}
@@ -15,8 +18,9 @@
            "phrase": bool, "elapsed": שניות, "message": "", "headings": מספר הכותרות במסמך}
         → {"ok": false, "need_paras": true}            כשהמסמך לא במטמון ולא נשלחו פסקאות
     hit = {"para": אינדקס הפסקה במסמך, "ranges": [[התחלה, סוף], ...] (תווים בתוך הפסקה),
-           "snippet": [[טקסט, סוג], ...], "heading": "הכותרת שמעל", "score": 0..1, "exact": bool,
-           "covered": כמה ממילות החיפוש נמצאו}
+           "snippet": [[טקסט, סוג], ...], "heading": "הכותרת שמעל", "path": ["כותרת 1", "כותרת 2", ...],
+           "score": 0..1, "exact": bool, "covered": כמה ממילות החיפוש נמצאו}
+    path – שרשרת הכותרות שהפסקה נמצאת תחתיהן, מהרמה העליונה ועד הקרובה (לכותרת עצמה: הכותרות שמעליה)
 """
 
 from __future__ import annotations
@@ -56,13 +60,36 @@ class DocIndex:
         self.file_ids = self.db.file_ids([DOC_PATH])          # {מזהה: נתיב} – כמו שהמנוע מצפה
         self.fid = next(iter(self.file_ids), None)
         self.searcher = Searcher(self.db, context_words=12)       # החלונית ב-Word צרה
+        self.paths = self._heading_paths()
+
+    def _heading_paths(self):
+        """לכל פסקה: שרשרת הכותרות שהיא נמצאת תחתיהן (מעבר אחד על המסמך; שרשראות זהות משותפות)."""
+        paths, stack, current = [], [], ()
+        for text, level in zip(self.texts, self.levels):
+            text = " ".join(text.split())
+            if 0 < level < 10 and text:
+                while stack and stack[-1][0] >= level:
+                    stack.pop()
+                paths.append(tuple(t for _, t in stack))       # לכותרת עצמה: רק מה שמעליה
+                stack.append((level, text))
+                current = tuple(t for _, t in stack)
+            else:
+                paths.append(current)
+        return paths
+
+    def with_levels(self, paras):
+        """אותה מפת חיפוש (אותו טקסט) עם רמות כותרות אחרות – בלי לבנות את המפה מחדש."""
+        clone = object.__new__(DocIndex)
+        clone.__dict__.update(self.__dict__)
+        clone.all_paras = paras
+        clone.levels = [int(p.get("h") or 0) for p in paras]
+        clone.paths = clone._heading_paths()
+        return clone
 
     def heading_above(self, idx: int) -> str:
         """הכותרת הקרובה ביותר מעל הפסקה (לא כולל הפסקה עצמה אם היא כותרת)."""
-        for j in range(idx - 1, -1, -1):
-            if 0 < self.levels[j] < 10 and self.texts[j].strip():
-                return self.texts[j].strip()
-        return ""
+        path = self.paths[idx] if 0 <= idx < len(self.paths) else ()
+        return path[-1] if path else ""
 
     def close(self):
         try:
@@ -78,18 +105,23 @@ class DocSearchService:
         self.keep = keep
         self.docs = OrderedDict()          # מפתח → {"paras": [...], False: DocIndex, True: DocIndex}
 
+    def _store(self, key, entry):
+        self.docs[key] = entry
+        self.docs.move_to_end(key)
+        while len(self.docs) > self.keep:
+            _, old = self.docs.popitem(last=False)
+            in_use = {id(e[k].db) for e in self.docs.values() for k in (False, True) if k in e}
+            for k in (False, True):
+                if k in old and id(old[k].db) not in in_use:      # מפה משותפת (relevel) נסגרת רק כשאין בה שימוש
+                    old[k].close()
+
     def _index(self, key, paras, only_headings):
         entry = self.docs.get(key)
         if entry is None:
             if paras is None:
                 return None
             entry = {"paras": paras}
-            self.docs[key] = entry
-            while len(self.docs) > self.keep:
-                _, old = self.docs.popitem(last=False)
-                for k in (False, True):
-                    if k in old:
-                        old[k].close()
+            self._store(key, entry)
         self.docs.move_to_end(key)
         if only_headings not in entry:
             entry[only_headings] = DocIndex(entry["paras"], only_headings)
@@ -105,6 +137,23 @@ class DocSearchService:
         headings = sum(1 for lvl in full.levels if 0 < lvl < 10)
         return {"ok": True, "paras": len(full.texts), "headings": headings,
                 "elapsed": round(time.perf_counter() - t0, 3)}
+
+    def relevel(self, req: dict) -> dict:
+        t0 = time.perf_counter()
+        src = self.docs.get(str(req.get("from") or ""))
+        levels = req.get("levels")
+        if src is None or not isinstance(levels, list) or len(levels) != len(src["paras"]):
+            return {"ok": False, "need_paras": True}
+        key = str(req.get("doc") or "")
+        paras = [{"t": p.get("t") or "", "h": int(lvl or 0)} for p, lvl in zip(src["paras"], levels)]
+        entry = {"paras": paras}
+        if False in src:
+            entry[False] = src[False].with_levels(paras)
+        self._store(key, entry)
+        full = self._index(key, None, False)
+        self._index(key, None, True)
+        headings = sum(1 for lvl in full.levels if 0 < lvl < 10)
+        return {"ok": True, "paras": len(paras), "headings": headings, "elapsed": round(time.perf_counter() - t0, 3)}
 
     def has(self, key: str) -> bool:
         return key in self.docs
@@ -156,6 +205,7 @@ class DocSearchService:
                 "ranges": ranges,
                 "snippet": snippet,
                 "heading": idx.heading_above(para) if not only_headings else "",
+                "path": list(idx.paths[para]),
                 "level": idx.levels[para],
                 "score": round(float(h.score), 3),
                 "exact": bool(h.exact),
@@ -181,6 +231,8 @@ def handle(service: DocSearchService, line: str) -> dict:
             return service.search(req)
         if cmd == "index":
             return service.index(req)
+        if cmd == "relevel":
+            return service.relevel(req)
         return {"ok": False, "error": f"unknown command: {cmd}"}
     except Exception as e:  # התוסף מציג את השגיאה ולא נתקע
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}

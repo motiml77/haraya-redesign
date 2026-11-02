@@ -24,7 +24,12 @@ namespace HebDocSearch.WordAddin
         // הפרש שנלמד בין המיקום המשוער למיקום האמיתי (פסקה → הפרש). נגיש רק מהתהליך הראשי.
         readonly SortedList<int, int> _drift = new SortedList<int, int>();
 
-        DocText(string hash, List<string> texts, List<int> starts, int[] levels, bool hasLevels)
+        // פסקאות קצרות לפי הטקסט המנורמל → מספרי הפסקאות (בסדר עולה), להתאמת כותרות בלי לסרוק.
+        // נבנה בתהליך הנפרד (ב-Build), ומשותף לגרסאות של אותו טקסט.
+        readonly Dictionary<string, List<int>> _byText;
+        const int IndexedLength = 400;
+
+        DocText(string hash, List<string> texts, List<int> starts, int[] levels, bool hasLevels, Dictionary<string, List<int>> byText)
         {
             TextHash = hash;
             Texts = texts;
@@ -32,6 +37,7 @@ namespace HebDocSearch.WordAddin
             Levels = levels;
             HasLevels = hasLevels;
             Key = hash + "/" + (hasLevels ? Fnv(levels) : "nolevels");
+            _byText = byText;
         }
 
         // ================================================================ בנייה (בלי Word)
@@ -112,12 +118,21 @@ namespace HebDocSearch.WordAddin
                     if (queue.TryGetValue(texts[i], out var q) && q.Count > 0) levels[i] = q.Dequeue();
                 hasLevels = true;
             }
-            return new DocText(Hash(raw), texts, starts, levels, hasLevels);
+            var byText = new Dictionary<string, List<int>>();
+            for (int i = 0; i < texts.Count; i++)
+            {
+                if (texts[i].Length > IndexedLength) continue;
+                string key = Norm(texts[i]);
+                if (key.Length == 0) continue;
+                if (!byText.TryGetValue(key, out var list)) byText[key] = list = new List<int>(1);
+                list.Add(i);
+            }
+            return new DocText(Hash(raw), texts, starts, levels, hasLevels, byText);
         }
 
         public DocText WithLevels(int[] levels)
         {
-            var copy = new DocText(TextHash, Texts, Starts, levels, true);
+            var copy = new DocText(TextHash, Texts, Starts, levels, true, _byText);
             foreach (var kv in _drift) copy._drift[kv.Key] = kv.Value;
             return copy;
         }
@@ -140,9 +155,17 @@ namespace HebDocSearch.WordAddin
         {
             string want = Norm(headingText);
             if (want.Length == 0) return -1;
-            int stop = Math.Min(Texts.Count, from + 20000);
-            for (int i = Math.Max(0, from); i < stop; i++)
-                if (Norm(Texts[i]) == want) return i;
+            from = Math.Max(0, from);
+            if (_byText != null && _byText.TryGetValue(want, out var list))
+            {
+                int k = list.BinarySearch(from);
+                if (k < 0) k = ~k;
+                return k < list.Count ? list[k] : -1;
+            }
+            if (headingText.Length <= IndexedLength) return -1;            // קצר ולא באינדקס – אין כזו פסקה
+            int stop = Math.Min(Texts.Count, from + 2000);                // כותרת ארוכה מאוד (נדיר) – סריקה קצרה
+            for (int i = from; i < stop; i++)
+                if (Texts[i].Length > IndexedLength && Norm(Texts[i]) == want) return i;
             return -1;
         }
 

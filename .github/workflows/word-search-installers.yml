@@ -90,6 +90,14 @@ jobs:
       - name: Build installer (includes self-test of the packaged app)
         run: python packaging/build.py
 
+      # תמונות של חלונית התוסף ל-Word (בדיקת עיצוב בלי Word)
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: word-addin-pane-preview
+          path: word-search/build/pane-preview/
+          if-no-files-found: warn
+
       - uses: actions/upload-artifact@v4
         with:
           name: HebDocSearch-${{ matrix.name }}

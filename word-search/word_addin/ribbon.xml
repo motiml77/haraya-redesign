@@ -3,7 +3,7 @@
     <tabs>
       <tab idMso="TabHome">
         <group id="HebDocSearchGroup" label="חיפוש עברי" insertAfterMso="GroupEditing">
-          <button id="HebDocSearchPane" size="large" imageMso="FindDialog" onAction="OnTogglePane" keytip="ח"
+          <button id="HebDocSearchPane" size="large" getImage="GetLogo" onAction="OnTogglePane" keytip="ח"
                   label="חיפוש עברי"
                   screentip="חיפוש עברי במסמך"
                   supertip="חיפוש שמתעלם מניקוד וגרשיים ומוצא אותיות שימוש, הטיות וכתיב מלא וחסר – כמו בתוכנה 'חיפוש במסמכים'. אפשר לחפש גם בכותרות בלבד." />
