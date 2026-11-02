@@ -40,24 +40,9 @@
   --page: 72rem;
   --side: 12.5rem;
   --gap: 2.25rem;
-  color-scheme: light;
+  color-scheme: only light;      /* האתר תמיד בהיר – גם כשהמערכת או הדפדפן במצב כהה */
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #18191b;
-    --paper-2: #222326;
-    --ink: #e9e6dc;
-    --ink-2: #bdb9ad;
-    --ink-3: #8f8b80;
-    --rule: #3a3a3c;
-    --blue: #8db4ea;
-    --blue-dk: #b3cdf2;
-    --red: #e08a72;
-    --marker: #ffe94a;
-    color-scheme: dark;
-  }
-}
 
 *, *::before, *::after { box-sizing: border-box; }
 
@@ -171,9 +156,6 @@ h1 {
 }
 .btn:hover { background: var(--blue-dk); color: #fff; }
 .btn .size { font-size: .85em; opacity: .78; direction: ltr; unicode-bidi: isolate; }
-@media (prefers-color-scheme: dark) {
-  .btn, .btn:hover { color: #0d1726; }
-}
 .quiet { font: 500 1rem/1.4 var(--label); }
 .fine { font: 400 .98rem/1.55 var(--note); color: var(--ink-3); margin: 0; }
 
@@ -190,7 +172,6 @@ h1 {
   padding: 0 .3em;
   border-radius: 2px;
 }
-@media (prefers-color-scheme: dark) { .q { background: var(--paper-2); } }
 
 /* המרקר: אותו צהוב שבו התוכנה מסמנת מילים שנמצאו */
 mark {
