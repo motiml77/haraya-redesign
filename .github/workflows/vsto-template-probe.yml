@@ -1,0 +1,31 @@
+# זמני: מדפיס את התבנית הרשמית של Visual Studio לתוסף VSTO ל-Word (מותקנת על מכונת הבנייה),
+# כדי לבנות את התוסף על בסיס הקבצים הרשמיים. יימחק אחרי השימוש.
+name: vsto template probe
+on:
+  push:
+    branches: ["ccr-*"]
+    paths: [".github/workflows/vsto-template-probe.yml"]
+jobs:
+  probe:
+    runs-on: windows-latest
+    steps:
+      - name: Find and print the Word VSTO add-in template
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          Write-Host "VS: $vs"
+          $zips = Get-ChildItem -Path $vs -Recurse -Filter *.zip -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'Office' -and $_.Name -match 'Word' }
+          $zips | ForEach-Object { Write-Host "ZIP: $($_.FullName)" }
+          $tpl = Get-ChildItem -Path $vs -Recurse -Filter *.vstemplate -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'Office' -and $_.FullName -match 'Word' }
+          $tpl | ForEach-Object { Write-Host "VSTEMPLATE: $($_.FullName)" }
+          $out = "$env:RUNNER_TEMP\tpl"; New-Item -ItemType Directory -Force $out | Out-Null
+          foreach ($z in $zips) { if ($z.Name -match 'AddIn' -and $z.FullName -match 'CSharp') { Expand-Archive $z.FullName -DestinationPath "$out\$($z.BaseName)" -Force } }
+          foreach ($t in $tpl) { if ($t.FullName -match 'CSharp' -and $t.FullName -match 'AddIn') { Copy-Item (Split-Path $t.FullName) "$out\dir-$((Split-Path (Split-Path $t.FullName) -Leaf))" -Recurse -Force } }
+          Get-ChildItem $out -Recurse -File | ForEach-Object {
+            Write-Host "=================== FILE: $($_.FullName.Substring($out.Length))"
+            if ($_.Extension -in '.cs','.csproj','.xml','.vstemplate','.resx','.config') { Get-Content $_.FullName -Raw | Write-Host }
+          }
+          $targets = Get-ChildItem -Path "${env:ProgramFiles(x86)}\MSBuild","$vs\MSBuild" -Recurse -Filter Microsoft.VisualStudio.Tools.Office.targets -ErrorAction SilentlyContinue
+          $targets | ForEach-Object { Write-Host "TARGETS: $($_.FullName)" }
+          Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Shared\Visual Studio Tools for Office\PIA" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 30 | ForEach-Object { Write-Host "PIA: $($_.FullName)" }
+          Get-ChildItem "${env:ProgramFiles(x86)}\Reference Assemblies\Microsoft\VSTO40" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 30 | ForEach-Object { Write-Host "VSTO40: $($_.FullName)" }
