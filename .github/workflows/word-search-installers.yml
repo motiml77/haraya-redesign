@@ -78,6 +78,15 @@ jobs:
             choco install innosetup --no-progress -y
           }
 
+      # בניית תוסף VSTO ל-Word דורשת במחשב הבנייה את Visual Studio 2010 Tools for Office Runtime
+      # (חבילת Chocolatey שמורידה את ההתקנה הרשמית של Microsoft)
+      - name: VSTO runtime (Windows, for building the Word add-in)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installed = (Test-Path "HKLM:\SOFTWARE\Microsoft\VSTO Runtime Setup\v4R") -or (Test-Path "HKLM:\SOFTWARE\WOW6432Node\Microsoft\VSTO Runtime Setup\v4R")
+          if (-not $installed) { choco install vstor2010 --no-progress -y }
+
       - name: Build installer (includes self-test of the packaged app)
         run: python packaging/build.py
 
