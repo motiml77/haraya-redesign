@@ -23,11 +23,15 @@ namespace HebDocSearch.WordAddin
         private readonly List<dynamic> _panes = new List<dynamic>();
 
         internal static HelperClient Helper { get; } = new HelperClient();
+        internal static DocIndexer Indexer { get; private set; }
 
         // ----- IDTExtensibility2 -----
         public void OnConnection(object Application, ext_ConnectMode ConnectMode, object AddInInst, ref Array custom)
         {
             _app = Application;
+            Indexer = new DocIndexer(_app);
+            // נטען אחרי ש-Word כבר פעל (למשל הופעל מחדש מהגדרות התוספים) – OnStartupComplete לא ייקרא
+            if (ConnectMode == ext_ConnectMode.ext_cm_AfterStartup) Indexer.Start();
         }
 
         public void OnDisconnection(ext_DisconnectMode RemoveMode, ref Array custom)
@@ -37,13 +41,23 @@ namespace HebDocSearch.WordAddin
                 try { pane.Delete(); } catch { }
             }
             _panes.Clear();
+            Indexer?.Dispose();
+            Indexer = null;
             Helper.Dispose();
             _app = null;
         }
 
         public void OnAddInsUpdate(ref Array custom) { }
-        public void OnStartupComplete(ref Array custom) { }
-        public void OnBeginShutdown(ref Array custom) { Helper.Dispose(); }
+        public void OnStartupComplete(ref Array custom)
+        {
+            Indexer?.Start();                        // הכנת המסמכים לחיפוש מתחילה רק אחרי ש-Word עלה לגמרי
+        }
+
+        public void OnBeginShutdown(ref Array custom)
+        {
+            Indexer?.Dispose();
+            Helper.Dispose();
+        }
 
         // ----- IRibbonExtensibility -----
         public string GetCustomUI(string RibbonID)

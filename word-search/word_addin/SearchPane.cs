@@ -62,7 +62,7 @@ namespace HebDocSearch.WordAddin
         readonly JavaScriptSerializer _json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
         dynamic _app, _window;
         DocSnapshot _snap;
-        readonly HashSet<string> _sentToHelper = new HashSet<string>();
+        readonly Timer _stateTimer = new Timer { Interval = 500 };
         List<Hit> _hits = new List<Hit>();
         int _current = -1;
         bool _loading;
@@ -90,6 +90,37 @@ namespace HebDocSearch.WordAddin
         {
             _app = app;
             _window = window;
+            _stateTimer.Tick += (s, e) => ShowDocState();
+            _stateTimer.Start();
+            ShowDocState();
+        }
+
+        /// <summary>כל עוד אין תוצאות: האם המסמך כבר מוכן לחיפוש (ההכנה רצה ברקע).</summary>
+        void ShowDocState()
+        {
+            if (_hits.Count > 0 || _lastQuery.Length > 0 || Connect.Indexer == null || !Visible) return;
+            try
+            {
+                string name = DocSnapshot.NameOf(_window.Document);
+                string state = Connect.Indexer.State(name);
+                _status.ForeColor = Muted;
+                if (state.StartsWith("reading:"))
+                    _status.Text = "מכין את המסמך לחיפוש… " + state.Substring(8) + "%";
+                else if (state == "ready")
+                {
+                    var snap = Connect.Indexer.ReadyFor(name);
+                    _status.Text = $"המסמך מוכן לחיפוש · {snap.Texts.Count:N0} פסקאות · {snap.Headings:N0} כותרות";
+                }
+                else
+                    _status.Text = "מקלידים מילה ולוחצים Enter. ניקוד, גרשיים ואותיות סופיות לא משנים.";
+            }
+            catch { }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) { _stateTimer.Stop(); _stateTimer.Dispose(); }
+            base.Dispose(disposing);
         }
 
         internal void FocusSearch()
@@ -304,7 +335,7 @@ namespace HebDocSearch.WordAddin
             try
             {
                 dynamic doc = _window.Document;
-                _snap = DocSnapshot.Read(doc, _snap);
+                _snap = Connect.Indexer.Get(doc);           // מוכן מראש מהרקע, או משלים עכשיו
                 var req = new Dictionary<string, object>
                 {
                     ["cmd"] = "search",
@@ -321,14 +352,15 @@ namespace HebDocSearch.WordAddin
                         ["ordered"] = _ordered.Checked,
                     },
                 };
-                if (!_sentToHelper.Contains(_snap.Key)) req["paras"] = _snap.Paras();
+                if (!Connect.Indexer.Sent(_snap.Key)) req["paras"] = _snap.Paras();
                 var reply = Ask(req);
                 if (reply.ContainsKey("need_paras"))       // רכיב העזר הופעל מחדש ושכח את המסמך
                 {
+                    Connect.Indexer.ForgetSent();
                     req["paras"] = _snap.Paras();
                     reply = Ask(req);
                 }
-                _sentToHelper.Add(_snap.Key);
+                Connect.Indexer.MarkSent(_snap.Key);
                 if (!(reply.ContainsKey("ok") && (bool)reply["ok"]))
                     throw new Exception(reply.ContainsKey("error") ? Convert.ToString(reply["error"]) : "שגיאה בחיפוש");
                 _lastQuery = q;

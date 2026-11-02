@@ -49,7 +49,6 @@ namespace HebDocSearch.WordAddin
             _proc = Process.Start(psi);
             _proc.ErrorDataReceived += (s, e) => { };
             _proc.BeginErrorReadLine();
-            try { _proc.PriorityClass = ProcessPriorityClass.AboveNormal; } catch { }
             _in = new StreamWriter(_proc.StandardInput.BaseStream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
             _out = _proc.StandardOutput;
         }

@@ -6,6 +6,8 @@
 
 פרוטוקול (שורת JSON לכל בקשה ולכל תשובה, UTF-8, דרך stdin/stdout):
     {"cmd": "ping"}                                   → {"ok": true, "version": "..."}
+    {"cmd": "index", "doc": "<מפתח>", "paras": [...]}  → {"ok": true, "paras": n, "headings": n, "elapsed": שניות}
+        בונה מראש (ברקע, אחרי שהמסמך נטען) את מפת החיפוש של המסמך – גם המלאה וגם של הכותרות
     {"cmd": "search", "doc": "<מפתח>", "paras": [{"t": "...", "h": 0..9}, ...],   (paras – רק כשהמסמך השתנה)
      "query": "...", "options": {"forms": "prefixes", "spelling": "none", "distance": "adjacent",
      "near": 3, "ordered": true, "required": 0}, "headings_only": false, "limit": 500}
@@ -72,7 +74,7 @@ class DocIndex:
 class DocSearchService:
     """מטמון של כמה מסמכים אחרונים (מפתח = מזהה המסמך + גרסת הטקסט), וחיפוש בהם."""
 
-    def __init__(self, keep=4):
+    def __init__(self, keep=8):
         self.keep = keep
         self.docs = OrderedDict()          # מפתח → {"paras": [...], False: DocIndex, True: DocIndex}
 
@@ -92,6 +94,20 @@ class DocSearchService:
         if only_headings not in entry:
             entry[only_headings] = DocIndex(entry["paras"], only_headings)
         return entry[only_headings]
+
+    def index(self, req: dict) -> dict:
+        t0 = time.perf_counter()
+        key = str(req.get("doc") or "")
+        full = self._index(key, req.get("paras"), False)
+        if full is None:
+            return {"ok": False, "need_paras": True}
+        self._index(key, None, True)
+        headings = sum(1 for lvl in full.levels if 0 < lvl < 10)
+        return {"ok": True, "paras": len(full.texts), "headings": headings,
+                "elapsed": round(time.perf_counter() - t0, 3)}
+
+    def has(self, key: str) -> bool:
+        return key in self.docs
 
     def search(self, req: dict) -> dict:
         t0 = time.perf_counter()
@@ -163,6 +179,8 @@ def handle(service: DocSearchService, line: str) -> dict:
             return {"ok": True, "version": __version__}
         if cmd == "search":
             return service.search(req)
+        if cmd == "index":
+            return service.index(req)
         return {"ok": False, "error": f"unknown command: {cmd}"}
     except Exception as e:  # התוסף מציג את השגיאה ולא נתקע
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}

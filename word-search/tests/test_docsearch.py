@@ -63,6 +63,14 @@ class DocSearchTest(unittest.TestCase):
         self.assertTrue(again["ok"])
         self.assertEqual(self.svc.search({"doc": "new", "query": "שבת"}), {"ok": False, "need_paras": True})
 
+    def test_index_ahead_then_search_without_resending(self):
+        r = self.svc.index({"doc": "pre", "paras": PARAS})
+        self.assertEqual((r["ok"], r["paras"], r["headings"]), (True, len(PARAS), 3))
+        self.assertTrue(self.svc.has("pre"))
+        hit = self.svc.search({"doc": "pre", "query": "הלך", "options": {"forms": "all"}, "headings_only": True})
+        self.assertEqual(hit["total"], 2)                     # בלי לשלוח שוב את הפסקאות
+        self.assertEqual(self.svc.index({"doc": "missing"}), {"ok": False, "need_paras": True})
+
     def test_document_without_headings(self):
         svc = docsearch.DocSearchService()
         r = svc.search({"doc": "x", "paras": [{"t": "שלום עולם", "h": 0}], "query": "שלום", "headings_only": True})
