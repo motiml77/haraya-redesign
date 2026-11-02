@@ -22,14 +22,15 @@ namespace HebDocSearch.WordAddin
         readonly Word.Document _doc;
         readonly PaneView _view = new PaneView { Dock = DockStyle.Fill };
         readonly Timer _timer = new Timer { Interval = 600 };
+        readonly Timer _live = new Timer { Interval = 450 };     // חיפוש תוך כדי הקלדה (כמו ב-Word)
         readonly JavaScriptSerializer _json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
 
         DocText _searched;                       // הגרסה של המסמך שבה נמצאו התוצאות
         List<ResultItem> _items = new List<ResultItem>();
         int _current = -1;
         string _lastKey;                         // השאילתה + האפשרויות של התוצאות המוצגות
-        bool _busy, _again, _loading;
-        int _generation;
+        bool _busy, _again, _againNavigate, _loading;
+        int _generation, _ticks;
 
         internal SearchPane(ThisAddIn addin, Word.Window window, Word.Document doc)
         {
@@ -44,6 +45,18 @@ namespace HebDocSearch.WordAddin
             _view.OptionsChanged += OnOptionsChanged;
             _view.ModeChanged += OnOptionsChanged;
             _view.QueryCleared += Reset;
+            _view.Search.Box.TextChanged += (s, e) =>
+            {
+                _live.Stop();
+                if (_view.Query.Length >= 2) _live.Start();
+                else if (_view.Query.Length == 0 && _lastKey != null) Reset();
+            };
+            _live.Tick += (s, e) =>
+            {
+                _live.Stop();
+                // תוך כדי הקלדה רק מציגים את התוצאות; לא בוחרים במסמך (כדי שהקלדה לא תגיע אליו בטעות)
+                if (_view.Query.Length >= 2 && Key() != _lastKey) RunSearch(false);
+            };
             LoadSettings();
             Reset();
             _timer.Tick += (s, e) => Tick();
@@ -59,8 +72,11 @@ namespace HebDocSearch.WordAddin
         void Tick()
         {
             if (!Visible) return;
-            var theme = Theme.Current();
-            if (theme != _view.CurrentTheme) _view.ApplyTheme(theme);
+            if (++_ticks % 4 == 1)                              // ערכת הנושא – כל ~2.5 שניות מספיק
+            {
+                var theme = Theme.Current();
+                if (theme != _view.CurrentTheme) _view.ApplyTheme(theme);
+            }
             if (_addin.Preparer != null) _view.SetDocStatus(_addin.Preparer.Status(_doc));
         }
 
@@ -81,6 +97,7 @@ namespace HebDocSearch.WordAddin
 
         void OnSubmit(bool shift)
         {
+            _live.Stop();
             if (_view.Query.Length == 0) return;
             if (_items.Count > 0 && Key() == _lastKey)
                 Go(_current + (shift ? -1 : 1));           // Enter נוסף – לתוצאה הבאה, כמו ב-Word
@@ -113,10 +130,11 @@ namespace HebDocSearch.WordAddin
             };
         }
 
-        void RunSearch()
+        void RunSearch(bool navigate = true)
         {
             if (_view.Query.Length == 0) return;
-            if (_busy) { _again = true; return; }          // החיפוש הבא ירוץ כשהנוכחי יסתיים
+            if (_busy) { _again = true; _againNavigate |= navigate; return; }   // החיפוש הבא ירוץ כשהנוכחי יסתיים
+            _againNavigate = false;
             _busy = true;
             _again = false;
             int generation = ++_generation;
@@ -133,7 +151,7 @@ namespace HebDocSearch.WordAddin
                 {
                     _busy = false;
                     if (IsDisposed) return;
-                    if (_again) { RunSearch(); return; }
+                    if (_again) { RunSearch(_againNavigate); return; }
                     if (generation != _generation) return;
                     try
                     {
@@ -142,7 +160,7 @@ namespace HebDocSearch.WordAddin
                             throw new Exception(reply.ContainsKey("error") ? Convert.ToString(reply["error"]) : "שגיאה בחיפוש");
                         _searched = text;
                         _lastKey = key;
-                        ShowResults(reply, text, headings);
+                        ShowResults(reply, text, headings, navigate);
                         Log.Write($"search '{_view.Query}' headings={headings}: {reply["total"]} hits in {sw.ElapsedMilliseconds}ms");
                         CountOtherMode(text, headings, generation);
                     }
@@ -181,7 +199,7 @@ namespace HebDocSearch.WordAddin
             _view.ShowMessage("", "לא ניתן לחפש", new[] { ex.Message }, true);
         }
 
-        void ShowResults(Dictionary<string, object> reply, DocText text, bool headings)
+        void ShowResults(Dictionary<string, object> reply, DocText text, bool headings, bool navigate)
         {
             int total = Convert.ToInt32(reply["total"]);
             int docHeadings = Convert.ToInt32(reply["headings"]);
@@ -238,7 +256,7 @@ namespace HebDocSearch.WordAddin
                 return;
             }
             _view.ShowResults(_items, total, FormsText(reply));
-            Go(0);
+            if (navigate) Go(0);                                  // Enter: קופצים לתוצאה הראשונה (Enter נוסף – לבאה)
         }
 
         static string FormsText(Dictionary<string, object> reply)
@@ -332,6 +350,8 @@ namespace HebDocSearch.WordAddin
             {
                 _timer.Stop();
                 _timer.Dispose();
+                _live.Stop();
+                _live.Dispose();
             }
             base.Dispose(disposing);
         }
