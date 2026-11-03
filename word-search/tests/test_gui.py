@@ -422,6 +422,42 @@ class SearchFlowTest(GuiBase):
         self.assertEqual(basket.kids[-1].kind, "add")                         # שורת "הוספה לאוסף…"
 
 
+class EditingInWordTest(GuiBase):
+    """מסמך שנערך עכשיו ב-Word: בחזרה לחלון לא נקרא שוב (רק נרשם), ונקרא לפני חיפוש – ורק אם השתנה."""
+
+    def test_document_open_in_word_is_read_only_when_searching(self):
+        folder = os.path.join(self.dir, "נערך")
+        os.makedirs(folder, exist_ok=True)
+        doc = os.path.join(folder, "עבודה גדולה.docx")
+        build_docx(doc, ["נוסח ראשון של העבודה."])
+        win = self.new_window("editing.sqlite3")
+        win.baskets.add_paths([folder])
+        settle(win)
+        self.assertEqual(win.scan.deferred, [])
+        # נפתח ונשמר ב-Word עם טקסט חדש
+        owner = os.path.join(folder, "~$" + os.path.basename(doc)[2:])
+        open(owner, "w").close()
+        self.addCleanup(lambda: os.path.exists(owner) and os.remove(owner))
+        build_docx(doc, ["נוסח שני של העבודה, עם המילה אנקור."])
+        win.start_scan(relist=True)                         # כמו חזרה לחלון
+        settle(win)
+        self.assertEqual(win.scan.deferred, [doc])
+        self.assertEqual(win.db.stale_files([doc]), [doc])  # עדיין לא נקרא
+        win.search_edit.setText("אנקור")
+        win.run_search()
+        settle(win)
+        self.assertEqual(win.scan.deferred, [])
+        self.assertEqual(win.db.stale_files([doc]), [])
+        self.assertIsNotNone(win.result)
+        self.assertEqual(win.result.total, 1)
+        # חיפוש נוסף בלי שינוי – לא קורא שוב
+        win.search_edit.setText("נוסח")
+        win.run_search()
+        self.assertIsInstance(win._search_job, mw.SearchJob)
+        settle(win)
+        self.assertEqual(win.result.total, 1)
+
+
 class BasketListTest(GuiBase):
     """כל האוספים ברשימה אחת: הסימון של אוסף קובע אם מחפשים בו (בלי בורר אוסף נפרד ותגיות)."""
 

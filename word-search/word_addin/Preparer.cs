@@ -9,6 +9,8 @@
 //     2. חיפוש לפי הסגנונות המובנים "כותרת 1" עד "כותרת 9" – משלים;
 //     3. אם החיפוש לפי רמת חלוקה לא מצא כלום – בדיקת רמת החלוקה של כל פסקה קצרה.
 //     כשבוחרים "חיפוש בכותרות" לפני שהסתיים – משלימים מיד.
+//     אחרי עריכה לא קוראים את כל הכותרות מחדש: הרמות עוברות לפסקאות שלא השתנו, ובודקים במסמך רק
+//     את הפסקאות שנוספו או שנערכו (כמה קריאות קטנות, לא 18 חיפושים על כל המסמך).
 //   * בחיפוש קוראים את הטקסט מחדש רק אם ייתכן שהמסמך השתנה מאז הקריאה הקודמת: האורך השתנה,
 //     המסמך נשמר, או שהסמן זז במסמך שיש בו שינויים שלא נשמרו (כל הקלדה מזיזה את הסמן).
 using System;
@@ -46,16 +48,20 @@ namespace HebDocSearch.WordAddin
         {
             public DocText Text;
             public int[] Levels;
-            public int Phase;                   // 0 חיפוש לפי רמת חלוקה, 1 לפי סגנון "כותרת N", 2 פסקה אחר פסקה
+            public int Phase;                   // 0 חיפוש לפי רמת חלוקה, 1 לפי סגנון "כותרת N", 2 פסקה אחר פסקה,
+                                                // 3 רק הפסקאות שהשתנו מאז הגרסה הקודמת
             public int Level = 1;               // הרמה / הסגנון שמחפשים עכשיו (1–9)
             public Word.Range Range;            // הטווח של החיפוש הנוכחי (מתקדם אחרי כל כותרת)
             public int LastEnd = -1;
             public int OutlineIndex;
+            public int[] Changed;               // שלב 3: הפסקאות לבדיקה
+            public int Checked, Missed;
             public int Found, FoundByOutline, FoundByStyle, Failures;
             public Stopwatch Time = new Stopwatch();
         }
 
         const int SliceMs = 40;
+        const int IncrementalLimit = 500;       // יותר פסקאות שהשתנו (למשל הדבקה גדולה) – קוראים את כל הכותרות
         const int ReadIdleMs = 1500;
         const int SliceIdleMs = 800;
 
@@ -281,18 +287,31 @@ namespace HebDocSearch.WordAddin
             });
         }
 
-        /// <summary>גרסה חדשה של הטקסט: נשמרת, והכותרות ייקראו (שוב) בזמן מנוחה אם צריך.</summary>
+        /// <summary>גרסה חדשה של הטקסט: נשמרת, והכותרות ייקראו בזמן מנוחה אם צריך – בפעם הראשונה כולן,
+        /// ואחרי עריכה רק הפסקאות שהשתנו (ואם לא השתנתה אף פסקה עם טקסט – כלום).</summary>
         void Adopt(DocState s, DocText dt, DocText previous)
         {
             if (dt == s.Text) return;
             s.Text = dt;
             if (dt != previous || !dt.HasLevels)
             {
-                s.NeedsHeadings = true;
                 s.Scan = null;
+                if (dt.HasLevels && dt.Changed.Length == 0)
+                {
+                    s.NeedsHeadings = false;
+                    return;
+                }
+                s.NeedsHeadings = true;
                 s.NotBefore = DateTime.Now.AddSeconds(1);
                 _timer.Start();
             }
+        }
+
+        static HeadingScan NewScan(DocText t)
+        {
+            if (t.HasLevels && t.Changed.Length <= IncrementalLimit)
+                return new HeadingScan { Text = t, Levels = (int[])t.Levels.Clone(), Phase = 3, Changed = t.Changed, Found = t.Headings };
+            return new HeadingScan { Text = t, Levels = new int[t.Texts.Count] };
         }
 
         void BeginIndex(DocState s, DocText dt)
@@ -330,7 +349,7 @@ namespace HebDocSearch.WordAddin
             var sw = Stopwatch.StartNew();
             var scan = s.Scan;
             if (scan == null || scan.Text != s.Text)
-                scan = s.Scan = new HeadingScan { Text = s.Text, Levels = new int[s.Text.Texts.Count] };
+                scan = s.Scan = NewScan(s.Text);
             scan.Time.Start();
             bool done = false;
             try
@@ -388,6 +407,31 @@ namespace HebDocSearch.WordAddin
                         }
                         scan.Range.Collapse(Word.WdCollapseDirection.wdCollapseEnd);
                     }
+                    else if (scan.Phase == 3)
+                    {
+                        if (scan.OutlineIndex >= scan.Changed.Length)
+                        {
+                            // רוב הפסקאות שנערכו לא נמצאו במסמך (משהו השתנה מאוד) – קוראים את כל הכותרות
+                            if (scan.Checked >= 5 && scan.Missed * 5 > scan.Checked)
+                            {
+                                Log.Write($"headings: {scan.Missed} of {scan.Checked} changed paragraphs not found – reading all headings");
+                                var full = new HeadingScan { Text = scan.Text, Levels = new int[scan.Text.Texts.Count] };
+                                full.Time.Start();
+                                scan.Time.Stop();
+                                scan = s.Scan = full;
+                                continue;
+                            }
+                            done = true;
+                            break;
+                        }
+                        int i = scan.Changed[scan.OutlineIndex++];
+                        scan.Checked++;
+                        Word.Paragraph p = scan.Text.LocateParagraph(s.Doc, i, docEnd);
+                        if (p == null) { scan.Missed++; continue; }
+                        int level = (int)p.OutlineLevel;                     // 10 = גוף הטקסט
+                        scan.Levels[i] = level >= 1 && level <= 9 ? level : 0;
+                        if (scan.Levels[i] > 0) scan.Found++;
+                    }
                     else
                     {
                         if (scan.OutlineIndex >= scan.Text.Texts.Count) { done = true; break; }
@@ -434,8 +478,12 @@ namespace HebDocSearch.WordAddin
             foreach (int l in scan.Levels) if (l > 0 && l < 10) perLevel[l]++;
             var levels = new System.Text.StringBuilder();
             for (int l = 1; l <= 9; l++) if (perLevel[l] > 0) levels.Append($" L{l}={perLevel[l]}");
-            Log.Write($"headings: {withLevels.Headings} (outline find {scan.FoundByOutline}, style find {scan.FoundByStyle}, " +
-                      $"per paragraph {scan.Found - scan.FoundByOutline - scan.FoundByStyle}){levels} in {scan.Time.ElapsedMilliseconds}ms");
+            if (scan.Phase == 3)
+                Log.Write($"headings: {withLevels.Headings} – checked only the {scan.Checked} changed paragraphs " +
+                          $"({scan.Missed} not found){levels} in {scan.Time.ElapsedMilliseconds}ms");
+            else
+                Log.Write($"headings: {withLevels.Headings} (outline find {scan.FoundByOutline}, style find {scan.FoundByStyle}, " +
+                          $"per paragraph {scan.Found - scan.FoundByOutline - scan.FoundByStyle}){levels} in {scan.Time.ElapsedMilliseconds}ms");
             BeginIndex(s, s.Text);
             return true;
         }

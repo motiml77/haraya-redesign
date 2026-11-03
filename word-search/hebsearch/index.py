@@ -67,18 +67,58 @@ def is_excluded(path, excluded, root=None) -> bool:
     return False
 
 
-def _walk_folder(path):
+def _walk_folder(path, stats=None):
+    """כל המסמכים בתיקייה ובתתי-התיקיות שלה (בסדר קבוע: קבצי התיקייה, ואז כל תת-תיקייה לפי השם).
+
+    stats: אם ניתן – מתמלא ב-נתיב → (mtime, size) מתוך רשימת התיקייה עצמה. ב-Windows המידע הזה מגיע
+    עם הרשימה, בלי פנייה נפרדת לכל קובץ, ולכן הבדיקה אילו מסמכים השתנו כמעט לא עולה כלום.
+    """
     found = []
-    for root, dirs, names in os.walk(path):
-        dirs[:] = sorted(d for d in dirs if not d.startswith("."))
-        found.extend(os.path.join(root, n) for n in sorted(names) if is_supported(n))
+    stack = [path]
+    while stack:
+        folder = stack.pop()
+        try:
+            with os.scandir(folder) as it:
+                entries = list(it)
+        except OSError:
+            continue
+        files, subdirs = [], []
+        for e in entries:
+            try:
+                if e.is_dir():
+                    if not e.name.startswith(".") and not e.is_symlink():
+                        subdirs.append(e.name)
+                    continue
+            except OSError:
+                continue
+            if is_supported(e.name):
+                files.append(e)
+        for e in sorted(files, key=lambda e: e.name):
+            p = os.path.join(folder, e.name)
+            found.append(p)
+            if stats is not None:
+                try:
+                    st = e.stat()
+                    stats[p] = (st.st_mtime, st.st_size)
+                except OSError:
+                    pass
+        stack.extend(os.path.join(folder, d) for d in sorted(subdirs, reverse=True))
     return found
 
 
-def resolve_basket(items, cache=None):
+def open_for_editing(path) -> bool:
+    """האם המסמך פתוח כרגע לעריכה: Word משאיר לידו קובץ בעלים מוסתר (‎~$‎ ואחריו השם, בלי אות או שתיים
+    מתחילתו), ו-LibreOffice ‎.~lock.<שם>#‎."""
+    folder, name = os.path.split(path)
+    names = {"~$" + name, "~$" + name[1:], "~$" + name[2:], ".~lock." + name + "#"}
+    return any(os.path.exists(os.path.join(folder, n)) for n in names)
+
+
+def resolve_basket(items, cache=None, stats=None):
     """פריטי אוסף → (רשומות, קבצים).
 
     cache: מילון {נתיב_תיקייה: [קבצים]} – אם ניתן, תיקיות שכבר נסרקו לא נסרקות שוב (מתעדכן במקום).
+    stats: מילון שמתמלא בגודל ובזמן השינוי של המסמכים בתיקיות שנסרקו עכשיו (ראו _walk_folder).
 
     items: [(נתיב, סוג)] כשסוג הוא folder / file / exclude (מסמך או תת-תיקייה שהוחרגו).
     רשומות: [(נתיב, סוג, [כל המסמכים שתחתיו])] – לתצוגת תוכן האוסף.
@@ -94,7 +134,7 @@ def resolve_basket(items, cache=None):
             if cache is not None and path in cache:
                 found = cache[path]
             else:
-                found = _walk_folder(path)
+                found = _walk_folder(path, stats)
                 if cache is not None:
                     cache[path] = found
         elif is_supported(path) and os.path.isfile(path):
@@ -282,11 +322,17 @@ class IndexDB:
                 out[row[0]] = row[1:]
         return out
 
-    def stale_files(self, paths):
+    def stale_files(self, paths, known=None):
+        """המסמכים שלא נקראו או שהשתנו מאז. known: נתיב → (mtime, size) מרשימת התיקייה – מסמך שלפיה
+        לא השתנה לא נבדק שוב; אם נראה שהשתנה – בודקים את הקובץ עצמו."""
         rows = self.file_rows(paths)
         stale = []
         for p in paths:
             r = rows.get(p)
+            if r is not None and known:
+                k = known.get(p)
+                if k is not None and r[1] == k[0] and r[2] == k[1]:
+                    continue
             try:
                 st = os.stat(p)
             except OSError:
@@ -294,6 +340,12 @@ class IndexDB:
             if r is None or r[1] != st.st_mtime or r[2] != st.st_size:
                 stale.append(p)
         return stale
+
+    def deferrable(self, paths):
+        """מתוך מסמכים שהשתנו: אלו שפתוחים עכשיו לעריכה וכבר יש להם גרסה קודמת במפה – את אלו לא קוראים
+        ברקע בכל פעם ש-Word שומר אותם, אלא רק כשמחפשים בהם (וכשהם נסגרים)."""
+        rows = self.file_rows(paths)
+        return [p for p in paths if p in rows and rows[p][3] == "ok" and open_for_editing(p)]
 
     def file_ids(self, paths):
         rows = self.file_rows(paths)

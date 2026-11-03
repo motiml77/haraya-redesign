@@ -36,7 +36,7 @@ from .options import DistancePanel, ScopePanel, SearchSettings, WordsPanel
 from .results import ResultsView, doc_name, form_of, ltr, message_html, syntax_table
 from .theme import C, T
 from .widgets import Combo, FlowLayout, FormChips, OptionChip, SearchField, icon_button, link_button
-from .workers import ScanJob, SearchJob
+from .workers import RefreshJob, ScanJob, SearchJob
 
 SORT_CHOICES = [("relevance", "הכי מדויק קודם"), ("document", "לפי מסמך ומיקום")]
 
@@ -69,6 +69,7 @@ class MainWindow(QMainWindow):
         self.scan_cache = {}
         self._scan_job = None
         self._scan_pending = False
+        self._scan_pending_force = False
         self._scan_ui_timer = QTimer(self)
         self._scan_ui_timer.setSingleShot(True)
         self._scan_ui_timer.timeout.connect(self._show_scan_progress)
@@ -468,16 +469,19 @@ class MainWindow(QMainWindow):
             self.run_search()
 
     # ================================================================ סריקה ועדכון המפה
-    def start_scan(self, force=False):
+    def start_scan(self, force=False, relist=False):
+        """force – "עדכון" ביד: הכל נקרא מחדש, גם מסמכים שפתוחים עכשיו ב-Word.
+        relist – חזרה לחלון: רשימות התיקיות נקראות שוב (זול), ומסמך שנערך עכשיו ב-Word נקרא רק בחיפוש."""
         if self._closing:
             return
-        if force:
+        if force or relist:
             self.scan_cache.clear()
         if self._scan_job is not None:
             self._scan_pending = True
+            self._scan_pending_force = self._scan_pending_force or force
             return
         baskets = {bid: self.db.basket_items(bid) for bid, _n, _c in self.db.baskets()}
-        job = ScanJob(self.db_path, baskets, self.scan_cache)
+        job = ScanJob(self.db_path, baskets, self.scan_cache, defer_open=not force)
         job.signals.progress.connect(self._on_scan_progress)
         job.signals.finished.connect(self._on_scan_done)
         self._scan_job = job
@@ -518,8 +522,7 @@ class MainWindow(QMainWindow):
         if note:
             self.statusBar().showMessage(note, 8000)
         if self._scan_pending:
-            self._scan_pending = False
-            self.start_scan()
+            self._run_pending_scan()
             return
         if self._search_waiting_scan:
             self._search_waiting_scan = False
@@ -530,15 +533,21 @@ class MainWindow(QMainWindow):
             else:
                 self.run_search()
 
+    def _run_pending_scan(self):
+        force = self._scan_pending_force
+        self._scan_pending = self._scan_pending_force = False
+        self.start_scan(force=force)
+
     @Slot(str)
     def _show_status(self, msg):
         if not self._closing:
             self.statusBar().showMessage(msg, 10000)
 
     def _maybe_rescan(self):
-        """חזרה לחלון אחרי זמן: בודקים ברקע אם נוספו מסמכים לתיקיות האוספים (בלי לחסום)."""
+        """חזרה לחלון אחרי זמן: בודקים ברקע אם נוספו או השתנו מסמכים בתיקיות האוספים (בלי לחסום).
+        רק רשימות התיקיות; מסמך שנערך עכשיו ב-Word לא נקרא בכל שמירה שלו, אלא כשמחפשים בו."""
         if self.scan is not None and self._scan_job is None and time.monotonic() - self._last_scan_done > 45:
-            self.start_scan(force=True)
+            self.start_scan(relist=True)
 
     def event(self, e):
         if e.type() == QEvent.WindowActivate and not self._closing:
@@ -548,7 +557,7 @@ class MainWindow(QMainWindow):
     def _cancel_scan(self):
         if self._scan_job is not None:
             self._scan_job.cancel()
-        self._scan_pending = False
+        self._scan_pending = self._scan_pending_force = False
 
     def _refresh_stats(self):
         st = self.db.stats()
@@ -586,6 +595,11 @@ class MainWindow(QMainWindow):
                 if f not in seen:
                     seen.add(f)
                     paths.append(f)
+        editing = [p for p in self.scan.deferred if p in seen]
+        if editing:
+            # מסמכים שנערכים עכשיו ב-Word: קודם קוראים אותם (רק אם השתנו), ואז מחפשים
+            self._refresh_then_search(editing)
+            return
         self._search_seq += 1
         job = SearchJob(self.db_path, q, opts, paths, dict(self.scan.status), tag=self._search_seq)
         job.signals.progress.connect(self._on_search_progress)
@@ -593,6 +607,40 @@ class MainWindow(QMainWindow):
         self._search_job = job
         self.results.busy_begin("מחפש…")
         job.start()
+
+    def _refresh_then_search(self, paths):
+        self._search_waiting_scan = True
+        self.results.busy_begin("מעדכן מסמך שנערך ב-Word…")
+        job = RefreshJob(self.db_path, paths, tag=frozenset(paths))
+        job.signals.progress.connect(self._on_scan_progress)
+        job.signals.finished.connect(self._on_refresh_done)        # שיטה של החלון – נקראת בתהליכון הממשק
+        self._scan_job = job
+        self._scan_last = (-1.0, "מעדכן מסמך שנערך ב-Word…")
+        self._scan_ui_timer.start(450)
+        job.start()
+
+    @Slot(object)
+    def _on_refresh_done(self, outcome):
+        if self._closing:
+            return
+        paths = outcome.tag or frozenset()
+        self._scan_job = None
+        self._scan_ui_timer.stop()
+        self.baskets.hide_progress()
+        if self.scan is not None:
+            # גם אם נכשל – לא מנסים שוב לפני כל חיפוש; הסריקה הבאה תבדוק אותם שוב
+            self.scan.deferred = [p for p in self.scan.deferred if p not in paths]
+            if outcome.result is not None:
+                self.scan.status.update(outcome.result.status)
+        if outcome.result is not None and outcome.result.indexed:
+            self._refresh_stats()
+        if self._scan_pending:
+            self._run_pending_scan()
+            return
+        if self._search_waiting_scan:
+            self._search_waiting_scan = False
+            self.results.busy_end()
+            self.run_search()
 
     def _cancel_search(self, quiet=False):
         if self._search_job is not None:

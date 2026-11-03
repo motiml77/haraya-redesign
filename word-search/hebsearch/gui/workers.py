@@ -1,6 +1,7 @@
 """עבודות רקע על QThreadPool – כל עבודה כבדה רצה מחוץ לתהליכון הממשק, ולכן החלון לא נתקע.
 
   ScanJob     סריקת תיקיות האוספים + בניית/עדכון מפת החיפוש (רק מסמכים חדשים או ששונו)
+  RefreshJob  לפני חיפוש: מסמכים שנערכים עכשיו ב-Word (הסריקה ברקע דילגה עליהם) – רק אם השתנו
   SearchJob   החיפוש עצמו (עם אחוזים וביטול) והכנת העמוד הראשון של הקטעים
   SnippetJob  הכנת קטעי תצוגה לעמוד הבא של תוצאות בזמן גלילה
 
@@ -100,26 +101,29 @@ class ScanResult:
     status: dict = field(default_factory=dict)      # נתיב → (מצב, הודעה, מזהה_קובץ)
     indexed: int = 0
     stale: int = 0
+    deferred: list = field(default_factory=list)    # השתנו אבל פתוחים עכשיו ב-Word – ייקראו לפני חיפוש
 
 
 class ScanJob(Job):
     kind = "scan"
 
-    def __init__(self, db_path, baskets: dict, cache: dict, tag=None):
-        """baskets: מזהה_אוסף → פריטי האוסף; cache: מילון סריקות תיקיות (מתעדכן)."""
+    def __init__(self, db_path, baskets: dict, cache: dict, tag=None, defer_open=True):
+        """baskets: מזהה_אוסף → פריטי האוסף; cache: מילון סריקות תיקיות (מתעדכן).
+        defer_open: מסמך שפתוח עכשיו לעריכה (ב-Word) ושכבר נקרא בעבר – לא נקרא שוב עכשיו, אלא בחיפוש."""
         super().__init__(tag)
         self.db_path, self.baskets, self.cache = db_path, baskets, cache
+        self.defer_open = defer_open
 
     def work(self):
         db = IndexDB(self.db_path)
         try:
             out = ScanResult()
             self.report(-1, "סורק את תיקיות האוספים…", force=True)
-            all_files, seen = [], set()
+            all_files, seen, stats = [], set(), {}
             for bid, items in self.baskets.items():
                 if self.cancelled():
                     return out
-                entries, files = resolve_basket(items, cache=self.cache)
+                entries, files = resolve_basket(items, cache=self.cache, stats=stats)
                 out.entries[bid] = entries
                 out.files[bid] = files
                 for f in files:
@@ -128,7 +132,12 @@ class ScanJob(Job):
                         all_files.append(f)
             db.set_basket_counts({bid: len(files) for bid, files in out.files.items()})
             self.report(-1, "בודק אילו מסמכים השתנו…", force=True)
-            stale = db.stale_files(all_files)
+            stale = db.stale_files(all_files, known=stats)
+            if self.defer_open and stale:
+                out.deferred = db.deferrable(stale)
+                if out.deferred:
+                    later = set(out.deferred)
+                    stale = [p for p in stale if p not in later]
             out.stale = len(stale)
             if stale:
                 total = len(stale)
@@ -140,6 +149,31 @@ class ScanJob(Job):
                 self.report(0.0, f"בונה את מפת החיפוש\n0 מתוך {total:,} מסמכים", force=True)
                 out.indexed = db.update(stale, progress=prog, cancelled=self.cancelled)
             rows = db.file_rows(all_files)
+            out.status = {p: (r[3], r[4], r[0]) for p, r in rows.items()}
+            return out
+        finally:
+            db.close()
+
+
+class RefreshJob(Job):
+    """מסמכים שנערכים עכשיו ב-Word: נקראים מחדש לפני החיפוש – רק אם השתנו מאז הקריאה הקודמת."""
+    kind = "refresh"
+
+    def __init__(self, db_path, paths, tag=None):
+        super().__init__(tag)
+        self.db_path, self.paths = db_path, list(paths)
+
+    def work(self):
+        db = IndexDB(self.db_path)
+        try:
+            out = ScanResult()
+            stale = db.stale_files(self.paths)
+            out.stale = len(stale)
+            if stale:
+                name = os.path.basename(stale[0]) if len(stale) == 1 else f"{len(stale):,} מסמכים"
+                self.report(-1, f"מעדכן מסמך שנערך ב-Word\n{name}", force=True)
+                out.indexed = db.update(stale, cancelled=self.cancelled)
+            rows = db.file_rows(self.paths)
             out.status = {p: (r[3], r[4], r[0]) for p, r in rows.items()}
             return out
         finally:

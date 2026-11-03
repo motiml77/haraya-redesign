@@ -20,8 +20,12 @@ namespace HebDocSearch.WordAddin
         public readonly int[] Levels;               // 1–9 כותרת, 0 גוף
         public readonly bool HasLevels;             // האם רמות הכותרות כבר נקראו מהמסמך
         public readonly string Key;                 // מזהה הגרסה אצל רכיב העזר (טקסט + כותרות)
+        // פסקאות שנוספו או שהטקסט שלהן השתנה מאז הגרסה הקודמת (כשהרמות עברו ממנה): רק את רמת הכותרת
+        // שלהן צריך לבדוק במסמך. ריק – הכל ידוע.
+        public readonly int[] Changed;
 
-        // הפרש שנלמד בין המיקום המשוער למיקום האמיתי (פסקה → הפרש). נגיש רק מהתהליך הראשי.
+        // הפרש שנלמד בין המיקום המשוער למיקום האמיתי (פסקה → הפרש). נלמד בתהליך הראשי, ונקרא גם
+        // ב-Build של הגרסה הבאה (בתהליך נפרד) – לכן כל גישה בנעילה.
         readonly SortedList<int, int> _drift = new SortedList<int, int>();
 
         // פסקאות קצרות לפי הטקסט המנורמל → מספרי הפסקאות (בסדר עולה), להתאמת כותרות בלי לסרוק.
@@ -29,13 +33,15 @@ namespace HebDocSearch.WordAddin
         readonly Dictionary<string, List<int>> _byText;
         const int IndexedLength = 400;
 
-        DocText(string hash, List<string> texts, List<int> starts, int[] levels, bool hasLevels, Dictionary<string, List<int>> byText)
+        DocText(string hash, List<string> texts, List<int> starts, int[] levels, bool hasLevels, Dictionary<string, List<int>> byText,
+                int[] changed = null)
         {
             TextHash = hash;
             Texts = texts;
             Starts = starts;
             Levels = levels;
             HasLevels = hasLevels;
+            Changed = changed ?? new int[0];
             Key = hash + "/" + (hasLevels ? Fnv(levels) : "nolevels");
             _byText = byText;
         }
@@ -64,8 +70,8 @@ namespace HebDocSearch.WordAddin
             return Fnv(sb.ToString());
         }
 
-        /// <summary>מחלק את הטקסט לפסקאות. previous – גרסה קודמת של אותו מסמך: רמות הכותרות
-        /// עוברות לפסקאות שהטקסט שלהן זהה (לפי הסדר), עד שהכותרות ייקראו שוב.</summary>
+        /// <summary>מחלק את הטקסט לפסקאות. previous – גרסה קודמת של אותו מסמך: לפסקאות שהטקסט שלהן זהה
+        /// (לפי הסדר) עוברות רמת הכותרת וההפרש שנלמד במיקום; את השאר (Changed) צריך לבדוק במסמך.</summary>
         public static DocText Build(string raw, DocText previous = null)
         {
             raw = raw ?? "";
@@ -103,19 +109,32 @@ namespace HebDocSearch.WordAddin
 
             var levels = new int[texts.Count];
             bool hasLevels = false;
+            int[] changed = null, fromPrevious = null;
             if (previous != null && previous.HasLevels)
             {
-                // הכותרות שהיו – לפי הטקסט ובאותו סדר
-                var queue = new Dictionary<string, Queue<int>>();
-                for (int i = 0; i < previous.Texts.Count; i++)
+                // כל פסקה של הגרסה הקודמת – לפי הטקסט ובאותו סדר
+                var queue = new Dictionary<string, Queue<int>>(previous.Texts.Count);
+                for (int j = 0; j < previous.Texts.Count; j++)
                 {
-                    if (previous.Levels[i] == 0) continue;
-                    string t = previous.Texts[i];
-                    if (!queue.TryGetValue(t, out var q)) queue[t] = q = new Queue<int>();
-                    q.Enqueue(previous.Levels[i]);
+                    string t = previous.Texts[j];
+                    if (!queue.TryGetValue(t, out var q)) queue[t] = q = new Queue<int>(1);
+                    q.Enqueue(j);
                 }
+                var news = new List<int>();
+                fromPrevious = new int[previous.Texts.Count];
+                for (int j = 0; j < fromPrevious.Length; j++) fromPrevious[j] = -1;
                 for (int i = 0; i < texts.Count; i++)
-                    if (queue.TryGetValue(texts[i], out var q) && q.Count > 0) levels[i] = q.Dequeue();
+                {
+                    if (queue.TryGetValue(texts[i], out var q) && q.Count > 0)
+                    {
+                        int j = q.Dequeue();
+                        levels[i] = previous.Levels[j];
+                        fromPrevious[j] = i;
+                    }
+                    else if (!string.IsNullOrWhiteSpace(texts[i]))
+                        news.Add(i);                    // פסקה חדשה או שנערכה – אולי כותרת
+                }
+                changed = news.ToArray();
                 hasLevels = true;
             }
             var byText = new Dictionary<string, List<int>>();
@@ -127,13 +146,19 @@ namespace HebDocSearch.WordAddin
                 if (!byText.TryGetValue(key, out var list)) byText[key] = list = new List<int>(1);
                 list.Add(i);
             }
-            return new DocText(Hash(raw), texts, starts, levels, hasLevels, byText);
+            var dt = new DocText(Hash(raw), texts, starts, levels, hasLevels, byText, changed);
+            if (fromPrevious != null)
+                lock (previous._drift)
+                    foreach (var kv in previous._drift)          // ההפרש במיקום (שדות וכו') נשאר בפסקאות שלא זזו
+                        if (kv.Key < fromPrevious.Length && fromPrevious[kv.Key] >= 0) dt._drift[fromPrevious[kv.Key]] = kv.Value;
+            return dt;
         }
 
         public DocText WithLevels(int[] levels)
         {
             var copy = new DocText(TextHash, Texts, Starts, levels, true, _byText);
-            foreach (var kv in _drift) copy._drift[kv.Key] = kv.Value;
+            lock (_drift)
+                foreach (var kv in _drift) copy._drift[kv.Key] = kv.Value;
             return copy;
         }
 
@@ -221,20 +246,24 @@ namespace HebDocSearch.WordAddin
         // ================================================================ הגעה לתוצאה (תהליך ראשי)
         public void Learn(int para, int actualStart)
         {
-            if (para >= 0 && para < Starts.Count) _drift[para] = actualStart - Starts[para];
+            if (para >= 0 && para < Starts.Count)
+                lock (_drift) _drift[para] = actualStart - Starts[para];
         }
 
         int DriftAt(int para)
         {
             // ההפרש שנלמד בפסקה הקרובה ביותר שלפני (השדות שמוסיפים מקומות מצטברים לאורך המסמך)
-            int lo = 0, hi = _drift.Count - 1, best = -1;
-            while (lo <= hi)
+            lock (_drift)
             {
-                int mid = (lo + hi) / 2;
-                if (_drift.Keys[mid] <= para) { best = mid; lo = mid + 1; }
-                else hi = mid - 1;
+                int lo = 0, hi = _drift.Count - 1, best = -1;
+                while (lo <= hi)
+                {
+                    int mid = (lo + hi) / 2;
+                    if (_drift.Keys[mid] <= para) { best = mid; lo = mid + 1; }
+                    else hi = mid - 1;
+                }
+                return best < 0 ? 0 : _drift.Values[best];
             }
-            return best < 0 ? 0 : _drift.Values[best];
         }
 
         /// <summary>הטווח במסמך של התוצאה (מהמילה הראשונה עד האחרונה), או null אם לא נמצא.</summary>
@@ -273,6 +302,32 @@ namespace HebDocSearch.WordAddin
             r = Find(doc, Math.Max(0, guess + a - 400), docEnd, expect) ?? Find(doc, 0, docEnd, expect);
             if (r != null) Learn(para, r.Start - a);
             return r;
+        }
+
+        /// <summary>הפסקה במסמך (ל-OutlineLevel) – במקום המשוער, או לפי תחילת הטקסט שלה בסביבה הקרובה.
+        /// בלי חיפוש בכל המסמך (נקרא לכל פסקה שנערכה). null אם לא נמצאה.</summary>
+        public Word.Paragraph LocateParagraph(Word.Document doc, int para, int docEnd)
+        {
+            if (para < 0 || para >= Texts.Count) return null;
+            string text = Texts[para];
+            int guess = EstimatedStart(para);
+            if (guess < docEnd)
+            {
+                Word.Paragraph p = doc.Range(guess, guess).Paragraphs.First;
+                Word.Range pr = p.Range;
+                if (SameText(Clean(pr.Text), text)) { Learn(para, pr.Start); return p; }
+            }
+            int lead = 0;
+            while (lead < text.Length && char.IsWhiteSpace(text[lead])) lead++;
+            string prefix = text.Substring(lead, Math.Min(80, text.Length - lead)).TrimEnd();
+            if (prefix.Length < 2) return null;
+            Word.Range f = Find(doc, Math.Max(0, guess - 2000), Math.Min(docEnd, guess + text.Length + 2000), prefix);
+            if (f == null) return null;
+            Word.Paragraph found = f.Paragraphs.First;
+            Word.Range fr = found.Range;
+            if (!SameText(Clean(fr.Text), text)) return null;
+            Learn(para, fr.Start);
+            return found;
         }
 
         static Word.Range Check(Word.Document doc, int start, int end, int docEnd, string expect)
