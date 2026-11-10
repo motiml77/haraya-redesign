@@ -15,6 +15,7 @@ namespace HebDocSearch.WordAddin
         private Process _proc;
         private StreamWriter _in;
         private StreamReader _out;
+        private ProcessPriorityClass _priority = ProcessPriorityClass.Normal;
 
         public static string ExePath
         {
@@ -47,15 +48,33 @@ namespace HebDocSearch.WordAddin
                 WorkingDirectory = Path.GetDirectoryName(ExePath),
             };
             _proc = Process.Start(psi);
+            _priority = ProcessPriorityClass.Normal;
             _proc.ErrorDataReceived += (s, e) => { };
             _proc.BeginErrorReadLine();
             _in = new StreamWriter(_proc.StandardInput.BaseStream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
             _out = _proc.StandardOutput;
         }
 
-        /// <summary>שולח בקשה ומחזיר את התשובה. אם התהליך נפל – מפעיל מחדש ומנסה פעם נוספת.</summary>
-        public string Call(string json, int timeoutMs = 60000)
+        /// <summary>עדיפות התהליך של רכיב העזר: הכנה ברקע (בניית מפת החיפוש) רצה בעדיפות נמוכה, כדי לא
+        /// להפריע ל-Word ולתוכנות אחרות; חיפוש שהמשתמש מחכה לו – בעדיפות רגילה.</summary>
+        private void SetPriority(bool background)
         {
+            var want = background ? ProcessPriorityClass.BelowNormal : ProcessPriorityClass.Normal;
+            if (_priority == want) return;
+            try
+            {
+                Process p = _proc;
+                if (p != null && !p.HasExited) p.PriorityClass = want;
+                _priority = want;
+            }
+            catch { }
+        }
+
+        /// <summary>שולח בקשה ומחזיר את התשובה. אם התהליך נפל – מפעיל מחדש ומנסה פעם נוספת.
+        /// background – עבודת הכנה שאף אחד לא מחכה לה.</summary>
+        public string Call(string json, int timeoutMs = 60000, bool background = false)
+        {
+            if (!background) SetPriority(false);        // גם אם בקשת רקע רצה עכשיו – שתסתיים מהר, מחכים לה
             lock (_lock)
             {
                 for (int attempt = 0; ; attempt++)
@@ -63,6 +82,7 @@ namespace HebDocSearch.WordAddin
                     try
                     {
                         if (_proc == null || _proc.HasExited) Start();
+                        SetPriority(background);
                         _in.WriteLine(json);
                         Task<string> line = _out.ReadLineAsync();
                         if (!line.Wait(timeoutMs)) throw new TimeoutException("רכיב החיפוש לא ענה בזמן");

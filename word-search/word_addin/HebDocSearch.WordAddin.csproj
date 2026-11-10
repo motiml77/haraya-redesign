@@ -119,6 +119,7 @@
     </Compile>
     <Compile Include="Ui.cs" />
     <Compile Include="Excerpt.cs" />
+    <Compile Include="HeadingCache.cs" />
     <Compile Include="ContextWindow.cs">
       <SubType>Form</SubType>
     </Compile>

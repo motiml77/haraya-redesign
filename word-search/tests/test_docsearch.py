@@ -5,7 +5,9 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -141,6 +143,96 @@ class DocSearchTest(unittest.TestCase):
                               text=True, encoding="utf-8", timeout=120)
         reply = json.loads(proc.stdout.strip().splitlines()[-1])
         self.assertEqual(reply["total"], 3)
+
+
+class DiskCacheTest(unittest.TestCase):
+    """מפת החיפוש של מסמך נשמרת בדיסק לפי טביעת האצבע של הטקסט: בפתיחה הבאה לא שולחים ולא בונים שוב."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = os.path.join(self.tmp.name, "docs")
+        self.levels = "".join(str(p["h"]) for p in PARAS)
+
+    def service(self):
+        svc = docsearch.DocSearchService(cache_dir=self.dir)
+        self.addCleanup(lambda: [e[k].close() for e in svc.docs.values() for k in (False, True) if k in e])
+        return svc
+
+    def test_second_session_needs_no_paragraphs(self):
+        first = self.service()
+        self.assertEqual(first.index({"doc": "T/l", "text": "12:ab", "levels": self.levels}),
+                         {"ok": False, "need_paras": True})                    # עוד לא בדיסק
+        r = first.index({"doc": "T/l", "text": "12:ab", "paras": PARAS})
+        self.assertTrue(r["ok"] and r["cached"])
+        self.assertEqual(len(os.listdir(self.dir)), 1)
+        expected = first.search({"doc": "T/l", "query": "הלך", "options": {"forms": "all"}})
+
+        second = self.service()                                                # Word נפתח מחדש
+        real = docsearch.word_postings
+
+        def only_headings(rows):                # מפת הכותרות (קטנה) נבנית בזיכרון; המלאה – לא נבנית שוב
+            self.assertLessEqual(len(rows), 3, "the full map was built again")
+            return real(rows)
+
+        with mock.patch.object(docsearch, "word_postings", side_effect=only_headings):
+            r = second.index({"doc": "T/l", "text": "12:ab", "levels": self.levels})
+            self.assertTrue(r["ok"] and r["cached"])
+            self.assertEqual((r["paras"], r["headings"]), (len(PARAS), 3))
+            got = second.search({"doc": "T/l", "query": "הלך", "options": {"forms": "all"}})
+        for key in ("total", "hits", "forms"):
+            self.assertEqual(got[key], expected[key])
+        heads = second.search({"doc": "T/l", "query": "הלך", "options": {"forms": "all"}, "headings_only": True})
+        self.assertEqual([h["para"] for h in heads["hits"]], [0, 2])
+
+    def test_search_request_alone_can_use_the_disk(self):
+        self.service().index({"doc": "k", "text": "7:cd", "paras": PARAS})
+        r = self.service().search({"doc": "k2", "text": "7:cd", "levels": "0" * len(PARAS), "query": "ייחוד"})
+        self.assertEqual((r["ok"], r["total"], r["headings"]), (True, 3, 0))
+        self.assertEqual(r["hits"][0]["path"], [])                              # הרמות – מהבקשה, לא מהדיסק
+
+    def test_wrong_paragraph_count_asks_for_paragraphs(self):
+        self.service().index({"doc": "k", "text": "7:cd", "paras": PARAS})
+        self.assertEqual(self.service().index({"doc": "k", "text": "7:cd", "levels": "00"}),
+                         {"ok": False, "need_paras": True})
+
+    def test_damaged_file_is_rebuilt(self):
+        svc = self.service()
+        svc.index({"doc": "k", "text": "7:cd", "paras": PARAS})
+        path = os.path.join(self.dir, os.listdir(self.dir)[0])
+        for e in svc.docs.values():
+            e[False].close()
+        svc.docs.clear()
+        with open(path, "wb") as f:
+            f.write(b"not a database")
+        again = self.service()
+        self.assertEqual(again.index({"doc": "k", "text": "7:cd", "levels": self.levels}),
+                         {"ok": False, "need_paras": True})
+        self.assertTrue(again.index({"doc": "k", "text": "7:cd", "paras": PARAS})["cached"])
+        self.assertEqual(again.search({"doc": "k", "query": "שבת"})["total"], 2)
+
+    def test_relevel_keeps_using_the_file(self):
+        svc = self.service()
+        svc.index({"doc": "a/nolevels", "text": "9:ef", "paras": [dict(p, h=0) for p in PARAS]})
+        r = svc.relevel({"from": "a/nolevels", "doc": "a/l", "levels": [int(c) for c in self.levels]})
+        self.assertTrue(r["ok"])
+        self.assertEqual(len(os.listdir(self.dir)), 1)
+        self.assertIs(svc.docs["a/l"][False].db, svc.docs["a/nolevels"][False].db)
+        self.assertEqual(svc.search({"doc": "a/l", "query": "הלך", "options": {"forms": "all"},
+                                     "headings_only": True})["total"], 2)
+
+    def test_old_files_are_removed(self):
+        svc = self.service()
+        with mock.patch.object(docsearch, "CACHE_KEEP_FILES", 2):
+            for i in range(4):
+                svc.index({"doc": f"d{i}", "text": f"1:{i:02x}", "paras": [{"t": f"מסמך {i}", "h": 0}]})
+                os.utime(os.path.join(self.dir, sorted(os.listdir(self.dir))[-1]), (1000 + i, 1000 + i))
+        self.assertLessEqual(len(os.listdir(self.dir)), 3)                      # 2 + זה שנבנה עכשיו
+
+    def test_without_text_hash_nothing_is_written(self):
+        svc = self.service()
+        self.assertEqual(svc.search({"doc": "m", "paras": PARAS, "query": "שבת"})["total"], 2)
+        self.assertFalse(os.path.exists(self.dir) and os.listdir(self.dir))
 
 
 if __name__ == "__main__":

@@ -12,6 +12,15 @@ using Word = Microsoft.Office.Interop.Word;
 
 namespace HebDocSearch.WordAddin
 {
+    /// <summary>תמצית של גרסת מסמך: טביעת אצבע ורמת כותרת לכל פסקה, וההפרשים במיקום שנלמדו.</summary>
+    internal sealed class DocSnapshot
+    {
+        public string TextHash;
+        public ulong[] Hashes;
+        public byte[] Levels;
+        public int[] DriftKeys, DriftValues;
+    }
+
     internal sealed class DocText
     {
         public readonly string TextHash;            // אורך + FNV-1a של כל הטקסט
@@ -23,6 +32,7 @@ namespace HebDocSearch.WordAddin
         // פסקאות שנוספו או שהטקסט שלהן השתנה מאז הגרסה הקודמת (כשהרמות עברו ממנה): רק את רמת הכותרת
         // שלהן צריך לבדוק במסמך. ריק – הכל ידוע.
         public readonly int[] Changed;
+        public readonly ulong[] ParaHashes;         // טביעת אצבע של כל פסקה – להשוואה לגרסה קודמת (גם מהדיסק)
 
         // הפרש שנלמד בין המיקום המשוער למיקום האמיתי (פסקה → הפרש). נלמד בתהליך הראשי, ונקרא גם
         // ב-Build של הגרסה הבאה (בתהליך נפרד) – לכן כל גישה בנעילה.
@@ -34,8 +44,9 @@ namespace HebDocSearch.WordAddin
         const int IndexedLength = 400;
 
         DocText(string hash, List<string> texts, List<int> starts, int[] levels, bool hasLevels, Dictionary<string, List<int>> byText,
-                int[] changed = null)
+                ulong[] paraHashes, int[] changed = null)
         {
+            ParaHashes = paraHashes;
             TextHash = hash;
             Texts = texts;
             Starts = starts;
@@ -52,7 +63,9 @@ namespace HebDocSearch.WordAddin
             return raw.Length + ":" + Fnv(raw);
         }
 
-        static string Fnv(string s)
+        static string Fnv(string s) => Fnv64(s).ToString("x16");
+
+        internal static ulong Fnv64(string s)
         {
             ulong h = 14695981039346656037UL;
             foreach (char c in s)
@@ -60,7 +73,7 @@ namespace HebDocSearch.WordAddin
                 h ^= c;
                 h *= 1099511628211UL;
             }
-            return h.ToString("x16");
+            return h;
         }
 
         static string Fnv(int[] levels)
@@ -73,6 +86,29 @@ namespace HebDocSearch.WordAddin
         /// <summary>מחלק את הטקסט לפסקאות. previous – גרסה קודמת של אותו מסמך: לפסקאות שהטקסט שלהן זהה
         /// (לפי הסדר) עוברות רמת הכותרת וההפרש שנלמד במיקום; את השאר (Changed) צריך לבדוק במסמך.</summary>
         public static DocText Build(string raw, DocText previous = null)
+        {
+            return Build(raw, previous != null && previous.HasLevels ? previous.Snapshot() : null);
+        }
+
+        /// <summary>מה שצריך מגרסה קודמת כדי לא לקרוא את הכותרות מחדש (נשמר גם בדיסק, בלי הטקסט עצמו).</summary>
+        public DocSnapshot Snapshot()
+        {
+            var snap = new DocSnapshot { TextHash = TextHash, Hashes = ParaHashes, Levels = new byte[Levels.Length] };
+            for (int i = 0; i < Levels.Length; i++) snap.Levels[i] = (byte)Levels[i];
+            lock (_drift)
+            {
+                snap.DriftKeys = new int[_drift.Count];
+                snap.DriftValues = new int[_drift.Count];
+                for (int i = 0; i < _drift.Count; i++)
+                {
+                    snap.DriftKeys[i] = _drift.Keys[i];
+                    snap.DriftValues[i] = _drift.Values[i];
+                }
+            }
+            return snap;
+        }
+
+        public static DocText Build(string raw, DocSnapshot previous)
         {
             raw = raw ?? "";
             var texts = new List<string>();
@@ -107,28 +143,32 @@ namespace HebDocSearch.WordAddin
                 starts.Add(paraStart);
             }
 
+            var hashes = new ulong[texts.Count];
+            for (int i = 0; i < hashes.Length; i++) hashes[i] = Fnv64(texts[i]);
+
             var levels = new int[texts.Count];
             bool hasLevels = false;
             int[] changed = null, fromPrevious = null;
-            if (previous != null && previous.HasLevels)
+            if (previous != null && previous.Hashes.Length == previous.Levels.Length)
             {
-                // כל פסקה של הגרסה הקודמת – לפי הטקסט ובאותו סדר
-                var queue = new Dictionary<string, Queue<int>>(previous.Texts.Count);
-                for (int j = 0; j < previous.Texts.Count; j++)
+                // כל פסקה של הגרסה הקודמת – לפי הטקסט (טביעת האצבע) ובאותו סדר
+                int n = previous.Hashes.Length;
+                var first = new Dictionary<ulong, int>(n);
+                var next = new int[n];
+                for (int j = n - 1; j >= 0; j--)
                 {
-                    string t = previous.Texts[j];
-                    if (!queue.TryGetValue(t, out var q)) queue[t] = q = new Queue<int>(1);
-                    q.Enqueue(j);
+                    next[j] = first.TryGetValue(previous.Hashes[j], out int f) ? f : -1;
+                    first[previous.Hashes[j]] = j;
                 }
                 var news = new List<int>();
-                fromPrevious = new int[previous.Texts.Count];
-                for (int j = 0; j < fromPrevious.Length; j++) fromPrevious[j] = -1;
+                fromPrevious = new int[n];
+                for (int j = 0; j < n; j++) fromPrevious[j] = -1;
                 for (int i = 0; i < texts.Count; i++)
                 {
-                    if (queue.TryGetValue(texts[i], out var q) && q.Count > 0)
+                    if (first.TryGetValue(hashes[i], out int j) && j >= 0)
                     {
-                        int j = q.Dequeue();
-                        levels[i] = previous.Levels[j];
+                        first[hashes[i]] = next[j];
+                        levels[i] = previous.Levels[j] < 10 ? previous.Levels[j] : 0;
                         fromPrevious[j] = i;
                     }
                     else if (!string.IsNullOrWhiteSpace(texts[i]))
@@ -146,17 +186,19 @@ namespace HebDocSearch.WordAddin
                 if (!byText.TryGetValue(key, out var list)) byText[key] = list = new List<int>(1);
                 list.Add(i);
             }
-            var dt = new DocText(Hash(raw), texts, starts, levels, hasLevels, byText, changed);
-            if (fromPrevious != null)
-                lock (previous._drift)
-                    foreach (var kv in previous._drift)          // ההפרש במיקום (שדות וכו') נשאר בפסקאות שלא זזו
-                        if (kv.Key < fromPrevious.Length && fromPrevious[kv.Key] >= 0) dt._drift[fromPrevious[kv.Key]] = kv.Value;
+            var dt = new DocText(Hash(raw), texts, starts, levels, hasLevels, byText, hashes, changed);
+            if (fromPrevious != null && previous.DriftKeys != null)
+                for (int k = 0; k < previous.DriftKeys.Length; k++)      // ההפרש במיקום (שדות וכו') נשאר בפסקאות שלא זזו
+                {
+                    int j = previous.DriftKeys[k];
+                    if (j >= 0 && j < fromPrevious.Length && fromPrevious[j] >= 0) dt._drift[fromPrevious[j]] = previous.DriftValues[k];
+                }
             return dt;
         }
 
         public DocText WithLevels(int[] levels)
         {
-            var copy = new DocText(TextHash, Texts, Starts, levels, true, _byText);
+            var copy = new DocText(TextHash, Texts, Starts, levels, true, _byText, ParaHashes);
             lock (_drift)
                 foreach (var kv in _drift) copy._drift[kv.Key] = kv.Value;
             return copy;
@@ -165,6 +207,14 @@ namespace HebDocSearch.WordAddin
         public int Headings
         {
             get { int n = 0; foreach (int l in Levels) if (l > 0) n++; return n; }
+        }
+
+        /// <summary>רמות הכותרות כמחרוזת ספרות (ספרה לכל פסקה) – לרכיב העזר, כשהטקסט כבר אצלו בדיסק.</summary>
+        public string LevelString()
+        {
+            var chars = new char[Levels.Length];
+            for (int i = 0; i < chars.Length; i++) chars[i] = (char)('0' + (Levels[i] > 0 && Levels[i] < 10 ? Levels[i] : 0));
+            return new string(chars);
         }
 
         public List<Dictionary<string, object>> Paras()
@@ -194,19 +244,31 @@ namespace HebDocSearch.WordAddin
             return -1;
         }
 
-        /// <summary>הפסקה שמתאימה לכותרת שנמצאה במקום actualStart במסמך: אותו טקסט, והקרובה ביותר
-        /// לפני המקום (המיקומים המשוערים קטנים או שווים למיקום האמיתי – שדות מוסיפים מקומות).</summary>
+        /// <summary>הפסקה שמתאימה לכותרת שנמצאה במקום actualStart במסמך: אותו טקסט, והקרובה ביותר למקום
+        /// לפי המיקום המשוער (כולל ההפרש שכבר נלמד – שדות ותוכן עניינים מוסיפים מקומות). כשאותה כותרת
+        /// חוזרת כמה פעמים (למשל "סיכום" בכל פרק) זה מה שמבדיל ביניהן.</summary>
         public int MatchNear(string headingText, int actualStart)
         {
             string want = Norm(headingText);
             if (want.Length == 0) return -1;
             if (_byText == null || !_byText.TryGetValue(want, out var list))
                 return headingText.Length > IndexedLength ? MatchParagraph(headingText, 0) : -1;
-            int best = -1;
-            foreach (int i in list)                     // בדרך כלל אחת או שתיים
+            if (list.Count == 1) return list[0];
+            // המיקום המשוער קטן או שווה לאמיתי: מתחילים מהאחרונה שלפני המקום, ובודקים את השכנות
+            int lo = 0, hi = list.Count - 1, k = 0;
+            while (lo <= hi)
             {
-                if (Starts[i] <= actualStart + 2) best = i;
-                else { if (best < 0) best = i; break; }
+                int mid = (lo + hi) / 2;
+                if (Starts[list[mid]] <= actualStart + 2) { k = mid; lo = mid + 1; }
+                else hi = mid - 1;
+            }
+            int best = -1;
+            long bestDistance = long.MaxValue;
+            for (int m = Math.Min(list.Count - 1, k + 1); m >= 0 && m >= k - 200; m--)
+            {
+                long d = Math.Abs((long)EstimatedStart(list[m]) - actualStart);
+                if (d < bestDistance) { bestDistance = d; best = list[m]; }
+                else if (m < k && EstimatedStart(list[m]) < actualStart) break;       // מתרחקים
             }
             return best;
         }

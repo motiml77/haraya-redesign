@@ -75,6 +75,15 @@ namespace HebDocSearch.WordAddin
             Reset();
             _timer.Tick += (s, e) => Tick();
             _timer.Start();
+            if (_addin.Preparer != null) _addin.Preparer.HeadingsChanged += OnHeadingsChanged;
+        }
+
+        /// <summary>האימות ברקע גילה שהכותרות במסמך השתנו (למשל פסקה שהפכה לכותרת): אם מוצגות עכשיו תוצאות
+        /// של חיפוש בכותרות – מחפשים שוב, כדי שיהיו נכונות. לא נוגע בסמן במסמך.</summary>
+        void OnHeadingsChanged(Word.Document doc)
+        {
+            if (IsDisposed || !ReferenceEquals(doc, _doc) || !Visible) return;
+            if (_view.HeadingsOnly && _view.Query.Length > 0 && _lastKey != null) RunSearch();
         }
 
         internal void FocusSearch()
@@ -430,6 +439,7 @@ namespace HebDocSearch.WordAddin
         {
             if (disposing)
             {
+                if (_addin.Preparer != null) _addin.Preparer.HeadingsChanged -= OnHeadingsChanged;
                 _headingsRetry.Stop();
                 _headingsRetry.Dispose();
                 _timer.Stop();
