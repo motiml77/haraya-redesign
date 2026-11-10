@@ -154,8 +154,8 @@ class DiskCacheTest(unittest.TestCase):
         self.dir = os.path.join(self.tmp.name, "docs")
         self.levels = "".join(str(p["h"]) for p in PARAS)
 
-    def service(self):
-        svc = docsearch.DocSearchService(cache_dir=self.dir)
+    def service(self, keep=8):
+        svc = docsearch.DocSearchService(keep=keep, cache_dir=self.dir)
         self.addCleanup(lambda: [e[k].close() for e in svc.docs.values() for k in (False, True) if k in e])
         return svc
 
@@ -222,7 +222,7 @@ class DiskCacheTest(unittest.TestCase):
                                      "headings_only": True})["total"], 2)
 
     def test_old_files_are_removed(self):
-        svc = self.service()
+        svc = self.service(keep=1)          # מסמך שיצא מהזיכרון נסגר – ב-Windows קובץ פתוח לא נמחק
         with mock.patch.object(docsearch, "CACHE_KEEP_FILES", 2):
             for i in range(4):
                 svc.index({"doc": f"d{i}", "text": f"1:{i:02x}", "paras": [{"t": f"מסמך {i}", "h": 0}]})

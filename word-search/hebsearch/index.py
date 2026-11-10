@@ -167,8 +167,8 @@ def word_postings(paras):
     return {w: array("I", lst).tobytes() for w, lst in words.items()}
 
 
-def pack_paras(paras) -> bytes:
-    return zlib.compress(json.dumps(paras, ensure_ascii=False).encode("utf-8"), 6) if paras else b""
+def pack_paras(paras, level=6) -> bytes:
+    return zlib.compress(json.dumps(paras, ensure_ascii=False).encode("utf-8"), level) if paras else b""
 
 
 def process_file(path: str) -> dict:
@@ -226,9 +226,14 @@ class IndexDB:
         self.conn = sqlite3.connect(path, timeout=30)
         c = self.conn
         if not ensure_schema:
-            c.execute("PRAGMA cache_size=-32768")
-            c.execute("PRAGMA temp_store=MEMORY")
-            c.execute("PRAGMA query_only=ON")
+            try:
+                c.execute("PRAGMA cache_size=-32768")
+                c.execute("PRAGMA temp_store=MEMORY")
+                c.execute("PRAGMA query_only=ON")
+                c.execute("SELECT count(*) FROM sqlite_master").fetchone()     # קובץ שאינו מסד נתונים נכשל כאן
+            except sqlite3.Error:
+                c.close()               # אחרת הקובץ נשאר פתוח (ב-Windows אי אפשר אז למחוק או להחליף אותו)
+                raise
             return
         c.execute("PRAGMA journal_mode=WAL")
         c.execute("PRAGMA synchronous=NORMAL")

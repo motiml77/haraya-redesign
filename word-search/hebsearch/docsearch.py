@@ -49,7 +49,8 @@ CACHE_KEEP_BYTES = 600 * 1024 * 1024
 
 
 def _store_doc(db, rows):
-    db.store({"path": DOC_PATH, "mtime": 0, "size": 0, "paras": pack_paras(rows), "n_paras": len(rows),
+    # דחיסה קלה: בדחיסה הרגילה (רמה 6) הדחיסה לבדה לקחה כמעט חצי מזמן בניית המפה של מסמך
+    db.store({"path": DOC_PATH, "mtime": 0, "size": 0, "paras": pack_paras(rows, 1), "n_paras": len(rows),
               "words": word_postings(rows), "status": "ok", "message": ""})
     db.conn.commit()
 
