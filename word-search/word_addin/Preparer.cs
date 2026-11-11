@@ -6,17 +6,23 @@
 // מהירות בלי לתקוע: ההכנה לא מחכה שהמשתמש יפסיק לעבוד. היא רצה כל הזמן, במנות קצרות מאוד:
 //   * כל קריאה ל-Word קצרה (חיפוש הכותרות נעשה על קטע של המסמך בכל פעם, והקטע מותאם כך שקריאה
 //     אחת תיקח אלפיות שנייה בודדות) – ולכן המסך וההקלדה לא מרגישים אותה;
-//   * כמה עבודה בכל מנה תלוי במשתמש: מיד אחרי הקשה או תזוזת עכבר – כלום; בזמן עבודה – ~12 אלפיות שנייה;
-//     כשהוא נח – יותר. בין המנות Word מטפל בכל מה שמחכה לו;
+//   * היא עוצרת רק בזמן כתיבה (הקשה במקלדת ב-Word או בחלונית – Typing). תזוזת עכבר וגלילה לא עוצרות
+//     אותה, רק מקצרות את המנות כדי שהמסך יישאר חלק. כמה עבודה בכל מנה: אחרי הקשה – ~12 אלפיות שנייה,
+//     כשלא מקלידים כמה שניות – יותר. בין המנות Word מטפל בכל מה שמחכה לו;
 //   * לא מחכים לרכיב העזר: בזמן שהוא בונה את מפת החיפוש (בתהליך אחר), הכותרות כבר נקראות.
+//
+// כותרות בלי Word: במסמך docx שמור, רמות הכותרות נקראות ישירות מהקובץ ברכיב העזר (כמו שחלונית הניווט
+// של Word קוראת אותן – תכונה של הפסקה, לא חיפוש). רק מה שלא התאים נבדק ב-Word.
 //
 // לא עושים פעמיים את אותה עבודה:
 //   * לכל מסמך נשמר בדיסק (HeadingCache) מה שנקרא ממנו. בפתיחה הבאה, אם הקובץ לא השתנה – הכותרות
 //     מוכנות מיד; אם השתנה – הרמות עוברות לפסקאות שלא השתנו, נבדקות רק הפסקאות החדשות, וברקע נעשה
 //     אימות מלא אחד (שינוי של סגנון בלבד לא נראה בטקסט);
-//   * מפת החיפוש עצמה נשמרת בדיסק אצל רכיב העזר לפי טביעת האצבע של הטקסט – לא נשלחת ולא נבנית שוב;
-//   * אחרי עריכה בודקים רק את הפסקאות שנוספו או שנערכו. כשמחפשים בכותרות אחרי עריכה – אימות מלא ברקע,
-//     ואם התגלה שינוי (פסקה שהפכה לכותרת) התוצאות מתעדכנות.
+//   * מפת החיפוש עצמה נשמרת בדיסק אצל רכיב העזר לפי טביעת האצבע של הטקסט – לא נשלחת ולא נבנית שוב
+//     (נשמרת כשהמסמך נסגר; מסמך שלא נפתח 3 ימים – נמחק, ונבנה שוב כשייפתח);
+//   * אחרי עריכה בודקים רק את הפסקאות שנוספו או שנערכו, ולרכיב העזר נשלחות רק הן (patch) – המילים של
+//     שאר הפסקאות לא מעובדות שוב. כשמחפשים בכותרות אחרי עריכה – אימות מלא ברקע, ואם התגלה שינוי
+//     (פסקה שהפכה לכותרת) התוצאות מתעדכנות.
 //
 // כותרת = פסקה עם רמת חלוקה 1–9, כמו בחלונית הניווט של Word (סגנונות "כותרת 1–9" וגם סגנונות אישיים):
 //     1. חיפוש של Word לפי רמת חלוקה (Find עם ParagraphFormat.OutlineLevel) – רק הכותרות עצמן;
@@ -52,6 +58,10 @@ namespace HebDocSearch.WordAddin
             public int Edits;                   // כמה פעמים המסמך נקרא מחדש (כדי לדעת אם סריקה שהסתיימה עדיין תקפה)
             public DateTime LastFullScan;
             public bool Reading, Indexing;
+            public bool DocxPending;            // רמות הכותרות נקראות עכשיו מקובץ ה-docx (בלי Word)
+            public DateTime DocxSince;
+            public double IndexProgress;        // 0..1 – בניית מפת החיפוש ברכיב העזר
+            public double HeadingProgress;      // 0..1 – קריאת הכותרות (לא יורד)
             public DateTime NotBefore;
             public HeadingScan Scan;
             public string Error, HeadingsError;
@@ -77,6 +87,7 @@ namespace HebDocSearch.WordAddin
             public int Checked, Missed;
             public int Found, FoundByOutline, FoundByStyle, Unmatched, Steps, Failures;
             public int EditsAtStart;
+            public int DocEnd = 1;
             public bool UsedFind, Failed;
             public Stopwatch Time = new Stopwatch();
         }
@@ -109,6 +120,8 @@ namespace HebDocSearch.WordAddin
             _helper = helper;
             _ui = new System.Windows.Forms.Control();
             IntPtr unused = _ui.Handle;          // יוצר את החלון הנסתר בתהליך הראשי
+            Typing.Start();
+            Background(HeadingCache.Cleanup);    // מה שנשמר על מסמכים שלא נפתחו 3 ימים
             _timer.Tick += (s, e) => Tick();
             _timer.Start();
         }
@@ -145,7 +158,34 @@ namespace HebDocSearch.WordAddin
         public void Forget(Word.Document doc)
         {
             var s = Find(doc);
-            if (s != null) _docs.Remove(s);
+            if (s == null) return;
+            _docs.Remove(s);
+            Persist(s, false);
+        }
+
+        /// <summary>המסמך נסגר: מה שנבנה בשבילו נשמר בדיסק, כדי שבפתיחה הבאה לא ייבנה שוב.</summary>
+        void Persist(DocState s, bool wait)
+        {
+            try { SaveCache(s); } catch (Exception e) { Log.Error("save cache", e); }
+            DocText dt = s.Text;
+            string key = null;
+            lock (_sent)
+            {
+                if (dt != null && _sent.Contains(dt.Key)) key = dt.Key;
+                else if (s.IndexedKey != null && _sent.Contains(s.IndexedKey)) key = s.IndexedKey;
+            }
+            if (key == null || s.Path == null) return;
+            Action work = () =>
+            {
+                try
+                {
+                    var reply = Call(new Dictionary<string, object> { ["cmd"] = "persist", ["doc"] = key }, true, null, 15000);
+                    Log.Write($"persist {key}: " + (Ok(reply) ? (reply.ContainsKey("saved") && reply["saved"] is bool b && b ? "saved" : "already on disk") : "failed"));
+                }
+                catch (Exception e) { Log.Write("persist failed: " + e.Message); }
+            };
+            if (wait) work();
+            else Background(work);
         }
 
         public string Status(Word.Document doc)
@@ -156,10 +196,39 @@ namespace HebDocSearch.WordAddin
             if (s.Error != null) return "אפשר לחפש. (ההכנה ברקע נכשלה: " + s.Error + ")";
             if (s.Text == null || s.Reading || s.Indexing && s.IndexedKey == null)
                 return "מכין את המסמך לחיפוש…";
+            int percent = Percent(s);
+            if (percent < 100) return $"מכין את המסמך לחיפוש… {percent}%";
             string counts = Words.Paragraphs(s.Text.Texts.Count);
-            if (!s.Text.HasLevels || s.NeedsHeadings)
-                return "המסמך מוכן לחיפוש · " + counts + " · קורא את הכותרות…";
             return "המסמך מוכן לחיפוש · " + counts + " · " + Words.Headings(s.Text.Headings);
+        }
+
+        /// <summary>כמה מההכנה הסתיים: קריאת הטקסט (5%), מפת החיפוש ברכיב העזר (60%), הכותרות (35%).
+        /// 100 רק כשהכל מוכן – אפשר לחפש תוך כדי הקלדה, וגם בכותרות.</summary>
+        static int Percent(DocState s)
+        {
+            if (s.Text == null || s.Reading) return 2;
+            bool indexed = s.IndexedKey != null && s.IndexedKey.StartsWith(s.Text.TextHash + "/", StringComparison.Ordinal);
+            bool headings = s.Text.HasLevels && !s.NeedsHeadings && !s.DocxPending;
+            if (indexed && headings) return 100;
+            double index = indexed ? 1 : Math.Min(0.99, Math.Max(0, s.IndexProgress));
+            double heads = headings ? 1 : Math.Min(0.99, s.Scan != null ? Math.Max(s.HeadingProgress, ScanProgress(s.Scan)) : s.HeadingProgress);
+            if (!headings) s.HeadingProgress = heads;
+            return (int)Math.Min(99, Math.Round(5 + 60 * index + 35 * heads));
+        }
+
+        static double ScanProgress(HeadingScan scan)
+        {
+            if (scan.Verify) return 1;
+            switch (scan.Phase)
+            {
+                case 0:
+                case 1:
+                    return Math.Min(1, ((scan.Level - 1) + Math.Min(1.0, (double)scan.Pos / Math.Max(1, scan.DocEnd))) / 9);
+                case 2:
+                    return (double)scan.OutlineIndex / Math.Max(1, scan.Text.Texts.Count);
+                default:
+                    return scan.Changed == null || scan.Changed.Length == 0 ? 1 : (double)scan.OutlineIndex / scan.Changed.Length;
+            }
         }
 
         // ================================================================ זיהוי שינויים (בלי לקרוא את המסמך)
@@ -257,6 +326,13 @@ namespace HebDocSearch.WordAddin
                 foreach (var s in _docs)
                 {
                     if (s.Reading) continue;                    // התוצאה תגיע לבד, ותפעיל את השעון אם צריך
+                    if (s.DocxPending)
+                    {
+                        // הכותרות נקראות מהקובץ ברכיב העזר; אם זה נתקע – חוזרים לקריאה דרך Word
+                        if ((now - s.DocxSince).TotalSeconds < 20) { pending = true; continue; }
+                        s.DocxPending = false;
+                        Log.Write("headings from file: no answer in time – reading them in Word");
+                    }
                     int rank = s.NeedsRead ? 0 : s.NeedsHeadings ? 1 : s.NeedsVerify ? 2 : -1;
                     if (rank < 0) continue;
                     pending = true;
@@ -268,7 +344,7 @@ namespace HebDocSearch.WordAddin
                 if (next.NeedsRead)
                 {
                     // קריאת הטקסט היא קריאה אחת שאי אפשר לחלק – מחכים להפסקה קצרה בהקלדה
-                    if (IdleMs() >= (FocusGuard.InAddIn ? 1000 : 350) && WordAvailable())
+                    if (TypingIdleMs() >= (FocusGuard.InAddIn ? 1000 : 350) && !MouseButtonDown() && WordAvailable())
                         FocusGuard.Run(() => BeginRead(next));
                 }
                 else
@@ -290,17 +366,23 @@ namespace HebDocSearch.WordAddin
             }
         }
 
-        /// <summary>כמה אלפיות שנייה של עבודה מול Word מותר עכשיו. מיד אחרי הקשה או תזוזת עכבר – כלום
-        /// (Word מטפל בה); בזמן שהמשתמש עובד – מנה קצרה שלא מורגשת; כשהוא נח – מנות ארוכות יותר.</summary>
+        /// <summary>כמה אלפיות שנייה של עבודה מול Word מותר עכשיו. רק כתיבה עוצרת: מיד אחרי הקשה – כלום (Word
+        /// מטפל בה); אחר כך מנה קצרה שלא מורגשת; כשלא מקלידים כמה שניות – מנות ארוכות יותר. עכבר לא עוצר:
+        /// בזמן תזוזה, גלילה או גרירה המנות רק קצרות (כדי שהמסך יישאר חלק).</summary>
         static int SliceBudget()
         {
-            if (GetAsyncKeyState(0x01) < 0 || GetAsyncKeyState(0x02) < 0) return 0;      // גרירה / לחיצה בעכבר
-            int idle = IdleMs();
-            if (idle < 80) return 0;
-            if (idle < 1000) return 12;
-            if (idle < 5000) return 30;
-            return 80;
+            int typing = TypingIdleMs();
+            if (typing < 100) return 0;
+            int budget = typing < 1000 ? 12 : typing < 5000 ? 30 : 80;
+            if (MouseButtonDown()) return Math.Min(budget, 8);
+            if (IdleMs() < 400) return Math.Min(budget, 16);          // העכבר זז / גלילה
+            return budget;
         }
+
+        /// <summary>זמן מההקשה האחרונה (ואם אין "וו" למקלדת – מכל קלט, כמו קודם).</summary>
+        static int TypingIdleMs() => Typing.Active ? Typing.IdleMs : IdleMs();
+
+        static bool MouseButtonDown() => GetAsyncKeyState(0x01) < 0 || GetAsyncKeyState(0x02) < 0;
 
         void QueueOpenDocuments()
         {
@@ -361,7 +443,14 @@ namespace HebDocSearch.WordAddin
                                 : $"cache: document changed since last time – {dt.Headings} headings kept, {dt.Changed.Length} changed paragraphs to check, full check in the background");
                         }
                         Adopt(s, dt, previous);
-                        BeginIndex(s, dt);
+                        string docx = null;
+                        if (!dt.HasLevels && saved && IsDocxFile(s.Path))
+                        {
+                            docx = s.Path;
+                            s.DocxPending = true;
+                            s.DocxSince = DateTime.Now;
+                        }
+                        BeginIndex(s, dt, docx);
                     });
                 }
                 catch (Exception e)
@@ -388,8 +477,55 @@ namespace HebDocSearch.WordAddin
                     return;
                 }
                 s.NeedsHeadings = true;
+                s.HeadingProgress = 0;
                 Wake(s, 300);
             }
+        }
+
+        static bool IsDocxFile(string path)
+        {
+            if (!HeadingCache.IsLocalFile(path)) return false;
+            string ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
+            return ext == ".docx" || ext == ".docm" || ext == ".dotx" || ext == ".dotm";
+        }
+
+        /// <summary>רמות הכותרות מקובץ ה-docx הגיעו: כל כותרת לפסקה שלה. אם הכל התאים – הכותרות מוכנות בלי
+        /// שום עבודה של Word; אחרת – בדיקה ב-Word ברקע (רק בשביל מה שלא התאים זה עדיין חוסך הרבה).</summary>
+        void ApplyFileHeadings(DocState s, DocText dt, Dictionary<string, object> reply, long ms)
+        {
+            s.DocxPending = false;
+            if (!_docs.Contains(s)) return;
+            if (!Ok(reply) || !reply.ContainsKey("headings") || !(reply["headings"] is System.Collections.IList list))
+            {
+                Log.Write("headings from file: not available (" + (reply != null && reply.ContainsKey("error") ? reply["error"] : "?") + ") – reading them in Word");
+                Wake(s, 0);
+                return;
+            }
+            if (s.Text == null || s.Text.TextHash != dt.TextHash || s.Text.HasLevels)
+            {
+                Wake(s, 0);                                      // המסמך השתנה בינתיים, או שהכותרות כבר נקראו
+                return;
+            }
+            var headings = new List<object[]>(list.Count);
+            foreach (object h in list)
+                if (h is System.Collections.IList x && x.Count >= 3) headings.Add(new[] { x[0], x[1], x[2] });
+            int[] levels = s.Text.MatchFileHeadings(headings, out int unmatched);
+            int fileParas = reply.ContainsKey("paras") ? Convert.ToInt32(reply["paras"]) : -1;
+            bool exact = unmatched == 0 && fileParas == s.Text.Texts.Count;
+            s.Scan = null;
+            s.Text = s.Text.WithLevels(levels);
+            s.NeedsHeadings = false;
+            s.HeadingProgress = 1;
+            // לא הכל התאים (או שמספר הפסקאות שונה) – בדיקה מלאה ב-Word ברקע, בלי לעכב את החיפוש
+            s.NeedsVerify = !exact;
+            s.Unverified = !exact;
+            if (exact) s.LastFullScan = DateTime.Now;
+            Log.Write($"headings from file: {s.Text.Headings} of {headings.Count} matched ({unmatched} not matched; " +
+                      $"{fileParas:N0} paragraphs in the file, {s.Text.Texts.Count:N0} in Word) in {ms}ms – " +
+                      (exact ? "no Word work needed" : "checking in Word in the background"));
+            BeginIndex(s, s.Text);
+            SaveCache(s);
+            if (s.NeedsVerify) Wake(s, 500);
         }
 
         void Wake(DocState s, int delayMs)
@@ -399,16 +535,36 @@ namespace HebDocSearch.WordAddin
             _timer.Start();
         }
 
-        void BeginIndex(DocState s, DocText dt)
+        void BeginIndex(DocState s, DocText dt, string docxPath = null)
         {
+            if (docxPath != null)
+            {
+                // קודם הכותרות מהקובץ (מהיר), ורק אחר כך מפת החיפוש – רכיב העזר עונה לבקשה אחת בכל פעם
+                Background(() =>
+                {
+                    var t = Stopwatch.StartNew();
+                    Dictionary<string, object> reply;
+                    try { reply = Call(new Dictionary<string, object> { ["cmd"] = "docx_headings", ["path"] = docxPath }, true, null, 20000); }
+                    catch (Exception e) { reply = new Dictionary<string, object> { ["ok"] = false, ["error"] = e.Message }; }
+                    long ms = t.ElapsedMilliseconds;
+                    Post(() =>
+                    {
+                        ApplyFileHeadings(s, dt, reply, ms);
+                        if (s.Text != null) BeginIndex(s, s.Text);
+                    });
+                });
+                return;
+            }
             if (s.IndexedKey == dt.Key || s.Indexing) return;
             s.Indexing = true;
+            s.IndexProgress = 0;
             Background(() =>
             {
                 try
                 {
                     var t0 = Stopwatch.StartNew();
-                    var reply = Ask(new Dictionary<string, object> { ["cmd"] = "index", ["doc"] = dt.Key }, dt, true);
+                    var reply = Ask(new Dictionary<string, object> { ["cmd"] = "index", ["doc"] = dt.Key }, dt, true,
+                                    f => s.IndexProgress = f);
                     bool ok = Ok(reply);
                     bool fromDisk = ok && reply.ContainsKey("cached") && reply["cached"] is bool b && b && !reply.ContainsKey("sent");
                     Post(() =>
@@ -416,8 +572,9 @@ namespace HebDocSearch.WordAddin
                         s.Indexing = false;
                         if (ok) s.IndexedKey = dt.Key;
                         else s.Error = reply.ContainsKey("error") ? Convert.ToString(reply["error"]) : "שגיאה";
-                        Log.Write($"index {dt.Texts.Count:N0} paragraphs ({dt.Headings} headings) in {t0.ElapsedMilliseconds}ms ok={ok}" +
-                                  (fromDisk ? " (search map was already on disk)" : ""));
+                        string how = fromDisk ? " (search map was already on disk)"
+                                   : reply.ContainsKey("normalized") ? $" (only {reply["normalized"]} changed paragraphs sent)" : "";
+                        Log.Write($"index {dt.Texts.Count:N0} paragraphs ({dt.Headings} headings) in {t0.ElapsedMilliseconds}ms ok={ok}{how}");
                         if (s.Text != null && s.Text.Key != s.IndexedKey && ok) BeginIndex(s, s.Text);
                     });
                 }
@@ -476,6 +633,7 @@ namespace HebDocSearch.WordAddin
             try
             {
                 int docEnd = s.Doc.Content.End;
+                scan.DocEnd = docEnd;
                 while (!done && sw.ElapsedMilliseconds < budgetMs)
                 {
                     if (scan.Phase < 2)
@@ -568,6 +726,7 @@ namespace HebDocSearch.WordAddin
             bool changed = !scan.Text.HasLevels || withLevels.Key != scan.Text.Key;
             if (s.Text == scan.Text) s.Text = withLevels;
             s.NeedsHeadings = false;
+            s.HeadingProgress = 1;
             if (full)
             {
                 s.NeedsVerify = false;
@@ -776,6 +935,8 @@ namespace HebDocSearch.WordAddin
                 s.NeedsRead = false;
             }
             if (s.Text.HasLevels && !s.NeedsHeadings) return true;
+            if (s.DocxPending && (DateTime.Now - s.DocxSince).TotalSeconds < 20) return false;   // עוד רגע – מהקובץ
+            s.DocxPending = false;
             s.NeedsHeadings = true;
             return HeadingSlice(s, budgetMs) && !s.NeedsHeadings;
         }
@@ -809,7 +970,7 @@ namespace HebDocSearch.WordAddin
                 {
                     DocText dt = known ?? (previous != null && previous.TextHash == DocText.Hash(raw) ? previous : DocText.Build(raw, previous));
                     var req = new Dictionary<string, object>(request) { ["cmd"] = "search", ["doc"] = dt.Key };
-                    var reply = Ask(req, dt, false);
+                    var reply = Ask(req, dt, false, null);
                     Post(() =>
                     {
                         if (_docs.Contains(s) && reuse == null)
@@ -831,14 +992,15 @@ namespace HebDocSearch.WordAddin
 
         static bool Ok(Dictionary<string, object> reply) => reply != null && reply.ContainsKey("ok") && (bool)reply["ok"];
 
-        Dictionary<string, object> Call(Dictionary<string, object> req, bool background)
+        Dictionary<string, object> Call(Dictionary<string, object> req, bool background, Action<double> progress = null, int timeoutMs = 60000)
         {
-            return _json.Deserialize<Dictionary<string, object>>(_helper.Call(_json.Serialize(req), 60000, background));
+            if (progress != null) req["progress"] = true;
+            return _json.Deserialize<Dictionary<string, object>>(_helper.Call(_json.Serialize(req), timeoutMs, background, progress));
         }
 
         /// <summary>שולח לרכיב העזר. הפסקאות נשלחות רק אם הוא לא מכיר את הטקסט הזה – לא מהזיכרון (גרסה
         /// קודמת באותה הפעלה) ולא מהדיסק (מפת חיפוש שנשמרה בפתיחה קודמת).</summary>
-        Dictionary<string, object> Ask(Dictionary<string, object> req, DocText dt, bool background)
+        Dictionary<string, object> Ask(Dictionary<string, object> req, DocText dt, bool background, Action<double> progress)
         {
             bool known;
             string sibling = null;
@@ -859,21 +1021,43 @@ namespace HebDocSearch.WordAddin
                     lock (_sent) _sent.Add(dt.Key);
                 }
             }
+            Dictionary<string, object> patched = null;
+            if (!known && dt.CanPatch)
+            {
+                // אחרי עריכה: רק הפסקאות שהשתנו (רכיב העזר לוקח את השאר מהגרסה הקודמת – בזיכרון או בדיסק)
+                patched = Call(new Dictionary<string, object>
+                {
+                    ["cmd"] = "patch", ["doc"] = dt.Key, ["text"] = dt.TextHash, ["base"] = dt.BaseTextHash,
+                    ["ops"] = dt.PatchOps(), ["levels"] = dt.LevelString(),
+                }, background, progress);
+                if (Ok(patched))
+                {
+                    known = true;
+                    lock (_sent)
+                    {
+                        _sent.RemoveWhere(k => k.StartsWith(dt.BaseTextHash + "/", StringComparison.Ordinal));   // שוחררו שם
+                        _sent.Add(dt.Key);
+                    }
+                }
+                else patched = null;
+            }
             if (!known)
             {
                 // אולי מפת החיפוש של הטקסט הזה כבר בדיסק: שולחים רק את טביעת האצבע ואת רמות הכותרות
                 req["text"] = dt.TextHash;
                 req["levels"] = dt.LevelString();
             }
-            var reply = Call(req, background);
+            var reply = Call(req, background, known ? null : progress);
             if (reply.ContainsKey("need_paras"))                  // לא מוכר לרכיב העזר (או שהופעל מחדש / פינה את המסמך)
             {
                 req["text"] = dt.TextHash;
                 req.Remove("levels");
                 req["paras"] = dt.Paras();
-                reply = Call(req, background);
+                reply = Call(req, background, progress);
                 reply["sent"] = true;
             }
+            if (patched != null && patched.ContainsKey("normalized") && !reply.ContainsKey("normalized"))
+                reply["normalized"] = patched["normalized"];
             if (Ok(reply)) lock (_sent) _sent.Add(dt.Key);
             return reply;
         }
@@ -948,6 +1132,8 @@ namespace HebDocSearch.WordAddin
         {
             _timer.Stop();
             _timer.Dispose();
+            Typing.Stop();
+            foreach (var s in _docs.ToArray()) Persist(s, true);
             _docs.Clear();
             try { _ui.Dispose(); } catch { }
         }

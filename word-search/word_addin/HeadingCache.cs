@@ -21,7 +21,8 @@ namespace HebDocSearch.WordAddin
     {
         const int Magic = 0x31535748;        // "HWS1"
         const int Version = 2;
-        const int KeepFiles = 300;
+        const int KeepFiles = 5000;                          // בכל מקרה – לא יותר מזה
+        static readonly TimeSpan MaxAge = TimeSpan.FromDays(3);   // מסמך שלא נפתח 3 ימים – נמחק (וייקרא שוב כשייפתח)
 
         public static string Dir
         {
@@ -117,16 +118,18 @@ namespace HebDocSearch.WordAddin
             }
         }
 
-        /// <summary>משאירים את KeepFiles המסמכים האחרונים שנעשה בהם שימוש.</summary>
-        static void Cleanup()
+        /// <summary>מוחק את מה שנשמר על מסמכים שלא נפתחו 3 ימים (בכל פתיחה הקובץ "נוגע" – Load).</summary>
+        public static void Cleanup()
         {
             try
             {
+                if (!Directory.Exists(Dir)) return;
                 var files = new DirectoryInfo(Dir).GetFiles("*.hws");
-                if (files.Length <= KeepFiles) return;
                 Array.Sort(files, (a, b) => b.LastWriteTimeUtc.CompareTo(a.LastWriteTimeUtc));
-                for (int i = KeepFiles; i < files.Length; i++)
-                    try { files[i].Delete(); } catch { }
+                DateTime oldest = DateTime.UtcNow - MaxAge;
+                for (int i = 0; i < files.Length; i++)
+                    if (i >= KeepFiles || files[i].LastWriteTimeUtc < oldest)
+                        try { files[i].Delete(); } catch { }
                 foreach (var stale in new DirectoryInfo(Dir).GetFiles("*.tmp"))
                     if (stale.LastWriteTimeUtc < DateTime.UtcNow.AddHours(-1))
                         try { stale.Delete(); } catch { }

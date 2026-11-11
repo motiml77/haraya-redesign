@@ -38,6 +38,12 @@ _DROP = ("Qt6Qml", "Qt6Quick", "VirtualKeyboard", "Qt6EglFS", "Qt6EglFs", "qtvir
          "platforminputcontexts", "/qml/", "QtQuick", "networkinformation", "/tls/")
 
 
+# קבצים של PyMuPDF שהתוכנה לא צריכה: קבצי פיתוח ב-C (כותרות ו-‎.lib) ומודלים של בינה מלאכותית לניתוח
+# עימוד (pymupdf.layout, ‎.onnx). גרסה 2026.10 של pyinstaller-hooks-contrib התחילה לאסוף אותם, וההתקנה
+# לחלונות גדלה מ-48MB ל-87MB.
+_DROP += ("pymupdf/mupdf-devel/", "pymupdf/layout/", "pymupdf/py.typed", "onnxruntime")
+
+
 def _keep(entry):
     name = entry[0].replace("\\", "/")
     return not any(d in name for d in _DROP)
@@ -46,6 +52,11 @@ def _keep(entry):
 a.binaries = [b for b in a.binaries if _keep(b)]
 a.datas = [d for d in a.datas if _keep(d) and "/translations/" not in d[0].replace("\\", "/")
            or d[0].replace("\\", "/").endswith(("_he.qm", "_en.qm"))]
+# שמירה מפני חזרה של הבעיה: אם קבצים כאלה נכנסו בכל זאת – הבנייה נכשלת (ולא מתגלה רק בגודל ההתקנה)
+_leaked = [d[0] for d in a.datas + a.binaries
+           if any(x in d[0].replace("\\", "/") for x in ("mupdf-devel/", "/layout/resources/", ".onnx"))]
+if _leaked:
+    raise SystemExit("unneeded PyMuPDF files would be bundled: " + ", ".join(_leaked[:5]))
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz,

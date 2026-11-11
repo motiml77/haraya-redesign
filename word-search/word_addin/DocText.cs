@@ -33,6 +33,10 @@ namespace HebDocSearch.WordAddin
         // שלהן צריך לבדוק במסמך. ריק – הכל ידוע.
         public readonly int[] Changed;
         public readonly ulong[] ParaHashes;         // טביעת אצבע של כל פסקה – להשוואה לגרסה קודמת (גם מהדיסק)
+        // הגרסה הקודמת שממנה נבנתה הזו: הטביעה של הטקסט שלה, ולכל פסקה כאן – מספר הפסקה שם (או ‎-1 לחדשה).
+        // כך אפשר לשלוח לרכיב העזר רק את הפסקאות שהשתנו.
+        public readonly string BaseTextHash;
+        public readonly int[] Source;
 
         // הפרש שנלמד בין המיקום המשוער למיקום האמיתי (פסקה → הפרש). נלמד בתהליך הראשי, ונקרא גם
         // ב-Build של הגרסה הבאה (בתהליך נפרד) – לכן כל גישה בנעילה.
@@ -44,9 +48,11 @@ namespace HebDocSearch.WordAddin
         const int IndexedLength = 400;
 
         DocText(string hash, List<string> texts, List<int> starts, int[] levels, bool hasLevels, Dictionary<string, List<int>> byText,
-                ulong[] paraHashes, int[] changed = null)
+                ulong[] paraHashes, int[] changed = null, string baseTextHash = null, int[] source = null)
         {
             ParaHashes = paraHashes;
+            BaseTextHash = baseTextHash;
+            Source = source;
             TextHash = hash;
             Texts = texts;
             Starts = starts;
@@ -186,7 +192,16 @@ namespace HebDocSearch.WordAddin
                 if (!byText.TryGetValue(key, out var list)) byText[key] = list = new List<int>(1);
                 list.Add(i);
             }
-            var dt = new DocText(Hash(raw), texts, starts, levels, hasLevels, byText, hashes, changed);
+            int[] source = null;
+            if (fromPrevious != null)
+            {
+                source = new int[texts.Count];
+                for (int i = 0; i < source.Length; i++) source[i] = -1;
+                for (int j = 0; j < fromPrevious.Length; j++)
+                    if (fromPrevious[j] >= 0) source[fromPrevious[j]] = j;
+            }
+            var dt = new DocText(Hash(raw), texts, starts, levels, hasLevels, byText, hashes, changed,
+                                 previous != null ? previous.TextHash : null, source);
             if (fromPrevious != null && previous.DriftKeys != null)
                 for (int k = 0; k < previous.DriftKeys.Length; k++)      // ההפרש במיקום (שדות וכו') נשאר בפסקאות שלא זזו
                 {
@@ -198,7 +213,7 @@ namespace HebDocSearch.WordAddin
 
         public DocText WithLevels(int[] levels)
         {
-            var copy = new DocText(TextHash, Texts, Starts, levels, true, _byText, ParaHashes);
+            var copy = new DocText(TextHash, Texts, Starts, levels, true, _byText, ParaHashes, null, BaseTextHash, Source);
             lock (_drift)
                 foreach (var kv in _drift) copy._drift[kv.Key] = kv.Value;
             return copy;
@@ -215,6 +230,62 @@ namespace HebDocSearch.WordAddin
             var chars = new char[Levels.Length];
             for (int i = 0; i < chars.Length; i++) chars[i] = (char)('0' + (Levels[i] > 0 && Levels[i] < 10 ? Levels[i] : 0));
             return new string(chars);
+        }
+
+        /// <summary>האם כדאי לשלוח לרכיב העזר רק את השינויים מהגרסה הקודמת (ולא את כל הפסקאות).</summary>
+        public bool CanPatch => Source != null && BaseTextHash != null && BaseTextHash != TextHash;
+
+        /// <summary>הגרסה הזו כשינויים מהגרסה הקודמת: [התחלה, כמה] = פסקאות רצופות משם, מחרוזת = פסקה חדשה.</summary>
+        public List<object> PatchOps()
+        {
+            var ops = new List<object>();
+            int n = Texts.Count, i = 0;
+            while (i < n)
+            {
+                if (Source[i] < 0) { ops.Add(Texts[i]); i++; continue; }
+                int start = Source[i], k = 1;
+                while (i + k < n && Source[i + k] == start + k) k++;
+                ops.Add(new[] { start, k });
+                i += k;
+            }
+            return ops;
+        }
+
+        /// <summary>הכותרות שנקראו מקובץ ה-docx (טקסט, רמה, מקום משוער ברשימת הפסקאות) → רמה לכל פסקה כאן.
+        /// כל כותרת הולכת לפסקה עם אותו טקסט שאחרי הקודמת, והקרובה ביותר למקום המשוער (ההפרש בין המקום
+        /// המשוער לאמיתי נלמד תוך כדי). unmatched – כמה כותרות לא נמצאו (ייבדקו ב-Word).</summary>
+        public int[] MatchFileHeadings(IList<object[]> headings, out int unmatched)
+        {
+            var levels = new int[Texts.Count];
+            unmatched = 0;
+            int last = -1, offset = 0;
+            foreach (object[] h in headings)
+            {
+                string text = Convert.ToString(h[0]);
+                int level = Convert.ToInt32(h[1]), est = Convert.ToInt32(h[2]);
+                string want = Norm(text);
+                if (want.Length == 0 || level < 1 || level > 9) continue;
+                int best = -1;
+                if (_byText != null && _byText.TryGetValue(want, out var list))
+                {
+                    long bestDistance = long.MaxValue;
+                    int target = est + offset;
+                    foreach (int c in list)
+                    {
+                        if (c <= last) continue;
+                        long d = Math.Abs((long)c - target);
+                        if (d < bestDistance) { bestDistance = d; best = c; }
+                        else if (c > target) break;                 // הרשימה ממוינת – רק מתרחקים
+                    }
+                }
+                else if (text.Length > IndexedLength)
+                    best = MatchParagraph(text, last + 1);
+                if (best < 0) { unmatched++; continue; }
+                levels[best] = level;
+                offset = best - est;
+                last = best;
+            }
+            return levels;
         }
 
         public List<Dictionary<string, object>> Paras()

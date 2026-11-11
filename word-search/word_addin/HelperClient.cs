@@ -71,8 +71,9 @@ namespace HebDocSearch.WordAddin
         }
 
         /// <summary>שולח בקשה ומחזיר את התשובה. אם התהליך נפל – מפעיל מחדש ומנסה פעם נוספת.
-        /// background – עבודת הכנה שאף אחד לא מחכה לה.</summary>
-        public string Call(string json, int timeoutMs = 60000, bool background = false)
+        /// background – עבודת הכנה שאף אחד לא מחכה לה. progress – שורות ההתקדמות שרכיב העזר שולח לפני
+        /// התשובה (בבקשה עם "progress": true); timeoutMs חל על כל שורה.</summary>
+        public string Call(string json, int timeoutMs = 60000, bool background = false, Action<double> progress = null)
         {
             if (!background) SetPriority(false);        // גם אם בקשת רקע רצה עכשיו – שתסתיים מהר, מחכים לה
             lock (_lock)
@@ -84,10 +85,18 @@ namespace HebDocSearch.WordAddin
                         if (_proc == null || _proc.HasExited) Start();
                         SetPriority(background);
                         _in.WriteLine(json);
-                        Task<string> line = _out.ReadLineAsync();
-                        if (!line.Wait(timeoutMs)) throw new TimeoutException("רכיב החיפוש לא ענה בזמן");
-                        if (line.Result == null) throw new IOException("רכיב החיפוש נסגר");
-                        return line.Result;
+                        while (true)
+                        {
+                            Task<string> line = _out.ReadLineAsync();
+                            if (!line.Wait(timeoutMs)) throw new TimeoutException("רכיב החיפוש לא ענה בזמן");
+                            string text = line.Result;
+                            if (text == null) throw new IOException("רכיב החיפוש נסגר");
+                            if (!text.StartsWith("{\"progress\":", StringComparison.Ordinal)) return text;
+                            if (progress != null &&
+                                double.TryParse(text.Substring(12).TrimEnd('}', ' '), System.Globalization.NumberStyles.Float,
+                                                System.Globalization.CultureInfo.InvariantCulture, out double frac))
+                                try { progress(frac); } catch { }
+                        }
                     }
                     catch (Exception) when (attempt == 0)
                     {
@@ -108,7 +117,8 @@ namespace HebDocSearch.WordAddin
             lock (_lock)
             {
                 try { _in?.WriteLine("{\"cmd\": \"quit\"}"); } catch { }
-                try { if (_proc != null && !_proc.WaitForExit(800)) _proc.Kill(); } catch { }
+                // שמירה בדיסק של מסמכים שנסגרו עכשיו עוד רצה – נותנים לה רגע לפני שסוגרים בכוח
+                try { if (_proc != null && !_proc.WaitForExit(2500)) _proc.Kill(); } catch { }
                 _proc = null;
             }
         }
