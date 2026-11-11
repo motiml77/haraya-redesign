@@ -145,7 +145,7 @@ namespace HebDocSearch.WordAddin
             struct MINMAXINFO { public POINT ptReserved, ptMaxSize, ptMaxPosition, ptMinTrackSize, ptMaxTrackSize; }
         }
 
-        /// <summary>"הצג בחלון נפרד": החלון עם כ-70 מילים סביב תוצאה (מפסקה ארוכה וקצרות סביבה).</summary>
+        /// <summary>"הצג בחלון נפרד": החלון עם כ-80 מילים סביב תוצאה (מפסקה ארוכה וקצרות סביבה).</summary>
         static void RenderWindow(string name, Theme theme, float scale)
         {
             var texts = new List<string>
@@ -157,7 +157,7 @@ namespace HebDocSearch.WordAddin
             };
             string p = texts[2];
             int a = p.IndexOf("קלתה");
-            var ex = Excerpt.Build(texts, 2, new List<int[]> { new[] { a, a + 4 } }, 35, 35);
+            var ex = Excerpt.Build(texts, 2, new List<int[]> { new[] { a, a + 4 } }, 40, 40);
             Metrics.Override = scale;
             using (var win = new ContextWindow(theme, scale, 3, new[] { "פרק ג – כתובות", "דת יהודית" }, ex, () => { }))
             {

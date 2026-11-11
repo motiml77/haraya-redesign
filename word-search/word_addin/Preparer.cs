@@ -196,7 +196,7 @@ namespace HebDocSearch.WordAddin
                 return "מכין את המסמך לחיפוש…";
             int percent = Percent(s);
             if (percent < 100) return $"מכין את המסמך לחיפוש… {percent}%";
-            string counts = Words.Paragraphs(s.Text.Texts.Count);
+            string counts = Words.Paragraphs(s.Text.MainCount) + (s.Text.NoteCount > 0 ? " · " + Words.Notes(s.Text.NoteCount) : "");
             return "המסמך מוכן לחיפוש · " + counts + " · " + Words.Headings(s.Text.Headings);
         }
 
@@ -217,7 +217,7 @@ namespace HebDocSearch.WordAddin
         static double ScanProgress(HeadingScan scan)
         {
             if (scan.Verify) return 1;
-            if (scan.Phase == 0) return Math.Min(1, (double)scan.Visited / Math.Max(1, scan.Text.Texts.Count));
+            if (scan.Phase == 0) return Math.Min(1, (double)scan.Visited / Math.Max(1, scan.Text.MainCount));
             return scan.Changed == null || scan.Changed.Length == 0 ? 1 : (double)scan.OutlineIndex / scan.Changed.Length;
         }
 
@@ -277,16 +277,61 @@ namespace HebDocSearch.WordAddin
             catch { return false; }
         }
 
-        string ReadText(DocState s)
+        /// <summary>הטקסט של המסמך כפי שנקרא: גוף המסמך, והערות השוליים והסיום.</summary>
+        internal sealed class RawText
+        {
+            public string Main;
+            public DocNotes Notes;
+            public string Hash => DocText.Hash(Main, Notes);
+        }
+
+        RawText ReadText(DocState s)
         {
             var sw = Stopwatch.StartNew();
-            string raw = s.Doc.Content.Text;           // הקריאה היחידה של הטקסט מ-Word
+            string raw = s.Doc.Content.Text;           // קריאה אחת של כל גוף המסמך
+            DocNotes notes = ReadNotes(s.Doc, raw);    // ועוד קריאה אחת לכל סוג הערות (אם יש)
             s.ReadEnd = s.Doc.Content.End;
             s.ReadSaved = s.Doc.Saved;
             s.SelChanged = false;
             s.SaveEvent = false;
-            Log.Write($"read {raw.Length:N0} chars in {sw.ElapsedMilliseconds}ms");
-            return raw;
+            Log.Write($"read {raw.Length:N0} chars" +
+                      (notes.Empty ? "" : $" + {notes.FootCount:N0} footnotes ({notes.Footnotes.Length:N0} chars), {notes.EndCount:N0} endnotes ({notes.Endnotes.Length:N0} chars)" +
+                                          (notes.FootRefs == null && notes.EndRefs == null ? ", reference places unknown" : "")) +
+                      $" in {sw.ElapsedMilliseconds}ms");
+            return new RawText { Main = raw, Notes = notes };
+        }
+
+        /// <summary>הערות השוליים והסיום: הטקסט של כל סוג בקריאה אחת (StoryRanges), ומקום סימן ההפניה של כל
+        /// הערה – מהתו ‎\u0002‎ בטקסט הגוף כשיש רק סוג אחד של הערות (בלי שום קריאה נוספת), אחרת מ-Word.</summary>
+        static DocNotes ReadNotes(Word.Document doc, string raw)
+        {
+            var n = new DocNotes();
+            try
+            {
+                n.FootCount = doc.Footnotes.Count;
+                n.EndCount = doc.Endnotes.Count;
+                if (n.FootCount == 0 && n.EndCount == 0) return n;
+                if (n.FootCount > 0) n.Footnotes = doc.StoryRanges[Word.WdStoryType.wdFootnotesStory].Text ?? "";
+                if (n.EndCount > 0) n.Endnotes = doc.StoryRanges[Word.WdStoryType.wdEndnotesStory].Text ?? "";
+                var marks = new List<int>();
+                for (int i = 0; i < raw.Length; i++) if (raw[i] == '\u0002') marks.Add(i);
+                if (n.EndCount == 0 && marks.Count == n.FootCount) { n.FootRefs = marks.ToArray(); n.RefsAreRaw = true; }
+                else if (n.FootCount == 0 && marks.Count == n.EndCount) { n.EndRefs = marks.ToArray(); n.RefsAreRaw = true; }
+                else if (n.FootCount + n.EndCount <= 3000)
+                {
+                    // שני הסוגים יחד (או סימנים מיוחדים): המקום של כל הפניה מ-Word – קריאה קצרה לכל הערה
+                    n.FootRefs = new int[n.FootCount];
+                    for (int i = 0; i < n.FootCount; i++) n.FootRefs[i] = doc.Footnotes[i + 1].Reference.Start;
+                    n.EndRefs = new int[n.EndCount];
+                    for (int i = 0; i < n.EndCount; i++) n.EndRefs[i] = doc.Endnotes[i + 1].Reference.Start;
+                }
+            }
+            catch (COMException e)
+            {
+                Log.Write("notes: " + e.Message);
+                n.FootRefs = n.EndRefs = null;
+            }
+            return n;
         }
 
         /// <summary>המסמך נקרא מחדש כי ייתכן שהשתנה: גם אם הטקסט זהה, אולי סגנון של פסקה השתנה.</summary>
@@ -388,7 +433,7 @@ namespace HebDocSearch.WordAddin
         void BeginRead(DocState s)
         {
             if (Fresh(s)) { s.NeedsRead = false; return; }
-            string raw = ReadText(s);
+            RawText raw = ReadText(s);
             DocText previous = s.Text;
             if (previous != null) Reread(s);
             string path = null;
@@ -406,19 +451,19 @@ namespace HebDocSearch.WordAddin
                     CacheEntry cached = null;
                     bool trusted = false;
                     if (previous != null)
-                        dt = previous.TextHash == DocText.Hash(raw) ? previous : DocText.Build(raw, previous);
+                        dt = previous.TextHash == raw.Hash ? previous : DocText.Build(raw.Main, previous, raw.Notes);
                     else
                     {
                         // פתיחה: מה שנשמר בדיסק מהפעם הקודמת שהמסמך הזה היה פתוח
                         cached = s.Path != null ? HeadingCache.Load(s.Path) : null;
                         if (cached != null)
                         {
-                            dt = DocText.Build(raw, cached.Snap);
+                            dt = DocText.Build(raw.Main, cached.Snap, raw.Notes);
                             trusted = cached.Verified && saved && dt.TextHash == cached.Snap.TextHash
                                       && HeadingCache.FileStamp(s.Path, out long ticks, out long size)
                                       && ticks == cached.FileTicks && size == cached.FileSize;
                         }
-                        else dt = DocText.Build(raw);
+                        else dt = DocText.Build(raw.Main, (DocText)null, raw.Notes);
                     }
                     Post(() =>
                     {
@@ -501,7 +546,7 @@ namespace HebDocSearch.WordAddin
                 if (h is System.Collections.IList x && x.Count >= 3) headings.Add(new[] { x[0], x[1], x[2] });
             int[] levels = s.Text.MatchFileHeadings(headings, out int unmatched);
             int fileParas = reply.ContainsKey("paras") ? Convert.ToInt32(reply["paras"]) : -1;
-            bool exact = unmatched == 0 && fileParas == s.Text.Texts.Count;
+            bool exact = unmatched == 0 && fileParas == s.Text.MainCount;
             s.Scan = null;
             s.Text = s.Text.WithLevels(levels);
             s.NeedsHeadings = false;
@@ -511,7 +556,7 @@ namespace HebDocSearch.WordAddin
             s.Unverified = !exact;
             if (exact) s.LastFullScan = DateTime.Now;
             Log.Write($"headings from file: {s.Text.Headings} of {headings.Count} matched ({unmatched} not matched; " +
-                      $"{fileParas:N0} paragraphs in the file, {s.Text.Texts.Count:N0} in Word) in {ms}ms – " +
+                      $"{fileParas:N0} paragraphs in the file, {s.Text.MainCount:N0} in Word) in {ms}ms – " +
                       (exact ? "no Word work needed" : "checking in Word in the background"));
             BeginIndex(s, s.Text);
             SaveCache(s);
@@ -805,9 +850,9 @@ namespace HebDocSearch.WordAddin
             if (s.Text == null || !Fresh(s))
             {
                 DocText previous = s.Text;
-                string raw = ReadText(s);
+                RawText raw = ReadText(s);
                 if (previous != null) Reread(s);
-                DocText dt = previous != null && previous.TextHash == DocText.Hash(raw) ? previous : DocText.Build(raw, previous);
+                DocText dt = previous != null && previous.TextHash == raw.Hash ? previous : DocText.Build(raw.Main, previous, raw.Notes);
                 Adopt(s, dt, previous);
                 s.NeedsRead = false;
             }
@@ -836,7 +881,7 @@ namespace HebDocSearch.WordAddin
         {
             var s = StateOf(doc);
             DocText previous = s.Text;
-            string raw = null;
+            RawText raw = null;
             if (reuse == null) raw = FocusGuard.Run(() => Fresh(s) ? null : ReadText(s));
             if (raw != null && previous != null) Reread(s);
             DocText known = reuse ?? (raw == null ? previous : null);
@@ -845,7 +890,7 @@ namespace HebDocSearch.WordAddin
             {
                 try
                 {
-                    DocText dt = known ?? (previous != null && previous.TextHash == DocText.Hash(raw) ? previous : DocText.Build(raw, previous));
+                    DocText dt = known ?? (previous != null && previous.TextHash == raw.Hash ? previous : DocText.Build(raw.Main, previous, raw.Notes));
                     var req = new Dictionary<string, object>(request) { ["cmd"] = "search", ["doc"] = dt.Key };
                     var reply = Ask(req, dt, false, null);
                     Post(() =>

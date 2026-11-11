@@ -274,7 +274,18 @@ namespace HebDocSearch.WordAddin
                     item.Path = new[] { Convert.ToString(h["heading"]) };
                 foreach (IList seg in (IList)h["snippet"])
                     item.Snippet.Add(new Seg { Text = Convert.ToString(seg[0]), Kind = Convert.ToInt32(seg[1]) });
+                // תוצאה בהערת שוליים/סיום: הכותרות שמעל סימן ההפניה, ואחריהן "הערה N"
+                if (text != null && text.IsNote(item.Para)) item.Path = text.NotePath(item.Para);
                 _items.Add(item);
+            }
+            if (text != null && text.NoteCount > 0 && !headings)
+            {
+                // תוצאות בהערות – במקומן בסדר המסמך (אחרי הפסקה שמפנה אליהן), ולא כולן בסוף
+                var ordered = new List<ResultItem>(_items);
+                ordered.Sort((x, y) => x.Covered != y.Covered ? y.Covered.CompareTo(x.Covered)
+                                                             : text.OrderOf(x.Para).CompareTo(text.OrderOf(y.Para)));
+                for (int k = 0; k < ordered.Count; k++) ordered[k].Number = k + 1;
+                _items = ordered;
             }
 
             if (_items.Count == 0)
@@ -349,7 +360,7 @@ namespace HebDocSearch.WordAddin
         }
 
         // ================================================================ הצג בחלון נפרד (ניסיוני)
-        /// <summary>חלון קטן עם כ-70 מילים סביב התוצאה (35 לפני, 35 אחרי). לא מזיז את הסמן במסמך;
+        /// <summary>חלון קטן עם כ-80 מילים סביב התוצאה (40 לפני, 40 אחרי). לא מזיז את הסמן במסמך;
         /// "עבור למקום במסמך" בחלון – כמו לחיצה על התוצאה.</summary>
         void PopOut(int i)
         {
@@ -357,7 +368,7 @@ namespace HebDocSearch.WordAddin
             var hit = _items[i];
             try
             {
-                var excerpt = _searched.Around(hit.Para, hit.Ranges, 35, 35);
+                var excerpt = _searched.Around(hit.Para, hit.Ranges, 40, 40);
                 if (excerpt == null) return;
                 float scale = _view.CurrentMetrics?.Scale ?? Assets.SystemScale;
                 var win = new ContextWindow(_view.CurrentTheme, scale, hit.Number, hit.Path, excerpt, () => Go(i));

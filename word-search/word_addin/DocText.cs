@@ -2,6 +2,10 @@
 // אחר פסקה: כל קריאה כזו רצה על התהליך הראשי של Word ומאטה אותו).
 // החלוקה, טביעת האצבע ובניית הבקשה לרכיב העזר רצות על תהליך נפרד – אין בהן גישה ל-Word.
 //
+// הערות שוליים והערות סיום: הטקסט שלהן נקרא גם הוא בקריאה אחת לכל סוג (StoryRanges), והפסקאות שלהן באות
+// אחרי פסקאות גוף המסמך (MainCount). לכל פסקת הערה – הסוג (Story), מספר ההערה ופסקת הגוף שבה נמצא
+// סימן ההפניה שלה (לשרשרת הכותרות של התוצאה: "פרק ג ‹ דת יהודית ‹ הערה 12"). הערות אף פעם אינן כותרות.
+//
 // המיקום של פסקה במסמך הוא הערכה: Content.Text מחזיר לתא בטבלה "\r\a" (שני תווים) בעוד שבמסמך
 // זה מקום אחד, ושדות/תמונות מוסיפים מקומות שאינם בטקסט. לכן כשקופצים לתוצאה בודקים שהטקסט
 // במקום המשוער הוא הטקסט שחיפשנו, ואם לא – מוצאים אותו בעזרת Find של Word, ולומדים את ההפרש.
@@ -21,6 +25,18 @@ namespace HebDocSearch.WordAddin
         public int[] DriftKeys, DriftValues;
     }
 
+    /// <summary>הערות השוליים והסיום של המסמך, כפי שנקראו מ-Word (קריאה אחת לכל סוג).</summary>
+    internal sealed class DocNotes
+    {
+        public string Footnotes = "", Endnotes = "";
+        public int FootCount, EndCount;
+        // מקום סימן ההפניה של כל הערה בגוף המסמך (לפי הסדר); RefsAreRaw – מקומות בטקסט שנקרא (תו ‎\u0002‎),
+        // אחרת – מקומות במסמך. null אם לא ידוע.
+        public int[] FootRefs, EndRefs;
+        public bool RefsAreRaw;
+        public bool Empty => Footnotes.Length == 0 && Endnotes.Length == 0;
+    }
+
     internal sealed class DocText
     {
         public readonly string TextHash;            // אורך + FNV-1a של כל הטקסט
@@ -38,6 +54,13 @@ namespace HebDocSearch.WordAddin
         public readonly string BaseTextHash;
         public readonly int[] Source;
 
+        public readonly int MainCount;              // פסקאות גוף המסמך; אחריהן – פסקאות ההערות
+        readonly byte[] _story;                     // לכל פסקת הערה: 1 הערת שוליים, 2 הערת סיום (null – אין הערות)
+        readonly int[] _note;                       // מספר ההערה (0 – לא ידוע)
+        readonly int[] _noteRef;                    // פסקת הגוף שבה סימן ההפניה (‎-1 – לא ידוע)
+        public readonly int NoteCount;
+        string[][] _paths;                          // שרשרת הכותרות של כל פסקת גוף (מחושבת כשצריך)
+
         // הפרש שנלמד בין המיקום המשוער למיקום האמיתי (פסקה → הפרש). נלמד בתהליך הראשי, ונקרא גם
         // ב-Build של הגרסה הבאה (בתהליך נפרד) – לכן כל גישה בנעילה.
         readonly SortedList<int, int> _drift = new SortedList<int, int>();
@@ -48,8 +71,14 @@ namespace HebDocSearch.WordAddin
         const int IndexedLength = 400;
 
         DocText(string hash, List<string> texts, List<int> starts, int[] levels, bool hasLevels, Dictionary<string, List<int>> byText,
-                ulong[] paraHashes, int[] changed = null, string baseTextHash = null, int[] source = null)
+                ulong[] paraHashes, int[] changed = null, string baseTextHash = null, int[] source = null,
+                int mainCount = -1, byte[] story = null, int[] note = null, int[] noteRef = null, int noteCount = 0)
         {
+            MainCount = mainCount < 0 ? texts.Count : mainCount;
+            _story = story;
+            _note = note;
+            _noteRef = noteRef;
+            NoteCount = noteCount;
             ParaHashes = paraHashes;
             BaseTextHash = baseTextHash;
             Source = source;
@@ -64,9 +93,11 @@ namespace HebDocSearch.WordAddin
         }
 
         // ================================================================ בנייה (בלי Word)
-        public static string Hash(string raw)
+        public static string Hash(string raw, DocNotes notes = null)
         {
-            return raw.Length + ":" + Fnv(raw);
+            string h = raw.Length + ":" + Fnv(raw);
+            if (notes != null && !notes.Empty) h += "n" + Fnv(notes.Footnotes + "\u0001" + notes.Endnotes);
+            return h;
         }
 
         static string Fnv(string s) => Fnv64(s).ToString("x16");
@@ -91,9 +122,9 @@ namespace HebDocSearch.WordAddin
 
         /// <summary>מחלק את הטקסט לפסקאות. previous – גרסה קודמת של אותו מסמך: לפסקאות שהטקסט שלהן זהה
         /// (לפי הסדר) עוברות רמת הכותרת וההפרש שנלמד במיקום; את השאר (Changed) צריך לבדוק במסמך.</summary>
-        public static DocText Build(string raw, DocText previous = null)
+        public static DocText Build(string raw, DocText previous = null, DocNotes notes = null)
         {
-            return Build(raw, previous != null && previous.HasLevels ? previous.Snapshot() : null);
+            return Build(raw, previous != null && previous.HasLevels ? previous.Snapshot() : null, notes);
         }
 
         /// <summary>מה שצריך מגרסה קודמת כדי לא לקרוא את הכותרות מחדש (נשמר גם בדיסק, בלי הטקסט עצמו).</summary>
@@ -114,13 +145,12 @@ namespace HebDocSearch.WordAddin
             return snap;
         }
 
-        public static DocText Build(string raw, DocSnapshot previous)
+        /// <summary>מחלק טקסט של Word לפסקאות (texts/starts); rawStarts – המקום של כל פסקה בטקסט עצמו.
+        /// marks – לכל פסקה: האם היא מתחילה בסימן הערה (‎\u0002‎).</summary>
+        static void Split(string raw, List<string> texts, List<int> starts, List<int> rawStarts, List<bool> marks)
         {
-            raw = raw ?? "";
-            var texts = new List<string>();
-            var starts = new List<int>();
             var sb = new StringBuilder();
-            int bells = 0, paraStart = 0;
+            int bells = 0, paraStart = 0, rawStart = 0;
             for (int i = 0; i < raw.Length; i++)
             {
                 char c = raw[i];
@@ -128,9 +158,12 @@ namespace HebDocSearch.WordAddin
                 {
                     texts.Add(sb.ToString());
                     starts.Add(paraStart);
+                    rawStarts?.Add(rawStart);
+                    marks?.Add(rawStart < raw.Length && raw[rawStart] == '\u0002');
                     sb.Clear();
                     if (i + 1 < raw.Length && raw[i + 1] == '\a') { i++; bells++; }    // סוף תא / שורה בטבלה
                     paraStart = i + 1 - bells;
+                    rawStart = i + 1;
                     continue;
                 }
                 // תווים מיוחדים של Word מוחלפים באורך זהה, כדי שהמיקומים בתוך הפסקה לא יזוזו
@@ -147,10 +180,85 @@ namespace HebDocSearch.WordAddin
             {
                 texts.Add(sb.ToString());
                 starts.Add(paraStart);
+                rawStarts?.Add(rawStart);
+                marks?.Add(rawStart < raw.Length && raw[rawStart] == '\u0002');
+            }
+        }
+
+        static int ParaAt(List<int> starts, int count, int pos)
+        {
+            int lo = 0, hi = count - 1, best = -1;
+            while (lo <= hi)
+            {
+                int mid = (lo + hi) / 2;
+                if (starts[mid] <= pos) { best = mid; lo = mid + 1; }
+                else hi = mid - 1;
+            }
+            return best;
+        }
+
+        public static DocText Build(string raw, DocSnapshot previous, DocNotes notes = null)
+        {
+            raw = raw ?? "";
+            var texts = new List<string>();
+            var starts = new List<int>();
+            var rawStarts = new List<int>();
+            Split(raw, texts, starts, rawStarts, null);
+            int mainCount = texts.Count;
+
+            // הערות: הפסקאות שלהן אחרי הגוף, עם הסוג, מספר ההערה ופסקת ההפניה
+            byte[] story = null;
+            int[] note = null, noteRef = null;
+            int noteCount = 0;
+            if (notes != null && !notes.Empty)
+            {
+                var storyList = new List<byte>();
+                var noteList = new List<int>();
+                var refList = new List<int>();
+                foreach (int kind in new[] { 1, 2 })
+                {
+                    string storyText = kind == 1 ? notes.Footnotes : notes.Endnotes;
+                    if (string.IsNullOrEmpty(storyText)) continue;
+                    int expected = kind == 1 ? notes.FootCount : notes.EndCount;
+                    int[] refs = kind == 1 ? notes.FootRefs : notes.EndRefs;
+                    var nt = new List<string>();
+                    var ns = new List<int>();
+                    var nm = new List<bool>();
+                    Split(storyText, nt, ns, null, nm);
+                    int startsWithMark = 0;
+                    foreach (bool m in nm) if (m) startsWithMark++;
+                    bool numbered = startsWithMark == expected && expected > 0;    // סימנים אוטומטיים – אפשר למספר
+                    int k = 0;
+                    for (int i = 0; i < nt.Count; i++)
+                    {
+                        if (numbered && nm[i]) k++;
+                        texts.Add(nt[i]);
+                        starts.Add(ns[i]);
+                        storyList.Add((byte)kind);
+                        int number = numbered ? Math.Max(1, k) : 0;
+                        noteList.Add(number);
+                        int refPara = -1;
+                        if (number > 0 && refs != null && number <= refs.Length)
+                            refPara = ParaAt(notes.RefsAreRaw ? rawStarts : starts, mainCount, refs[number - 1]);
+                        refList.Add(refPara);
+                    }
+                    noteCount += expected;
+                }
+                story = new byte[texts.Count];
+                note = new int[texts.Count];
+                noteRef = new int[texts.Count];
+                for (int i = mainCount; i < texts.Count; i++)
+                {
+                    story[i] = storyList[i - mainCount];
+                    note[i] = noteList[i - mainCount];
+                    noteRef[i] = refList[i - mainCount];
+                }
+                for (int i = 0; i < mainCount; i++) noteRef[i] = -1;
             }
 
             var hashes = new ulong[texts.Count];
-            for (int i = 0; i < hashes.Length; i++) hashes[i] = Fnv64(texts[i]);
+            for (int i = 0; i < hashes.Length; i++)
+                hashes[i] = Fnv64(texts[i]) ^ (story == null ? 0UL : story[i] * 0x9E3779B97F4A7C15UL);   // הערה ≠ פסקת גוף זהה
 
             var levels = new int[texts.Count];
             bool hasLevels = false;
@@ -174,17 +282,17 @@ namespace HebDocSearch.WordAddin
                     if (first.TryGetValue(hashes[i], out int j) && j >= 0)
                     {
                         first[hashes[i]] = next[j];
-                        levels[i] = previous.Levels[j] < 10 ? previous.Levels[j] : 0;
+                        levels[i] = i < mainCount && previous.Levels[j] < 10 ? previous.Levels[j] : 0;
                         fromPrevious[j] = i;
                     }
-                    else if (!string.IsNullOrWhiteSpace(texts[i]))
-                        news.Add(i);                    // פסקה חדשה או שנערכה – אולי כותרת
+                    else if (i < mainCount && !string.IsNullOrWhiteSpace(texts[i]))
+                        news.Add(i);                    // פסקה חדשה או שנערכה – אולי כותרת (הערות – אף פעם לא)
                 }
                 changed = news.ToArray();
                 hasLevels = true;
             }
             var byText = new Dictionary<string, List<int>>();
-            for (int i = 0; i < texts.Count; i++)
+            for (int i = 0; i < mainCount; i++)                     // רק גוף המסמך (להתאמת כותרות)
             {
                 if (texts[i].Length > IndexedLength) continue;
                 string key = Norm(texts[i]);
@@ -200,8 +308,8 @@ namespace HebDocSearch.WordAddin
                 for (int j = 0; j < fromPrevious.Length; j++)
                     if (fromPrevious[j] >= 0) source[fromPrevious[j]] = j;
             }
-            var dt = new DocText(Hash(raw), texts, starts, levels, hasLevels, byText, hashes, changed,
-                                 previous != null ? previous.TextHash : null, source);
+            var dt = new DocText(Hash(raw, notes), texts, starts, levels, hasLevels, byText, hashes, changed,
+                                 previous != null ? previous.TextHash : null, source, mainCount, story, note, noteRef, noteCount);
             if (fromPrevious != null && previous.DriftKeys != null)
                 for (int k = 0; k < previous.DriftKeys.Length; k++)      // ההפרש במיקום (שדות וכו') נשאר בפסקאות שלא זזו
                 {
@@ -213,7 +321,8 @@ namespace HebDocSearch.WordAddin
 
         public DocText WithLevels(int[] levels)
         {
-            var copy = new DocText(TextHash, Texts, Starts, levels, true, _byText, ParaHashes, null, BaseTextHash, Source);
+            var copy = new DocText(TextHash, Texts, Starts, levels, true, _byText, ParaHashes, null, BaseTextHash, Source,
+                                   MainCount, _story, _note, _noteRef, NoteCount);
             lock (_drift)
                 foreach (var kv in _drift) copy._drift[kv.Key] = kv.Value;
             return copy;
@@ -222,6 +331,79 @@ namespace HebDocSearch.WordAddin
         public int Headings
         {
             get { int n = 0; foreach (int l in Levels) if (l > 0) n++; return n; }
+        }
+
+        // ================================================================ הערות
+        /// <summary>0 – גוף המסמך, 1 – הערת שוליים, 2 – הערת סיום.</summary>
+        public int StoryOf(int para) => _story == null || para < 0 || para >= _story.Length ? 0 : _story[para];
+
+        public bool IsNote(int para) => StoryOf(para) != 0;
+
+        /// <summary>מקום התוצאה במסמך לצורך סדר: פסקת הערה – מיד אחרי פסקת הגוף שמפנה אליה.</summary>
+        public double OrderOf(int para)
+        {
+            if (!IsNote(para)) return para;
+            int r = _noteRef[para];
+            return r >= 0 ? r + 0.5 + para * 1e-7 : MainCount + para;
+        }
+
+        /// <summary>"הערה 12" / "הערת סיום 3" (או "הערות שוליים" כשהמספור לא ידוע).</summary>
+        public string NoteLabel(int para)
+        {
+            int kind = StoryOf(para), n = _note != null ? _note[para] : 0;
+            if (kind == 0) return "";
+            if (n <= 0) return kind == 1 ? "הערות שוליים" : "הערות סיום";
+            return (kind == 1 ? "הערה " : "הערת סיום ") + n;
+        }
+
+        /// <summary>שרשרת הכותרות של פסקת הערה: הכותרות שמעל סימן ההפניה, ואחריהן "הערה N".</summary>
+        public string[] NotePath(int para)
+        {
+            var path = new List<string>();
+            int r = _noteRef != null && para < _noteRef.Length ? _noteRef[para] : -1;
+            if (r >= 0 && r < MainCount)
+            {
+                string[] above = PathsOfMain()[r];
+                path.AddRange(above);
+                if (Levels[r] > 0 && Levels[r] < 10) path.Add(Squeeze(Texts[r]));     // ההפניה בתוך כותרת
+            }
+            path.Add(NoteLabel(para));
+            return path.ToArray();
+        }
+
+        /// <summary>תחום הפסקאות של אותה הערה (לקטע בחלון נפרד – לא ממשיכים להערה אחרת או לגוף).</summary>
+        public void Bounds(int para, out int lo, out int hi)
+        {
+            if (!IsNote(para)) { lo = 0; hi = MainCount - 1; return; }
+            int kind = StoryOf(para), n = _note[para];
+            lo = hi = para;
+            while (lo - 1 >= MainCount && StoryOf(lo - 1) == kind && (n == 0 || _note[lo - 1] == n)) lo--;
+            while (hi + 1 < Texts.Count && StoryOf(hi + 1) == kind && (n == 0 || _note[hi + 1] == n)) hi++;
+        }
+
+        static string Squeeze(string s) => string.Join(" ", (s ?? "").Split((char[])null, StringSplitOptions.RemoveEmptyEntries));
+
+        /// <summary>לכל פסקת גוף: הכותרות שהיא נמצאת תחתיהן (כמו ברכיב העזר; לכותרת – רק מה שמעליה).</summary>
+        string[][] PathsOfMain()
+        {
+            if (_paths != null) return _paths;
+            var paths = new string[MainCount][];
+            var stack = new List<KeyValuePair<int, string>>();
+            string[] current = new string[0];
+            for (int i = 0; i < MainCount; i++)
+            {
+                int level = Levels[i];
+                string text = level > 0 && level < 10 ? Squeeze(Texts[i]) : null;
+                if (!string.IsNullOrEmpty(text))
+                {
+                    while (stack.Count > 0 && stack[stack.Count - 1].Key >= level) stack.RemoveAt(stack.Count - 1);
+                    paths[i] = stack.ConvertAll(x => x.Value).ToArray();
+                    stack.Add(new KeyValuePair<int, string>(level, text));
+                    current = stack.ConvertAll(x => x.Value).ToArray();
+                }
+                else paths[i] = current;
+            }
+            return _paths = paths;
         }
 
         /// <summary>רמות הכותרות כמחרוזת ספרות (ספרה לכל פסקה) – לרכיב העזר, כשהטקסט כבר אצלו בדיסק.</summary>
@@ -309,7 +491,7 @@ namespace HebDocSearch.WordAddin
                 return k < list.Count ? list[k] : -1;
             }
             if (headingText.Length <= IndexedLength) return -1;            // קצר ולא באינדקס – אין כזו פסקה
-            int stop = Math.Min(Texts.Count, from + 2000);                // כותרת ארוכה מאוד (נדיר) – סריקה קצרה
+            int stop = Math.Min(MainCount, from + 2000);                  // כותרת ארוכה מאוד (נדיר) – סריקה קצרה
             for (int i = from; i < stop; i++)
                 if (Texts[i].Length > IndexedLength && Norm(Texts[i]) == want) return i;
             return -1;
@@ -351,7 +533,8 @@ namespace HebDocSearch.WordAddin
         /// <summary>כ-before מילים לפני התוצאה ו-after מילים אחריה (גם מפסקאות סמוכות).</summary>
         public Excerpt Around(int para, List<int[]> ranges, int before, int after)
         {
-            return Excerpt.Build(Texts, para, ranges, before, after);
+            Bounds(para, out int lo, out int hi);
+            return Excerpt.Build(Texts, para, ranges, before, after, lo, hi);
         }
 
         /// <summary>טקסט של פסקה מ-Word (Range.Text) – באותם החלפות של תווים מיוחדים כמו ב-Build,
@@ -395,7 +578,7 @@ namespace HebDocSearch.WordAddin
                     if (_drift.Keys[mid] <= para) { best = mid; lo = mid + 1; }
                     else hi = mid - 1;
                 }
-                return best < 0 ? 0 : _drift.Values[best];
+                return best < 0 || StoryOf(_drift.Keys[best]) != StoryOf(para) ? 0 : _drift.Values[best];
             }
         }
 
@@ -408,11 +591,11 @@ namespace HebDocSearch.WordAddin
             int a = ranges[0][0], b = ranges[ranges.Count - 1][1];
             if (a < 0 || b > text.Length || b <= a) return null;
             string expect = text.Substring(a, b - a);
-            int docEnd = doc.Content.End;
+            int docEnd = StoryEnd(doc, para);
             int guess = Math.Max(0, Starts[para] + DriftAt(para));
 
             // 1. במקום המשוער
-            Word.Range r = Check(doc, guess + a, guess + b, docEnd, expect);
+            Word.Range r = Check(doc, para, guess + a, guess + b, docEnd, expect);
             if (r != null) { Learn(para, guess); return r; }
 
             // 2. הפסקה עצמה (בסביבת המקום המשוער), ואז המילים בתוכה
@@ -421,15 +604,15 @@ namespace HebDocSearch.WordAddin
             {
                 Word.Range pr = p.Range;
                 int ps = pr.Start;
-                r = Check(doc, ps + a, ps + b, docEnd, expect);
+                r = Check(doc, para, ps + a, ps + b, docEnd, expect);
                 if (r != null) return r;
                 string inPara = Clean(pr.Text);
                 int k = inPara.IndexOf(expect, StringComparison.Ordinal);
-                if (k >= 0 && (r = Check(doc, ps + k, ps + k + expect.Length, docEnd, expect)) != null) return r;
+                if (k >= 0 && (r = Check(doc, para, ps + k, ps + k + expect.Length, docEnd, expect)) != null) return r;
             }
 
             // 3. (נדיר) המילים עצמן בכל המסמך – רק כשהמשתמש בחר תוצאה, אף פעם לא ברקע
-            r = Find(doc, Math.Max(0, guess + a - 400), docEnd, expect) ?? Find(doc, 0, docEnd, expect);
+            r = Find(doc, para, Math.Max(0, guess + a - 400), docEnd, expect) ?? Find(doc, para, 0, docEnd, expect);
             if (r != null) Learn(para, r.Start - a);
             return r;
         }
@@ -441,7 +624,7 @@ namespace HebDocSearch.WordAddin
             if (para < 0 || para >= Texts.Count || docEnd <= 0) return null;
             string text = Texts[para];
             int guess = Math.Min(EstimatedStart(para), docEnd - 1);
-            Word.Paragraph at = doc.Range(guess, guess).Paragraphs.First;
+            Word.Paragraph at = RangeIn(doc, para, guess, guess).Paragraphs.First;
             if (at == null) return null;
             if (IsParagraph(at, para, text)) return at;
             Word.Paragraph fwd = at, back = at;
@@ -469,19 +652,36 @@ namespace HebDocSearch.WordAddin
             return true;
         }
 
-        static Word.Range Check(Word.Document doc, int start, int end, int docEnd, string expect)
+        /// <summary>טווח במקום הנכון: בגוף המסמך, או בתוך הערות השוליים / הסיום (שהמקומות בהן נספרים בנפרד).</summary>
+        Word.Range RangeIn(Word.Document doc, int para, int start, int end)
+        {
+            int kind = StoryOf(para);
+            if (kind == 0) return doc.Range(start, end);
+            Word.Range r = doc.StoryRanges[kind == 1 ? Word.WdStoryType.wdFootnotesStory : Word.WdStoryType.wdEndnotesStory];
+            r.SetRange(start, end);
+            return r;
+        }
+
+        int StoryEnd(Word.Document doc, int para)
+        {
+            int kind = StoryOf(para);
+            if (kind == 0) return doc.Content.End;
+            return doc.StoryRanges[kind == 1 ? Word.WdStoryType.wdFootnotesStory : Word.WdStoryType.wdEndnotesStory].End;
+        }
+
+        Word.Range Check(Word.Document doc, int para, int start, int end, int docEnd, string expect)
         {
             if (start < 0 || end > docEnd) return null;
-            Word.Range r = doc.Range(start, end);
+            Word.Range r = RangeIn(doc, para, start, end);
             return Same(r.Text, expect) ? r : null;
         }
 
-        static Word.Range Find(Word.Document doc, int start, int end, string needle)
+        Word.Range Find(Word.Document doc, int para, int start, int end, string needle)
         {
             if (string.IsNullOrEmpty(needle) || start >= end) return null;
             int fullLength = needle.Length;
             if (needle.Length > 200) needle = needle.Substring(0, 200);      // Find מוגבל ל-255 תווים
-            Word.Range r = doc.Range(start, end);
+            Word.Range r = RangeIn(doc, para, start, end);
             Word.Find f = r.Find;
             f.ClearFormatting();
             f.Text = needle.Replace("^", "^^");
@@ -495,7 +695,7 @@ namespace HebDocSearch.WordAddin
             f.MatchAllWordForms = false;
             try { f.MatchDiacritics = true; } catch { }
             if (!f.Execute()) return null;
-            if (fullLength > needle.Length) r.End = Math.Min(doc.Content.End, r.Start + fullLength);
+            if (fullLength > needle.Length) r.End = Math.Min(end, r.Start + fullLength);
             return r;
         }
 

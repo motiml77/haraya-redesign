@@ -326,5 +326,6 @@ namespace HebDocSearch.WordAddin
         public static string Paragraphs(int n) => n == 0 ? "אין פסקאות" : Count(n, "פסקה אחת", "פסקאות");
         public static string Headings(int n) => n == 0 ? "אין כותרות" : Count(n, "כותרת אחת", "כותרות");
         public static string Results(int n) => n == 0 ? "אין תוצאות" : Count(n, "תוצאה אחת", "תוצאות");
+        public static string Notes(int n) => n == 0 ? "אין הערות" : Count(n, "הערה אחת", "הערות");
     }
 }

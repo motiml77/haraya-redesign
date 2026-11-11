@@ -1,5 +1,6 @@
-// קטע סביב תוצאה, לחלון "הצג בחלון נפרד": כ-35 מילים לפני ההתאמה וכ-35 אחריה. אם הפסקה של התוצאה
-// קצרה – ממשיכים לפסקאות הסמוכות (כל פסקה בשורה משלה). "…" במקום שבו פסקה נחתכה.
+// קטע סביב תוצאה, לחלון "הצג בחלון נפרד": כ-40 מילים לפני ההתאמה וכ-40 אחריה. אם הפסקה של התוצאה
+// קצרה – ממשיכים לפסקאות הסמוכות (כל פסקה בשורה משלה), רק בתחום [lo, hi] – למשל רק בתוך אותה הערה.
+// "…" במקום שבו פסקה נחתכה.
 // בלי Word ובלי ממשק – אפשר לבדוק אותו לבד.
 using System;
 using System.Collections.Generic;
@@ -12,10 +13,14 @@ namespace HebDocSearch.WordAddin
         public string Text = "";
         public List<int[]> Marks = new List<int[]>();     // [התחלה, אורך] בתוך Text – המילים שנמצאו
 
-        /// <summary>texts – הפסקאות של המסמך; ranges – מקומות ההתאמות בתוך פסקה para (תווים).</summary>
-        public static Excerpt Build(IList<string> texts, int para, List<int[]> ranges, int before, int after)
+        /// <summary>texts – הפסקאות של המסמך; ranges – מקומות ההתאמות בתוך פסקה para (תווים);
+        /// lo..hi – הפסקאות הסמוכות שמותר להמשיך אליהן (ברירת מחדל: כל המסמך).</summary>
+        public static Excerpt Build(IList<string> texts, int para, List<int[]> ranges, int before, int after,
+                                    int lo = 0, int hi = int.MaxValue)
         {
             if (texts == null || para < 0 || para >= texts.Count || ranges == null || ranges.Count == 0) return null;
+            lo = Math.Max(0, Math.Min(lo, para));
+            hi = Math.Min(texts.Count - 1, Math.Max(hi, para));
             string t = texts[para] ?? "";
             int a = Math.Max(0, Math.Min(t.Length, ranges[0][0]));
             int b = Math.Max(a, Math.Min(t.Length, ranges[ranges.Count - 1][1]));
@@ -28,7 +33,7 @@ namespace HebDocSearch.WordAddin
             string current = lead + body + (end < t.Length && t.Substring(end).Trim().Length > 0 ? " …" : "");
 
             var prev = new List<string>();
-            for (int p = para - 1; needBefore > 0 && p >= 0 && para - p <= 12; p--)
+            for (int p = para - 1; needBefore > 0 && p >= lo && para - p <= 12; p--)
             {
                 string pt = (texts[p] ?? "").Trim();
                 if (pt.Length == 0) continue;
@@ -36,7 +41,7 @@ namespace HebDocSearch.WordAddin
                 prev.Insert(0, (s0 > 0 ? "… " : "") + pt.Substring(s0));
             }
             var next = new List<string>();
-            for (int p = para + 1; needAfter > 0 && p < texts.Count && p - para <= 12; p++)
+            for (int p = para + 1; needAfter > 0 && p <= hi && p - para <= 12; p++)
             {
                 string pt = (texts[p] ?? "").Trim();
                 if (pt.Length == 0) continue;
