@@ -4,8 +4,8 @@
 //   * שום דבר בזמן הפתיחה עצמה: הטקסט נקרא (קריאה אחת) רגע אחרי שהמסמך נפתח, בהפסקה קצרה בהקלדה.
 //
 // מהירות בלי לתקוע: ההכנה לא מחכה שהמשתמש יפסיק לעבוד. היא רצה כל הזמן, במנות קצרות מאוד:
-//   * כל קריאה ל-Word קצרה (חיפוש הכותרות נעשה על קטע של המסמך בכל פעם, והקטע מותאם כך שקריאה
-//     אחת תיקח אלפיות שנייה בודדות) – ולכן המסך וההקלדה לא מרגישים אותה;
+//   * כל קריאה ל-Word קצרה (קריאת רמת החלוקה של פסקה אחת), ובכל מנה כמה שנכנס בזמן שלה – ולכן המסך
+//     וההקלדה לא מרגישים אותה;
 //   * היא עוצרת רק בזמן כתיבה (הקשה במקלדת ב-Word או בחלונית – Typing). תזוזת עכבר וגלילה לא עוצרות
 //     אותה, רק מקצרות את המנות כדי שהמסך יישאר חלק. כמה עבודה בכל מנה: אחרי הקשה – ~12 אלפיות שנייה,
 //     כשלא מקלידים כמה שניות – יותר. בין המנות Word מטפל בכל מה שמחכה לו;
@@ -24,10 +24,11 @@
 //     שאר הפסקאות לא מעובדות שוב. כשמחפשים בכותרות אחרי עריכה – אימות מלא ברקע, ואם התגלה שינוי
 //     (פסקה שהפכה לכותרת) התוצאות מתעדכנות.
 //
-// כותרת = פסקה עם רמת חלוקה 1–9, כמו בחלונית הניווט של Word (סגנונות "כותרת 1–9" וגם סגנונות אישיים):
-//     1. חיפוש של Word לפי רמת חלוקה (Find עם ParagraphFormat.OutlineLevel) – רק הכותרות עצמן;
-//     2. אם זה לא נתמך או לא מצא כלום – לפי הסגנונות המובנים "כותרת 1" עד "כותרת 9";
-//     3. ואז בדיקת רמת החלוקה של כל פסקה קצרה.
+// כותרת = פסקה עם רמת חלוקה 1–9, כמו בחלונית הניווט של Word (סגנונות "כותרת 1–9" וגם סגנונות אישיים).
+// הכותרות נקראות במעבר על הפסקאות של המסמך (Paragraph.OutlineLevel, ולכותרת – גם הטקסט והמקום), ולא
+// בחיפוש של Word: ההגדרות של Find משותפות לחיפוש של Word עצמו (חלונית הניווט, "חיפוש והחלפה"), וכל חיפוש
+// כזה ברקע איפס את החיפוש שהמשתמש עשה ב-Word. שום פעולה ברקע לא משתמשת ב-Find, לא משנה את המסמך ולא
+// מזיזה את הסמן.
 //
 // בחיפוש קוראים את הטקסט מחדש רק אם ייתכן שהמסמך השתנה מאז הקריאה הקודמת: האורך השתנה,
 // המסמך נשמר, או שהסמן זז במסמך שיש בו שינויים שלא נשמרו (כל הקלדה מזיזה את הסמן).
@@ -77,24 +78,21 @@ namespace HebDocSearch.WordAddin
             public DocText Text;
             public int[] Levels;
             public bool Verify;                 // אימות ברקע של רמות שכבר ידועות
-            public int Phase;                   // 0 חיפוש לפי רמת חלוקה, 1 לפי סגנון "כותרת N", 2 פסקה אחר פסקה,
-                                                // 3 רק הפסקאות שהשתנו מאז הגרסה הקודמת
-            public int Level = 1;               // הרמה / הסגנון שמחפשים עכשיו (1–9)
-            public int Pos;                     // מאיפה ממשיך החיפוש של הרמה הנוכחית
-            public int Chunk = FirstChunk;      // כמה תווים בכל קריאה ל-Find (מותאם לפי הזמן שהיא לוקחת)
+            public int Phase;                   // 0 מעבר על כל הפסקאות, 3 רק הפסקאות שהשתנו מאז הגרסה הקודמת
+            public Word.Paragraph Para;         // שלב 0: הפסקה הבאה לבדיקה (null בהתחלה / אחרי תקלה)
+            public bool Started;
+            public int Resume;                  // אחרי תקלה (למשל הפסקה נמחקה) – ממשיכים מהמקום הזה
+            public int Visited;                 // כמה פסקאות כבר נבדקו
             public int OutlineIndex;
             public int[] Changed;               // שלב 3: הפסקאות לבדיקה
             public int Checked, Missed;
-            public int Found, FoundByOutline, FoundByStyle, Unmatched, Steps, Failures;
+            public int Found, Unmatched, Failures;
             public int EditsAtStart;
-            public int DocEnd = 1;
-            public bool UsedFind, Failed;
+            public bool Failed;
             public Stopwatch Time = new Stopwatch();
         }
 
         const int IncrementalLimit = 500;       // יותר פסקאות שהשתנו (למשל הדבקה גדולה) – קוראים את כל הכותרות
-        const int FirstChunk = 60000, MinChunk = 4000, MaxChunk = 4000000;
-        const int ChunkOverlap = 400;           // אחרי קטע בלי כותרות חוזרים מעט אחורה (כותרת על קו התפר)
         const int TickMs = 30;
         const int MaxFailures = 6;              // כישלונות רצופים (Word עסוק) לפני שמוותרים
 
@@ -219,16 +217,8 @@ namespace HebDocSearch.WordAddin
         static double ScanProgress(HeadingScan scan)
         {
             if (scan.Verify) return 1;
-            switch (scan.Phase)
-            {
-                case 0:
-                case 1:
-                    return Math.Min(1, ((scan.Level - 1) + Math.Min(1.0, (double)scan.Pos / Math.Max(1, scan.DocEnd))) / 9);
-                case 2:
-                    return (double)scan.OutlineIndex / Math.Max(1, scan.Text.Texts.Count);
-                default:
-                    return scan.Changed == null || scan.Changed.Length == 0 ? 1 : (double)scan.OutlineIndex / scan.Changed.Length;
-            }
+            if (scan.Phase == 0) return Math.Min(1, (double)scan.Visited / Math.Max(1, scan.Text.Texts.Count));
+            return scan.Changed == null || scan.Changed.Length == 0 ? 1 : (double)scan.OutlineIndex / scan.Changed.Length;
         }
 
         // ================================================================ זיהוי שינויים (בלי לקרוא את המסמך)
@@ -633,14 +623,13 @@ namespace HebDocSearch.WordAddin
             try
             {
                 int docEnd = s.Doc.Content.End;
-                scan.DocEnd = docEnd;
                 while (!done && sw.ElapsedMilliseconds < budgetMs)
                 {
-                    if (scan.Phase < 2)
+                    if (scan.Phase == 0)
                     {
-                        done = FindStep(s, scan, docEnd);
+                        done = WalkStep(s, scan);
                     }
-                    else if (scan.Phase == 3)
+                    else
                     {
                         if (scan.OutlineIndex >= scan.Changed.Length)
                         {
@@ -664,38 +653,23 @@ namespace HebDocSearch.WordAddin
                         int level = (int)p.OutlineLevel;                     // 10 = גוף הטקסט
                         scan.Levels[i] = level >= 1 && level <= 9 ? level : 0;
                         if (scan.Levels[i] > 0) scan.Found++;
-                    }
-                    else
-                    {
-                        if (scan.OutlineIndex >= scan.Text.Texts.Count) { done = true; break; }
-                        int i = scan.OutlineIndex++;
-                        if (scan.Levels[i] != 0) continue;
-                        string t = scan.Text.Texts[i];
-                        if (t.Trim().Length == 0 || t.Length > 200) continue;
-                        int pos = scan.Text.EstimatedStart(i);
-                        if (pos >= docEnd) continue;
-                        Word.Paragraph p = s.Doc.Range(pos, pos).Paragraphs.First;
-                        int level = (int)p.OutlineLevel;                     // 10 = גוף הטקסט
-                        if (level < 1 || level > 9) continue;
-                        Word.Range pr = p.Range;
-                        if (!DocText.SameText(DocText.Clean(pr.Text), t)) continue;
-                        scan.Levels[i] = level;
-                        scan.Found++;
-                        scan.Text.Learn(i, pr.Start);
+                        Release(p);
                     }
                     scan.Failures = 0;
                 }
             }
             catch (Exception e)
             {
-                // Word עסוק (חלון דו-שיח, עריכה בתא…) – מנסים שוב; רק אחרי כמה כישלונות רצופים מוותרים
+                // Word עסוק (חלון דו-שיח, עריכה בתא…), או שהפסקה שעמדנו עליה נמחקה – ממשיכים מהמקום האחרון
+                // שידוע; רק אחרי כמה כישלונות רצופים מוותרים
                 scan.Failures++;
+                Release(scan.Para);
+                scan.Para = null;
                 Log.Write($"headings: attempt failed ({scan.Failures}): {e.Message}");
                 if (scan.Failures < MaxFailures)
                 {
                     s.NotBefore = DateTime.Now.AddSeconds(scan.Failures < 3 ? 1 : 3);
                     scan.Time.Stop();
-                    ClearFind(s.Doc, scan);
                     return false;
                 }
                 s.HeadingsError = e.Message;
@@ -703,11 +677,63 @@ namespace HebDocSearch.WordAddin
                 done = true;
             }
             scan.Time.Stop();
-            ClearFind(s.Doc, scan);
             if (!done) return false;                                      // ממשיכים במנה הבאה
 
+            Release(scan.Para);
+            scan.Para = null;
             Finish(s, scan);
             return true;
+        }
+
+        /// <summary>פסקה אחת במעבר על המסמך: רמת החלוקה שלה, ואם היא כותרת – גם הטקסט והמקום, כדי לשייך
+        /// אותה לפסקה שלה (כמה קריאות קטנות ל-Word; בלי Find ובלי שום שינוי). true כשהגענו לסוף המסמך.</summary>
+        bool WalkStep(DocState s, HeadingScan scan)
+        {
+            if (scan.Para == null)
+            {
+                if (scan.Started && scan.Resume < 0) return true;           // כבר בסוף
+                scan.Para = scan.Started
+                    ? s.Doc.Range(scan.Resume, scan.Resume).Paragraphs.First    // אחרי תקלה: מהכותרת האחרונה שנמצאה
+                    : s.Doc.Paragraphs.First;
+                scan.Started = true;
+                if (scan.Para == null) return true;
+            }
+            Word.Paragraph p = scan.Para;
+            int level = (int)p.OutlineLevel;                                 // 10 = גוף הטקסט
+            if (level >= 1 && level <= 9)
+            {
+                Word.Range pr = p.Range;
+                int start = pr.Start;
+                string clean = DocText.Clean(pr.Text);
+                Release(pr);
+                if (clean.Trim().Length > 0)
+                {
+                    int idx = scan.Text.MatchNear(clean, start);
+                    if (idx < 0) scan.Unmatched++;
+                    else if (scan.Levels[idx] == 0)
+                    {
+                        scan.Levels[idx] = level;
+                        scan.Found++;
+                        scan.Text.Learn(idx, start);
+                    }
+                }
+                scan.Resume = start;
+            }
+            scan.Visited++;
+            Word.Paragraph next = p.Next();
+            Release(p);
+            scan.Para = next;
+            if (next == null)
+            {
+                scan.Resume = -1;
+                return true;
+            }
+            return false;
+        }
+
+        static void Release(object com)
+        {
+            try { if (com != null && Marshal.IsComObject(com)) Marshal.ReleaseComObject(com); } catch { }
         }
 
         /// <summary>הסריקה הסתיימה: הרמות החדשות נכנסות לשימוש, נשמרות בדיסק, ורכיב העזר מתעדכן.</summary>
@@ -743,9 +769,8 @@ namespace HebDocSearch.WordAddin
                           $"({scan.Missed} not found){levels} in {scan.Time.ElapsedMilliseconds}ms");
             else
                 Log.Write($"headings{(scan.Verify ? " (background check" + (changed ? ", CHANGED" : ", no change") + ")" : "")}: " +
-                          $"{withLevels.Headings} (outline find {scan.FoundByOutline}, style find {scan.FoundByStyle}, " +
-                          $"per paragraph {scan.Found - scan.FoundByOutline - scan.FoundByStyle}, not matched {scan.Unmatched}){levels} " +
-                          $"in {scan.Time.ElapsedMilliseconds}ms of work, {scan.Steps} steps, last chunk {scan.Chunk:N0}");
+                          $"{withLevels.Headings} ({scan.Visited:N0} paragraphs read, not matched {scan.Unmatched}){levels} " +
+                          $"in {scan.Time.ElapsedMilliseconds}ms of work");
 
             if (s.Text == withLevels)
             {
@@ -757,154 +782,6 @@ namespace HebDocSearch.WordAddin
                     catch (Exception e) { Log.Error("headings changed", e); }
                 }
             }
-        }
-
-        /// <summary>צעד אחד של חיפוש הכותרות ב-Word: קטע אחד של המסמך, רמה אחת. הקטע קצר מספיק כדי
-        /// שהקריאה תיקח אלפיות שנייה בודדות (ומתארך כשהיא מהירה). מחזיר true כשכל הסריקה הסתיימה.</summary>
-        bool FindStep(DocState s, HeadingScan scan, int docEnd)
-        {
-            if (scan.Level > 9)
-            {
-                // החיפוש לפי רמת חלוקה עבד – הסגנונות "כותרת N" לא מוסיפים עליו (הם תמיד ברמת חלוקה N)
-                if (scan.Phase == 0 && scan.FoundByOutline > 0) return true;
-                scan.Phase++;
-                scan.Level = 1;
-                scan.Pos = 0;
-                // פסקה אחר פסקה: רק אם החיפוש לפי רמת חלוקה לא מצא כלום (לא נתמך, או שאין במסמך כותרות)
-                return scan.Phase == 2 && scan.Text.Texts.Count > 60000;
-            }
-            if (scan.Pos >= docEnd)
-            {
-                scan.Level++;
-                scan.Pos = 0;
-                return false;
-            }
-
-            int end = (int)Math.Min((long)docEnd, (long)scan.Pos + scan.Chunk);
-            var clock = Stopwatch.StartNew();
-            Word.Range r = s.Doc.Range(scan.Pos, end);
-            bool found;
-            try
-            {
-                scan.UsedFind = true;
-                if (scan.Phase == 0) OutlineFind(r.Find, scan.Level);
-                else StyleFind(s.Doc, r.Find, scan.Level);
-                found = r.Find.Execute();
-            }
-            catch (COMException e) when (scan.Phase == 0 && scan.Steps == 0)
-            {
-                Log.Write("headings: find by outline level not available: " + e.Message);
-                scan.Phase = 1;                     // ממשיכים לפי סגנונות
-                scan.Level = 1;
-                scan.Pos = 0;
-                return false;
-            }
-            scan.Steps++;
-
-            if (!found)
-            {
-                long ms = clock.ElapsedMilliseconds;
-                if (ms <= 3 && scan.Chunk < MaxChunk) scan.Chunk *= 2;
-                else if (ms > 12 && scan.Chunk > MinChunk) scan.Chunk /= 2;
-                if (end >= docEnd)
-                {
-                    scan.Level++;
-                    scan.Pos = 0;
-                }
-                else scan.Pos = Math.Max(scan.Pos + 1, end - ChunkOverlap);
-                return false;
-            }
-
-            int start = r.Start, stop = r.End;
-            int before = scan.Found;
-            if (TakeFound(scan, r.Text, start, scan.Level) > 0)
-            {
-                // הטקסט שנמצא אינו פסקה שלמה (כותרת שנחתכה בקצה הקטע) – לוקחים את הפסקאות השלמות
-                try
-                {
-                    object unit = Word.WdUnits.wdParagraph;
-                    r.Expand(ref unit);
-                    start = r.Start;
-                    stop = Math.Max(stop, r.End);
-                    scan.Unmatched += TakeFound(scan, r.Text, start, scan.Level);
-                }
-                catch (COMException) { scan.Unmatched++; }
-            }
-            if (scan.Phase == 0) scan.FoundByOutline += scan.Found - before;
-            else scan.FoundByStyle += scan.Found - before;
-            scan.Pos = Math.Max(stop, scan.Pos + 1);
-            return false;
-        }
-
-        /// <summary>חיפוש של Word לפי רמת חלוקה (כמו "עיצוב ← פסקה ← רמת חלוקה" בחלון החיפוש):
-        /// מוצא גם כותרות בסגנונות אישיים, לא רק "כותרת 1–9".</summary>
-        static void OutlineFind(Word.Find f, int level)
-        {
-            f.ClearFormatting();
-            f.Text = "";
-            Word.ParagraphFormat pf = f.ParagraphFormat;
-            pf.OutlineLevel = (Word.WdOutlineLevel)level;
-            f.ParagraphFormat = pf;
-            f.Format = true;
-            f.Forward = true;
-            f.Wrap = Word.WdFindWrap.wdFindStop;
-            f.MatchCase = false;
-            f.MatchWholeWord = false;
-            f.MatchWildcards = false;
-        }
-
-        /// <summary>חיפוש של Word לפי הסגנון המובנה "כותרת N" (לא תלוי בשפת Office).</summary>
-        static void StyleFind(Word.Document doc, Word.Find f, int level)
-        {
-            f.ClearFormatting();
-            f.Text = "";
-            object style = doc.Styles[(object)(Word.WdBuiltinStyle)(-(level + 1))];     // wdStyleHeading1 = -2
-            f.set_Style(ref style);
-            f.Format = true;
-            f.Forward = true;
-            f.Wrap = Word.WdFindWrap.wdFindStop;
-            f.MatchCase = false;
-            f.MatchWholeWord = false;
-            f.MatchWildcards = false;
-        }
-
-        /// <summary>החיפוש של Word זוכר את העיצוב האחרון (גם בחלון "חיפוש והחלפה") – מנקים אחרינו בסוף כל
-        /// מנה, כדי שחיפוש של המשתמש בין המנות לא יושפע.</summary>
-        static void ClearFind(Word.Document doc, HeadingScan scan)
-        {
-            if (!scan.UsedFind) return;
-            scan.UsedFind = false;
-            try
-            {
-                var f = doc.Content.Find;
-                f.ClearFormatting();
-                f.Format = false;
-            }
-            catch { }
-        }
-
-        /// <summary>כותרות שנמצאו (כמה פסקאות רצופות באותה רמה חוזרות כטווח אחד) → רמות הפסקאות.
-        /// מחזיר כמה חלקים לא התאימו לאף פסקה (טווח שאינו פסקאות שלמות).</summary>
-        static int TakeFound(HeadingScan scan, string text, int start, int level)
-        {
-            int offset = 0, unmatched = 0;
-            foreach (string part in (text ?? "").Split('\r'))
-            {
-                string clean = DocText.Clean(part);
-                if (clean.Trim().Length > 0)
-                {
-                    int idx = scan.Text.MatchNear(clean, start + offset);
-                    if (idx < 0) unmatched++;
-                    else if (scan.Levels[idx] == 0)
-                    {
-                        scan.Levels[idx] = level;
-                        scan.Found++;
-                        if (offset == 0) scan.Text.Learn(idx, start);
-                    }
-                }
-                offset += part.Length + 1;
-            }
-            return unmatched;
         }
 
         public bool HeadingsReady(Word.Document doc)

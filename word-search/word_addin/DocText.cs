@@ -399,7 +399,8 @@ namespace HebDocSearch.WordAddin
             }
         }
 
-        /// <summary>הטווח במסמך של התוצאה (מהמילה הראשונה עד האחרונה), או null אם לא נמצא.</summary>
+        /// <summary>הטווח במסמך של התוצאה (מהמילה הראשונה עד האחרונה), או null אם לא נמצא.
+        /// בלי Find ככל האפשר: Find של Word משתף את ההגדרות שלו עם החיפוש של Word עצמו ומאפס אותו.</summary>
         public Word.Range Locate(Word.Document doc, int para, List<int[]> ranges)
         {
             if (ranges.Count == 0 || para < 0 || para >= Texts.Count) return null;
@@ -414,53 +415,58 @@ namespace HebDocSearch.WordAddin
             Word.Range r = Check(doc, guess + a, guess + b, docEnd, expect);
             if (r != null) { Learn(para, guess); return r; }
 
-            // 2. מוצאים את הפסקה עצמה לפי תחילתה, ואז את המילים בתוכה
-            int lead = 0;
-            while (lead < text.Length && char.IsWhiteSpace(text[lead])) lead++;
-            string prefix = text.Substring(lead, Math.Min(80, text.Length - lead)).TrimEnd();
-            if (prefix.Length >= 2)
+            // 2. הפסקה עצמה (בסביבת המקום המשוער), ואז המילים בתוכה
+            Word.Paragraph p = LocateParagraph(doc, para, docEnd);
+            if (p != null)
             {
-                Word.Range p = Find(doc, Math.Max(0, guess - 400), docEnd, prefix)
-                               ?? Find(doc, 0, Math.Min(docEnd, guess + 400), prefix);
-                if (p != null)
-                {
-                    int ps = p.Start - lead;
-                    r = Check(doc, ps + a, ps + b, docEnd, expect)
-                        ?? Find(doc, p.Start, Math.Min(docEnd, ps + text.Length + 2000), expect);
-                    if (r != null) { Learn(para, ps); return r; }
-                }
+                Word.Range pr = p.Range;
+                int ps = pr.Start;
+                r = Check(doc, ps + a, ps + b, docEnd, expect);
+                if (r != null) return r;
+                string inPara = Clean(pr.Text);
+                int k = inPara.IndexOf(expect, StringComparison.Ordinal);
+                if (k >= 0 && (r = Check(doc, ps + k, ps + k + expect.Length, docEnd, expect)) != null) return r;
             }
 
-            // 3. המילים עצמן, קדימה מהמקום המשוער ואז מתחילת המסמך
+            // 3. (נדיר) המילים עצמן בכל המסמך – רק כשהמשתמש בחר תוצאה, אף פעם לא ברקע
             r = Find(doc, Math.Max(0, guess + a - 400), docEnd, expect) ?? Find(doc, 0, docEnd, expect);
             if (r != null) Learn(para, r.Start - a);
             return r;
         }
 
-        /// <summary>הפסקה במסמך (ל-OutlineLevel) – במקום המשוער, או לפי תחילת הטקסט שלה בסביבה הקרובה.
-        /// בלי חיפוש בכל המסמך (נקרא לכל פסקה שנערכה). null אם לא נמצאה.</summary>
+        /// <summary>הפסקה במסמך (ל-OutlineLevel) – במקום המשוער, או בין הפסקאות הסמוכות לו (עד 60 לכל כיוון).
+        /// בלי Find (נקרא ברקע לכל פסקה שנערכה). null אם לא נמצאה.</summary>
         public Word.Paragraph LocateParagraph(Word.Document doc, int para, int docEnd)
         {
-            if (para < 0 || para >= Texts.Count) return null;
+            if (para < 0 || para >= Texts.Count || docEnd <= 0) return null;
             string text = Texts[para];
-            int guess = EstimatedStart(para);
-            if (guess < docEnd)
+            int guess = Math.Min(EstimatedStart(para), docEnd - 1);
+            Word.Paragraph at = doc.Range(guess, guess).Paragraphs.First;
+            if (at == null) return null;
+            if (IsParagraph(at, para, text)) return at;
+            Word.Paragraph fwd = at, back = at;
+            for (int k = 0; k < 60 && (fwd != null || back != null); k++)
             {
-                Word.Paragraph p = doc.Range(guess, guess).Paragraphs.First;
-                Word.Range pr = p.Range;
-                if (SameText(Clean(pr.Text), text)) { Learn(para, pr.Start); return p; }
+                if (fwd != null)
+                {
+                    fwd = fwd.Next();
+                    if (fwd != null && IsParagraph(fwd, para, text)) return fwd;
+                }
+                if (back != null)
+                {
+                    back = back.Previous();
+                    if (back != null && IsParagraph(back, para, text)) return back;
+                }
             }
-            int lead = 0;
-            while (lead < text.Length && char.IsWhiteSpace(text[lead])) lead++;
-            string prefix = text.Substring(lead, Math.Min(80, text.Length - lead)).TrimEnd();
-            if (prefix.Length < 2) return null;
-            Word.Range f = Find(doc, Math.Max(0, guess - 2000), Math.Min(docEnd, guess + text.Length + 2000), prefix);
-            if (f == null) return null;
-            Word.Paragraph found = f.Paragraphs.First;
-            Word.Range fr = found.Range;
-            if (!SameText(Clean(fr.Text), text)) return null;
-            Learn(para, fr.Start);
-            return found;
+            return null;
+        }
+
+        bool IsParagraph(Word.Paragraph p, int para, string text)
+        {
+            Word.Range r = p.Range;
+            if (!SameText(Clean(r.Text), text)) return false;
+            Learn(para, r.Start);
+            return true;
         }
 
         static Word.Range Check(Word.Document doc, int start, int end, int docEnd, string expect)

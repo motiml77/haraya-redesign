@@ -1,7 +1,8 @@
-// שמירה על המיקוד: חלק מהפעולות במודל של Word (חיפוש Find, קריאת טקסט, בחירה) מעבירות את המיקוד של
-// המקלדת מהחלונית חזרה למסמך – ואז מה שהמשתמש מקליד בשדה החיפוש נכתב בתוך המסמך.
-// כל פעולה כזו עטופה כאן: אם המיקוד היה באחד הפקדים של התוסף – הוא מוחזר אליו מיד, לפני שהמקשים
-// הבאים מטופלים.
+// שמירה על המיקוד: חלק מהפעולות במודל של Word (קריאת טקסט, בחירה) עלולות להעביר את המיקוד של המקלדת
+// למסמך – ואז מה שהמשתמש מקליד בשדה החיפוש נכתב בתוך המסמך.
+// כל פעולה כזו עטופה כאן: אם המיקוד זז בזמן הפעולה – הוא מוחזר מיד למקום שבו היה, לפני שהמקשים הבאים
+// מטופלים. זה חל על כל חלון של Word, לא רק על החלונית שלנו – גם על שדה החיפוש של Word עצמו (חלונית
+// הניווט), כדי שעבודה ברקע לא תפריע לחיפוש שהמשתמש עושה שם.
 using System;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -16,6 +17,12 @@ namespace HebDocSearch.WordAddin
         [DllImport("user32.dll")]
         static extern IntPtr SetFocus(IntPtr hWnd);
 
+        [DllImport("user32.dll")]
+        static extern bool IsWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        static extern bool IsWindowVisible(IntPtr hWnd);
+
         /// <summary>האם המיקוד כרגע באחד הפקדים של התוסף (שדה החיפוש, הרשימה…).</summary>
         public static bool InAddIn
         {
@@ -29,14 +36,13 @@ namespace HebDocSearch.WordAddin
         public static void Run(Action action)
         {
             IntPtr before = GetFocus();
-            bool ours = before != IntPtr.Zero && Control.FromChildHandle(before) != null;
             try { action(); }
             finally
             {
-                if (ours && GetFocus() != before)
+                if (before != IntPtr.Zero && GetFocus() != before && IsWindow(before) && IsWindowVisible(before))
                 {
                     SetFocus(before);
-                    Log.Write("focus returned to the pane");
+                    Log.Write(Control.FromChildHandle(before) != null ? "focus returned to the pane" : "focus returned to Word");
                 }
             }
         }
