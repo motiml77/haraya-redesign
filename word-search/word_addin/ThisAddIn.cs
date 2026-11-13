@@ -61,10 +61,10 @@ namespace HebDocSearch.WordAddin
             catch (Exception ex) { Log.Error("open", ex); }
         }
 
-        // הסמן זז (קורה בכל הקלדה) – רק מסמנים "ייתכן שהשתנה", בלי שום קריאה ל-Word
+        // הסמן זז (קורה בכל הקלדה) – רק נרשם איפה (בשביל בדיקת כותרות במקום הזה בחיפוש הבא)
         void OnSelectionChange(Word.Selection sel)
         {
-            Preparer?.OnSelectionChange();
+            Preparer?.OnSelectionChange(sel);
         }
 
         void OnDocumentBeforeSave(Word.Document doc, ref bool saveAsUI, ref bool cancel)

@@ -21,8 +21,11 @@
 //   * מפת החיפוש עצמה נשמרת בדיסק אצל רכיב העזר לפי טביעת האצבע של הטקסט – לא נשלחת ולא נבנית שוב
 //     (נשמרת כשהמסמך נסגר; מסמך שלא נפתח 3 ימים – נמחק, ונבנה שוב כשייפתח);
 //   * אחרי עריכה בודקים רק את הפסקאות שנוספו או שנערכו, ולרכיב העזר נשלחות רק הן (patch) – המילים של
-//     שאר הפסקאות לא מעובדות שוב. כשמחפשים בכותרות אחרי עריכה – אימות מלא ברקע, ואם התגלה שינוי
-//     (פסקה שהפכה לכותרת) התוצאות מתעדכנות.
+//     שאר הפסקאות לא מעובדות שוב.
+//   * פסקה שהפכה לכותרת (או הפסיקה להיות כותרת) בלי שהטקסט שלה השתנה – כלומר החלת סגנון – זה תמיד קורה
+//     במקום שבו נמצא הסמן. לכן נרשמים המקומות שבהם הסמן היה (Touched), ובחיפוש הבא נבדקות רק הפסקאות
+//     שם – כמה עשרות לכל היותר, בלי מעבר על כל המסמך. רק אם באמת נוספה, הוסרה או השתנתה כותרת – רמות
+//     הכותרות מתעדכנות והתוצאות של חיפוש בכותרות מתרעננות.
 //
 // כותרת = פסקה עם רמת חלוקה 1–9, כמו בחלונית הניווט של Word (סגנונות "כותרת 1–9" וגם סגנונות אישיים).
 // הכותרות נקראות במעבר על הפסקאות של המסמך (Paragraph.OutlineLevel, ולכותרת – גם הטקסט והמקום), ולא
@@ -72,6 +75,8 @@ namespace HebDocSearch.WordAddin
             public bool ReadSaved;
             public bool SelChanged, SaveEvent;
             public int ReadEditKeys;            // מונה ההקשות (Typing.EditKeys) כשקראנו
+            public readonly List<int[]> Touched = new List<int[]>();   // מקומות שבהם הסמן היה (אולי הוחל שם סגנון)
+            public bool TouchOnly;              // NeedsHeadings רק בשביל בדיקת המקומות האלה (המסמך מוכן לחיפוש)
             public bool CacheDirty;             // מה שנשמר בדיסק על המסמך אינו מעודכן (יישמר כשהמסמך נסגר)
             public DateTime LastRead;
             public long LastReadMs;
@@ -89,6 +94,8 @@ namespace HebDocSearch.WordAddin
             public int Visited;                 // כמה פסקאות כבר נבדקו
             public int OutlineIndex;
             public int[] Changed;               // שלב 3: הפסקאות לבדיקה
+            public List<int[]> Touch;           // שלב 3: וגם הפסקאות במקומות שבהם הסמן היה
+            public int TouchIndex, TouchChecked, TouchChanged;
             public int Checked, Missed;
             public int Found, Unmatched, Failures;
             public int EditsAtStart;
@@ -210,7 +217,7 @@ namespace HebDocSearch.WordAddin
         {
             if (s.Text == null || s.Reading) return 2;
             bool indexed = s.IndexedKey != null && s.IndexedKey.StartsWith(s.Text.TextHash + "/", StringComparison.Ordinal);
-            bool headings = s.Text.HasLevels && !s.NeedsHeadings && !s.DocxPending;
+            bool headings = s.Text.HasLevels && (!s.NeedsHeadings || s.TouchOnly) && !s.DocxPending;
             if (indexed && headings) return 100;
             double index = indexed ? 1 : Math.Min(0.99, Math.Max(0, s.IndexProgress));
             double heads = headings ? 1 : Math.Min(0.99, s.Scan != null ? Math.Max(s.HeadingProgress, ScanProgress(s.Scan)) : s.HeadingProgress);
@@ -226,11 +233,45 @@ namespace HebDocSearch.WordAddin
         }
 
         // ================================================================ זיהוי שינויים (בלי לקרוא את המסמך)
-        /// <summary>הסמן זז באחד החלונות (כל הקלדה מזיזה אותו). בלי שום קריאה ל-Word – זה קורה הרבה.</summary>
-        public void OnSelectionChange()
+        const int TouchedLimit = 64;            // מקומות שנשמרים (הישנים נשכחים)
+        const int TouchParagraphs = 150;        // לכל היותר כמה פסקאות נבדקות בבדיקת המקומות
+
+        /// <summary>הסמן זז באחד החלונות (כל הקלדה מזיזה אותו). נרשם רק המקום שלו בגוף המסמך (כמה קריאות
+        /// קצרות) – כדי שבחיפוש הבא ייבדקו רק הפסקאות שם, אם הוחל בהן סגנון כותרת.</summary>
+        public void OnSelectionChange(Word.Selection sel)
         {
             if (unchecked(Environment.TickCount - _ignoreSelectionUntil) < 0) return;     // הבחירה שלנו
-            foreach (var s in _docs) s.SelChanged = true;
+            foreach (var x in _docs) x.SelChanged = true;
+            try
+            {
+                if (sel == null || sel.StoryType != Word.WdStoryType.wdMainTextStory) return;
+                var s = Find(sel.Document);
+                if (s == null) return;
+                int a = sel.Start, b = sel.End;
+                var list = s.Touched;
+                if (list.Count > 0)
+                {
+                    int[] last = list[list.Count - 1];
+                    if (a <= last[1] + 2 && b >= last[0] - 2)          // אותו מקום (הקלדה, סימון מורחב) – מרחיבים
+                    {
+                        last[0] = Math.Min(last[0], a);
+                        last[1] = Math.Max(last[1], b);
+                        return;
+                    }
+                }
+                list.Add(new[] { a, b });
+                if (list.Count > TouchedLimit) list.RemoveAt(0);
+            }
+            catch { }
+        }
+
+        /// <summary>יש מקומות שבהם הסמן היה מאז הבדיקה האחרונה – בודקים אותם (בלי לקרוא את כל הכותרות).</summary>
+        void CheckTouched(DocState s)
+        {
+            if (s.Touched.Count == 0 || s.Text == null || !s.Text.HasLevels || s.NeedsHeadings || s.Scan != null) return;
+            s.NeedsHeadings = true;
+            s.TouchOnly = true;
+            Wake(s, 0);
         }
 
         public void OnBeforeSave(Word.Document doc)
@@ -367,11 +408,11 @@ namespace HebDocSearch.WordAddin
             return n;
         }
 
-        /// <summary>המסמך נקרא מחדש כי ייתכן שהשתנה: גם אם הטקסט זהה, אולי סגנון של פסקה השתנה.</summary>
+        /// <summary>המסמך נקרא מחדש כי ייתכן שהשתנה. (סגנון כותרת שהוחל בלי שינוי טקסט נבדק במקומות שבהם הסמן
+        /// היה – CheckTouched – ולכן אין צורך לקרוא שוב את כל הכותרות, לא עכשיו ולא בפתיחה הבאה.)</summary>
         static void Reread(DocState s)
         {
             s.Edits++;
-            if (s.Text != null) s.Unverified = true;
         }
 
         // ================================================================ הלולאה: מנות קצרות, כל הזמן
@@ -546,6 +587,7 @@ namespace HebDocSearch.WordAddin
                     return;
                 }
                 s.NeedsHeadings = true;
+                s.TouchOnly = false;
                 s.HeadingProgress = 0;
                 Wake(s, 300);
             }
@@ -677,11 +719,13 @@ namespace HebDocSearch.WordAddin
         }
 
         // ================================================================ הכותרות, במנות קצרות
-        static HeadingScan NewScan(DocText t)
+        static HeadingScan NewScan(DocText t, DocState s)
         {
+            var touch = new List<int[]>(s.Touched);
+            s.Touched.Clear();
             if (t.HasLevels && t.Changed.Length <= IncrementalLimit)
-                return new HeadingScan { Text = t, Levels = (int[])t.Levels.Clone(), Phase = 3, Changed = t.Changed, Found = t.Headings };
-            return new HeadingScan { Text = t, Levels = new int[t.Texts.Count] };
+                return new HeadingScan { Text = t, Levels = (int[])t.Levels.Clone(), Phase = 3, Changed = t.Changed, Touch = touch, Found = t.Headings };
+            return new HeadingScan { Text = t, Levels = new int[t.Texts.Count] };      // מעבר מלא – בודק הכל ממילא
         }
 
         /// <summary>מנה אחת של קריאת הכותרות (עד budgetMs). מחזיר true כשהסתיים.</summary>
@@ -693,7 +737,7 @@ namespace HebDocSearch.WordAddin
             if (scan == null || scan.Text != s.Text)
             {
                 scan = s.NeedsHeadings
-                    ? NewScan(s.Text)
+                    ? NewScan(s.Text, s)
                     : new HeadingScan { Text = s.Text, Levels = new int[s.Text.Texts.Count], Verify = true };
                 scan.EditsAtStart = s.Edits;
                 s.Scan = scan;
@@ -711,6 +755,11 @@ namespace HebDocSearch.WordAddin
                     }
                     else
                     {
+                        if (scan.OutlineIndex >= scan.Changed.Length && scan.Touch != null && scan.TouchIndex < scan.Touch.Count)
+                        {
+                            CheckTouchedRange(s, scan, scan.Touch[scan.TouchIndex++], docEnd);
+                            continue;
+                        }
                         if (scan.OutlineIndex >= scan.Changed.Length)
                         {
                             // רוב הפסקאות שנערכו לא נמצאו במסמך (משהו השתנה מאוד) – קוראים את כל הכותרות
@@ -811,6 +860,47 @@ namespace HebDocSearch.WordAddin
             return false;
         }
 
+        /// <summary>הפסקאות במקום שבו הסמן היה: רמת החלוקה של כל אחת (וגם הפסקה שלפני ושאחרי). אם היא שונה
+        /// ממה שידוע – פסקה שהפכה לכותרת או הפסיקה להיות כותרת.</summary>
+        void CheckTouchedRange(DocState s, HeadingScan scan, int[] place, int docEnd)
+        {
+            if (scan.TouchChecked >= TouchParagraphs || docEnd <= 1) return;
+            int a = Math.Max(0, Math.Min(place[0], docEnd - 1)), b = Math.Max(a, Math.Min(place[1], docEnd - 1));
+            Word.Paragraph p = s.Doc.Range(a, a).Paragraphs.First;
+            Word.Paragraph before = p?.Previous();
+            if (before != null) { CheckTouchedParagraph(scan, before); Release(before); }
+            while (p != null && scan.TouchChecked < TouchParagraphs)
+            {
+                Word.Range r = p.Range;
+                int start = r.Start;
+                Release(r);
+                CheckTouchedParagraph(scan, p);
+                Word.Paragraph next = p.Next();
+                Release(p);
+                p = next;
+                if (start > b) break;                                   // גם הפסקה שאחרי – ואז עוצרים
+            }
+            Release(p);
+        }
+
+        void CheckTouchedParagraph(HeadingScan scan, Word.Paragraph p)
+        {
+            scan.TouchChecked++;
+            int level = (int)p.OutlineLevel;                              // 10 = גוף הטקסט
+            int now = level >= 1 && level <= 9 ? level : 0;
+            Word.Range r = p.Range;
+            string clean = DocText.Clean(r.Text);
+            int start = r.Start;
+            Release(r);
+            if (clean.Trim().Length == 0) return;
+            int idx = scan.Text.MatchNear(clean, start);
+            if (idx < 0 || scan.Levels[idx] == now) return;
+            if (scan.Levels[idx] == 0 && now > 0) scan.Found++;
+            scan.Levels[idx] = now;
+            scan.TouchChanged++;
+            if (now > 0) scan.Text.Learn(idx, start);
+        }
+
         static void Release(object com)
         {
             try { if (com != null && Marshal.IsComObject(com)) Marshal.ReleaseComObject(com); } catch { }
@@ -832,6 +922,7 @@ namespace HebDocSearch.WordAddin
             bool changed = !scan.Text.HasLevels || withLevels.Key != scan.Text.Key;
             if (s.Text == scan.Text) s.Text = withLevels;
             s.NeedsHeadings = false;
+            s.TouchOnly = false;
             s.HeadingProgress = 1;
             if (full)
             {
@@ -846,7 +937,8 @@ namespace HebDocSearch.WordAddin
             for (int l = 1; l <= 9; l++) if (perLevel[l] > 0) levels.Append($" L{l}={perLevel[l]}");
             if (scan.Phase == 3)
                 Log.Write($"headings: {withLevels.Headings} – checked only the {scan.Checked} changed paragraphs " +
-                          $"({scan.Missed} not found){levels} in {scan.Time.ElapsedMilliseconds}ms");
+                          $"({scan.Missed} not found) and {scan.TouchChecked} paragraphs where the cursor was " +
+                          $"({scan.TouchChanged} heading changes){levels} in {scan.Time.ElapsedMilliseconds}ms");
             else
                 Log.Write($"headings{(scan.Verify ? " (background check" + (changed ? ", CHANGED" : ", no change") + ")" : "")}: " +
                           $"{withLevels.Headings} ({scan.Visited:N0} paragraphs read, not matched {scan.Unmatched}){levels} " +
@@ -857,7 +949,7 @@ namespace HebDocSearch.WordAddin
                 BeginIndex(s, s.Text);
                 if (scan.Phase == 3) s.CacheDirty = true;               // בדיקה של פסקאות שנערכו – נשמר כשהמסמך נסגר
                 else SaveCache(s);
-                if (scan.Verify && changed)
+                if (changed && (scan.Verify || scan.TouchChanged > 0))         // באמת נוספה / הוסרה / השתנתה כותרת
                 {
                     try { HeadingsChanged?.Invoke(s.Doc); }
                     catch (Exception e) { Log.Error("headings changed", e); }
@@ -892,21 +984,12 @@ namespace HebDocSearch.WordAddin
                 Adopt(s, dt, previous);
                 s.NeedsRead = false;
             }
+            CheckTouched(s);                                  // סגנון כותרת שהוחל במקום שבו הסמן היה?
             if (s.Text.HasLevels && !s.NeedsHeadings) return true;
             if (s.DocxPending && (DateTime.Now - s.DocxSince).TotalSeconds < 20) return false;   // עוד רגע – מהקובץ
             s.DocxPending = false;
             s.NeedsHeadings = true;
             return HeadingSlice(s, budgetMs) && !s.NeedsHeadings;
-        }
-
-        /// <summary>חיפוש בכותרות במסמך שאולי נערך מאז שהכותרות נקראו במלואן: אימות מלא ברקע (לא מעכב את
-        /// החיפוש). אם יתגלה שינוי – HeadingsChanged.</summary>
-        void RequestVerify(DocState s)
-        {
-            if (!s.Unverified || s.NeedsVerify || s.Text == null || !s.Text.HasLevels) return;
-            if ((DateTime.Now - s.LastFullScan).TotalSeconds < 20) return;
-            s.NeedsVerify = true;
-            Wake(s, 0);
         }
 
         // ================================================================ חיפוש (מהחלונית)
@@ -940,7 +1023,7 @@ namespace HebDocSearch.WordAddin
                             Adopt(s, dt, previous);
                             if (Ok(reply) && dt == s.Text) s.IndexedKey = dt.Key;
                             s.NeedsRead = false;
-                            if (headings) RequestVerify(s);
+                            CheckTouched(s);              // ברקע: רק הפסקאות שבהן הסמן היה (אם הוחל סגנון כותרת)
                         }
                         done(reply, dt, null);
                     });
