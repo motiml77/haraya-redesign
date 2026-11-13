@@ -20,7 +20,7 @@ from dataclasses import dataclass, field, replace
 from .extract import KIND_BODY, KIND_ENDNOTE, KIND_FOOTNOTE, KIND_TEXTBOX
 from .matching import find_spans
 from .morphology import MatchOptions, normalize_query_word, term_regex
-from .normalize import restore_finals, tokenize
+from .normalize import _LETTER, _MARK, _QUOTE, restore_finals, tokenize
 from .ranking import Scorer, term_weights
 
 MAX_VARIANTS = 50000
@@ -156,6 +156,17 @@ def quoted_phrase(query: str):
     return None
 
 
+# מילה בשאילתה: אותיות (עם ניקוד, וגרשיים בתוך מילה – רש"י), וגם תווי החיפוש * ו-?.
+# כל השאר – פסיק, נקודה, נקודתיים, סוגריים, מקף ארוך, מירכאות בקצה – הוא סימן פיסוק ולא חלק מהמילה,
+# בדיוק כמו בטקסט של המסמכים (שם הוא לא נכנס למפת החיפוש). "הר, שדה, בית" = הר שדה בית.
+_QUERY_WORD_RE = re.compile(
+    f"[{_LETTER}*?][{_MARK}]*(?:[{_QUOTE}]*[{_LETTER}*?][{_MARK}]*)*")
+
+
+def _query_words(part: str):
+    return _QUERY_WORD_RE.findall(part)
+
+
 def parse_query(query: str):
     query = re.sub(r"(?<=\S)[-־](?=\S)", " ", query)
     terms = []
@@ -163,9 +174,18 @@ def parse_query(query: str):
         neg = part.startswith("-") and len(part) > 1
         if neg:
             part = part[1:]
-        alts = [a for a in (normalize_query_word(x) for x in part.split("|")) if a.strip("*?")]
-        if alts:
-            terms.append(Term(part, alts, neg))
+        if "|" in part:
+            # חלופות (הלכה|הלכות): כל חלופה היא מילה אחת; פיסוק סביבה לא נחשב
+            words = [w for x in part.split("|") for w in _query_words(x)[:1]]
+            alts = [a for a in (normalize_query_word(w) for w in words) if a.strip("*?")]
+            if alts:
+                terms.append(Term("|".join(words), alts, neg))
+            continue
+        # מילה אחת – או כמה מילים מחוברות בפיסוק בלי רווח ("הר,שדה,בית")
+        for w in _query_words(part):
+            alt = normalize_query_word(w)
+            if alt.strip("*?"):
+                terms.append(Term(w, [alt], neg))
     return terms
 
 

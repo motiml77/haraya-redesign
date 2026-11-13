@@ -1,8 +1,8 @@
 // רשימת התוצאות – בבסיס כמו בחלונית "ניווט" של Word (קווים דקים בין התוצאות, ההתאמה בולטת),
 // ובנוסף: מספר לכל תוצאה, שרשרת הכותרות שהיא נמצאת תחתיהן, והמילים שנמצאו מסומנות במרקר.
 //
-// מצוירת בקוד ווירטואלית: רק התוצאות שעל המסך מצוירות, והפריסה של כל תוצאה מחושבת פעם אחת
-// לכל רוחב – כך שגם מאות תוצאות מוצגות מיד, בלי לעכב את Word.
+// מצוירת בקוד ווירטואלית: רק התוצאות שעל המסך מצוירות ונמדדות. לשאר יש גובה משוער (לפי אורך הטקסט),
+// והן נמדדות באמת רק כשהן מגיעות למסך – כך שגם מאות תוצאות מוצגות מיד, בלי לעכב את Word.
 //
 // הטקסט של כל תוצאה נפרס כפסקה אחת על-ידי מנוע הטקסט של Windows (GDI+, מימין לשמאל) – אותו
 // טיפול דו-כיווני כמו ב-Word לאנגלית, מספרים ופיסוק בתוך עברית, ורווחים טבעיים. מקום המרקר
@@ -37,6 +37,7 @@ namespace HebDocSearch.WordAddin
 
         // פריסה (לפי רוחב)
         internal int LayoutWidth = -1, Height, Top, TextHeight;
+        internal bool Estimated;                       // הגובה משוער – יימדד כשהתוצאה תגיע למסך
         internal string Text = "";
         internal List<RectangleF> Marks = new List<RectangleF>();     // יחסית לפינת הטקסט
     }
@@ -155,12 +156,22 @@ namespace HebDocSearch.WordAddin
         {
             if (_m == null || !IsHandleCreated) { Invalidate(); return; }
             int width = TextWidth, top = 0;
+            int measureUntil = _scroll + 2 * Math.Max(1, ClientSize.Height);      // מה שעל המסך ועוד מסך – נמדד עכשיו
             using (var g = CreateGraphics())
             {
                 g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+                float charW = 0, lineH = 0;
                 foreach (var it in _items)
                 {
-                    if (it.LayoutWidth != width) LayoutItem(g, it, width);
+                    if (it.LayoutWidth != width)
+                    {
+                        if (top < measureUntil) LayoutItem(g, it, width);
+                        else
+                        {
+                            if (charW == 0) MeasureSample(g, out charW, out lineH);
+                            Estimate(it, width, charW, lineH);
+                        }
+                    }
                     it.Top = top;
                     top += it.Height;
                 }
@@ -168,6 +179,55 @@ namespace HebDocSearch.WordAddin
             _contentH = top;
             SetScroll(_scroll);
             Invalidate();
+        }
+
+        /// <summary>רוחב ממוצע של תו וגובה שורה בגופן התוצאות – להערכת הגובה של תוצאה שעוד לא נמדדה.</summary>
+        void MeasureSample(Graphics g, out float charW, out float lineH)
+        {
+            const string sample = "בראשית ברא אלהים את השמים ואת הארץ, והארץ היתה תהו ובהו";
+            var size = g.MeasureString(sample, _m.Result, int.MaxValue, _format);
+            charW = Math.Max(1f, size.Width / sample.Length);
+            lineH = Math.Max(1f, _m.Result.GetHeight(g));
+        }
+
+        void Estimate(ResultItem it, int width, float charW, float lineH)
+        {
+            it.Text = BuildText(it, null);
+            int lines = Math.Max(1, (int)Math.Ceiling(it.Text.Length * charW * 1.08 / Math.Max(1, width)));
+            it.TextHeight = (int)Math.Ceiling(lines * lineH);
+            it.Marks = new List<RectangleF>();
+            it.LayoutWidth = width;
+            it.Estimated = true;
+            it.Height = PadTop + HeaderH + HeaderGap + it.TextHeight + PadBottom;
+        }
+
+        /// <summary>לפני ציור: תוצאות שעל המסך ועדיין משוערות – נמדדות עכשיו, והמקומות של מה שאחריהן מתעדכנים.</summary>
+        void MeasureVisible(Graphics g)
+        {
+            for (int round = 0; round < 4; round++)
+            {
+                int first = -1;
+                var oldHint = g.TextRenderingHint;
+                g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+                foreach (var it in FindVisible(_scroll, _scroll + ClientSize.Height))
+                {
+                    if (!it.Estimated) continue;
+                    int before = it.Height;
+                    LayoutItem(g, it, it.LayoutWidth);
+                    if (it.Height != before && first < 0) first = it.Number - 1;
+                }
+                g.TextRenderingHint = oldHint;
+                if (first < 0) return;
+                int top = _items[first].Top;
+                for (int i = first; i < _items.Count; i++)
+                {
+                    _items[i].Top = top;
+                    top += _items[i].Height;
+                }
+                _contentH = top;
+                int max = Math.Max(0, _contentH - ClientSize.Height);
+                if (_scroll > max) _scroll = max;
+            }
         }
 
         protected override void OnHandleCreated(EventArgs e)
@@ -184,11 +244,10 @@ namespace HebDocSearch.WordAddin
         }
 
         // ================================================================ פריסת הטקסט של תוצאה
-        void LayoutItem(Graphics g, ResultItem it, int width)
+        /// <summary>הטקסט של התוצאה כמחרוזת אחת, ומקומות ההתאמות בתוכה (התאמות צמודות – מרקר רציף אחד).</summary>
+        static string BuildText(ResultItem it, List<CharacterRange> marks)
         {
-            // הטקסט כמחרוזת אחת, ומקומות ההתאמות בתוכה (התאמות צמודות – מרקר רציף אחד)
             var sb = new StringBuilder();
-            var marks = new List<CharacterRange>();
             foreach (var seg in it.Snippet)
             {
                 if (seg.Kind == 3)                         // סוף פסקה – בלי סימן ¶
@@ -197,7 +256,7 @@ namespace HebDocSearch.WordAddin
                     continue;
                 }
                 string text = (seg.Text ?? "").Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ');
-                if (seg.Kind == 1 && text.Length > 0)
+                if (seg.Kind == 1 && text.Length > 0 && marks != null)
                 {
                     int start = sb.Length;
                     if (marks.Count > 0)
@@ -215,7 +274,14 @@ namespace HebDocSearch.WordAddin
                 }
                 sb.Append(text);
             }
-            it.Text = sb.ToString();
+            return sb.ToString();
+        }
+
+        void LayoutItem(Graphics g, ResultItem it, int width)
+        {
+            var marks = new List<CharacterRange>();
+            it.Text = BuildText(it, marks);
+            it.Estimated = false;
             var font = TextFont(it);
             var size = g.MeasureString(it.Text.Length == 0 ? " " : it.Text, font, width, _format);
             it.TextHeight = (int)Math.Ceiling(size.Height);
@@ -255,6 +321,7 @@ namespace HebDocSearch.WordAddin
                 return;
             }
             if (_items.Count > 0 && _items[0].LayoutWidth != TextWidth) Relayout();
+            MeasureVisible(g);
             int h = ClientSize.Height;
             foreach (var it in FindVisible(_scroll, _scroll + h))
                 PaintItem(g, it, it.Top - _scroll);

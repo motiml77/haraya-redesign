@@ -71,6 +71,9 @@ namespace HebDocSearch.WordAddin
             public int ReadEnd = -1;
             public bool ReadSaved;
             public bool SelChanged, SaveEvent;
+            public int ReadEditKeys;            // מונה ההקשות (Typing.EditKeys) כשקראנו
+            public DateTime LastRead;
+            public long LastReadMs;
         }
 
         internal sealed class HeadingScan
@@ -252,11 +255,33 @@ namespace HebDocSearch.WordAddin
         /// <summary>האם הטקסט שכבר נקרא עדיין נכון (כמה קריאות זולות ל-Word, בלי לקרוא את הטקסט).</summary>
         bool Fresh(DocState s)
         {
-            if (s.Text == null || s.ReadEnd < 0 || s.SaveEvent) return false;
+            if (s.Text == null || s.ReadEnd < 0) return false;
+            if (Typing.Active)
+            {
+                // נערך רק אם הוקלד משהו במסמך, האורך השתנה, או שמסמך שהיה שמור כבר לא שמור (עריכה בעכבר:
+                // הדבקה, גרירה, תפריט). לחיצה בעכבר, גלילה או מעבר בין התוצאות – לא קוראים שוב.
+                if (Typing.EditKeys != s.ReadEditKeys) return false;
+                if (s.Doc.Content.End != s.ReadEnd) return false;
+                return !(s.ReadSaved && !s.Doc.Saved);
+            }
+            if (s.SaveEvent) return false;
             if (s.Doc.Content.End != s.ReadEnd) return false;
             if (!s.SelChanged) return true;
             // הסמן זז: אם המסמך היה שמור כשקראנו ועדיין שמור (ואין שמירה אוטומטית) – לא נערך
             return s.ReadSaved && s.Doc.Saved && !AutoSaveOn(s.Doc);
+        }
+
+        /// <summary>מהחלונית (כל ~חצי שנייה כשהיא פתוחה): אם הוקלד משהו במסמך – אחרי הפסקה בהקלדה קוראים אותו
+        /// שוב ומעדכנים את מפת החיפוש ברקע (רק השינויים), כדי שהחיפוש הבא יהיה מיידי.</summary>
+        public void Poke(Word.Document doc)
+        {
+            var s = Find(doc);
+            if (s == null || s.Text == null || s.Reading || s.NeedsRead || !Typing.Active) return;
+            if (Typing.EditKeys == s.ReadEditKeys || Typing.IdleMs < 2000) return;
+            if ((DateTime.Now - s.LastRead).TotalSeconds < 5) return;
+            if (s.LastReadMs > 400) return;               // מסמך שקריאתו ארוכה – רק כשמחפשים, לא ברקע
+            s.NeedsRead = true;
+            Wake(s, 0);
         }
 
         public bool WillRead(Word.Document doc)
@@ -288,12 +313,15 @@ namespace HebDocSearch.WordAddin
         RawText ReadText(DocState s)
         {
             var sw = Stopwatch.StartNew();
+            s.ReadEditKeys = Typing.EditKeys;
             string raw = s.Doc.Content.Text;           // קריאה אחת של כל גוף המסמך
             DocNotes notes = ReadNotes(s.Doc, raw);    // ועוד קריאה אחת לכל סוג הערות (אם יש)
             s.ReadEnd = s.Doc.Content.End;
             s.ReadSaved = s.Doc.Saved;
             s.SelChanged = false;
             s.SaveEvent = false;
+            s.LastRead = DateTime.Now;
+            s.LastReadMs = sw.ElapsedMilliseconds;
             Log.Write($"read {raw.Length:N0} chars" +
                       (notes.Empty ? "" : $" + {notes.FootCount:N0} footnotes ({notes.Footnotes.Length:N0} chars), {notes.EndCount:N0} endnotes ({notes.Endnotes.Length:N0} chars)" +
                                           (notes.FootRefs == null && notes.EndRefs == null ? ", reference places unknown" : "")) +
@@ -882,7 +910,9 @@ namespace HebDocSearch.WordAddin
             var s = StateOf(doc);
             DocText previous = s.Text;
             RawText raw = null;
+            var clock = Stopwatch.StartNew();
             if (reuse == null) raw = FocusGuard.Run(() => Fresh(s) ? null : ReadText(s));
+            long readMs = raw != null ? clock.ElapsedMilliseconds : 0;
             if (raw != null && previous != null) Reread(s);
             DocText known = reuse ?? (raw == null ? previous : null);
             bool headings = reuse == null && request.ContainsKey("headings_only") && request["headings_only"] is bool h && h;
@@ -892,7 +922,9 @@ namespace HebDocSearch.WordAddin
                 {
                     DocText dt = known ?? (previous != null && previous.TextHash == raw.Hash ? previous : DocText.Build(raw.Main, previous, raw.Notes));
                     var req = new Dictionary<string, object>(request) { ["cmd"] = "search", ["doc"] = dt.Key };
+                    var helperClock = Stopwatch.StartNew();
                     var reply = Ask(req, dt, false, null);
+                    reply["timing"] = $"read {readMs}ms, helper {helperClock.ElapsedMilliseconds}ms";
                     Post(() =>
                     {
                         if (_docs.Contains(s) && reuse == null)
@@ -970,6 +1002,29 @@ namespace HebDocSearch.WordAddin
                 req["levels"] = dt.LevelString();
             }
             var reply = Call(req, background, known ? null : progress);
+            if (reply.ContainsKey("need_paras") && known)
+            {
+                // רכיב העזר הופעל מחדש או פינה את הגרסה מהזיכרון: קודם מהדיסק (בלי לשלוח ולבנות), ורק אחר כך הכל
+                lock (_sent) _sent.Remove(dt.Key);
+                Log.Write("helper did not have this version in memory – trying its saved copy");
+                req["text"] = dt.TextHash;
+                req["levels"] = dt.LevelString();
+                reply = Call(req, background, progress);
+                if (reply.ContainsKey("need_paras") && dt.CanPatch)
+                {
+                    var p2 = Call(new Dictionary<string, object>
+                    {
+                        ["cmd"] = "patch", ["doc"] = dt.Key, ["text"] = dt.TextHash, ["base"] = dt.BaseTextHash,
+                        ["ops"] = dt.PatchOps(), ["levels"] = dt.LevelString(),
+                    }, background, progress);
+                    if (Ok(p2))
+                    {
+                        req.Remove("text");
+                        req.Remove("levels");
+                        reply = Call(req, background);
+                    }
+                }
+            }
             if (reply.ContainsKey("need_paras"))                  // לא מוכר לרכיב העזר (או שהופעל מחדש / פינה את המסמך)
             {
                 req["text"] = dt.TextHash;

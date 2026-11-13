@@ -113,7 +113,11 @@ namespace HebDocSearch.WordAddin
                 {
                     pane.Visible = !pane.Visible;
                 }
-                if (pane.Visible) Preparer.Enqueue(doc, 0);
+                if (pane.Visible)
+                {
+                    Preparer.Enqueue(doc, 0);
+                    Log.Write("pane opened: " + Preparer.Status(doc));
+                }
             }
             catch (Exception ex)
             {

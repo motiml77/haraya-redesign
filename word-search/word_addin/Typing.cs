@@ -1,5 +1,8 @@
 // מתי המשתמש הקליד בפעם האחרונה – רק מקלדת, לא עכבר. ההכנה ברקע עוצרת רק בזמן כתיבה; תזוזת עכבר או
 // גלילה לא עוצרות אותה (רק מקצרות את המנות, כדי שהמסך יישאר חלק).
+//
+// בנוסף – EditKeys: כמה הקשות שיכולות לשנות טקסט (לא חצים, לא Ctrl/Shift/Alt לבדם, לא F1–F24) היו במסמך
+// (כלומר כשהמיקוד לא בחלונית שלנו). כך יודעים אם המסמך אולי נערך – בלי לקרוא אותו מחדש בכל לחיצה בעכבר.
 // "וו" (hook) של מקלדת על התהליכון של Word בלבד (WH_KEYBOARD עם מזהה התהליכון) – רואה רק הקשות
 // בחלונות של Word ושל החלונית, לא בתוכנות אחרות, ולא עושה בהן כלום חוץ מלרשום את השעה.
 using System;
@@ -15,6 +18,10 @@ namespace HebDocSearch.WordAddin
         static HookProc _proc;                   // נשמר כדי שאוסף הזבל לא ישחרר אותו
         static IntPtr _hook;
         static int _lastKey = Environment.TickCount - 60000;
+        static int _editKeys;
+
+        /// <summary>מונה של הקשות שאולי ערכו את המסמך (עולה בכל הקשה כזו; משווים לערך הקודם).</summary>
+        public static int EditKeys => _editKeys;
 
         public static bool Active => _hook != IntPtr.Zero;
 
@@ -42,8 +49,30 @@ namespace HebDocSearch.WordAddin
 
         static IntPtr OnKey(int code, IntPtr wParam, IntPtr lParam)
         {
-            if (code >= 0) _lastKey = Environment.TickCount;
+            if (code >= 0)
+            {
+                _lastKey = Environment.TickCount;
+                bool down = ((long)lParam & 0x80000000L) == 0;
+                if (down && CanEdit((int)wParam) && !FocusGuard.InAddIn) unchecked { _editKeys++; }
+            }
             return CallNextHookEx(_hook, code, wParam, lParam);
+        }
+
+        /// <summary>מקש שיכול לשנות טקסט (גם Ctrl+V / Ctrl+Z / Delete נספרים – עדיף לקרוא פעם מיותרת).</summary>
+        static bool CanEdit(int vk)
+        {
+            if (vk >= 0x21 && vk <= 0x28) return false;          // PageUp/Down, End, Home, חצים
+            if (vk >= 0x10 && vk <= 0x12) return false;          // Shift, Ctrl, Alt
+            if (vk >= 0xA0 && vk <= 0xA5) return false;          // Shift/Ctrl/Alt ימני ושמאלי
+            if (vk >= 0x70 && vk <= 0x87) return false;          // F1–F24
+            switch (vk)
+            {
+                case 0x14: case 0x90: case 0x91:                  // Caps / Num / Scroll Lock
+                case 0x1B: case 0x5B: case 0x5C: case 0x5D:       // Esc, Windows, תפריט
+                case 0x2C: case 0x13:                             // PrintScreen, Pause
+                    return false;
+            }
+            return true;
         }
 
         /// <summary>כמה אלפיות שנייה עברו מההקשה האחרונה (ב-Word או בחלונית).</summary>

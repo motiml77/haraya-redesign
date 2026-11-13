@@ -100,7 +100,11 @@ namespace HebDocSearch.WordAddin
                 var theme = Theme.Current();
                 if (theme != _view.CurrentTheme) _view.ApplyTheme(theme);
             }
-            if (_addin.Preparer != null) _view.SetDocStatus(_addin.Preparer.Status(_doc));
+            if (_addin.Preparer != null)
+            {
+                _view.SetDocStatus(_addin.Preparer.Status(_doc));
+                _addin.Preparer.Poke(_doc);                    // נערך? – עדכון ברקע, כדי שהחיפוש הבא יהיה מיידי
+            }
             // רוחב החלונית: נשמר כשהמשתמש גורר את הקצה (אחרי שהגרירה נעצרה)
             if (_initialWidth == 0 && Width > 50) _initialWidth = _savedWidth = Width;
             if (Width != _lastWidth) _lastWidth = Width;                       // עדיין נגרר
@@ -202,8 +206,11 @@ namespace HebDocSearch.WordAddin
                             throw new Exception(reply.ContainsKey("error") ? Convert.ToString(reply["error"]) : "שגיאה בחיפוש");
                         _searched = text;
                         _lastKey = key;
+                        var shown = Stopwatch.StartNew();
                         ShowResults(reply, text, headings);
-                        Log.Write($"search '{_view.Query}' headings={headings}: {reply["total"]} hits in {sw.ElapsedMilliseconds}ms");
+                        _view.Update();
+                        Log.Write($"search '{_view.Query}' headings={headings}: {reply["total"]} hits in {sw.ElapsedMilliseconds}ms" +
+                                  (reply.ContainsKey("timing") ? $" ({reply["timing"]}, shown in {shown.ElapsedMilliseconds}ms)" : ""));
                         CountOtherMode(text, headings, generation);
                     }
                     catch (Exception ex) { SearchFailed(ex); }

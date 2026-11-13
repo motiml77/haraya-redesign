@@ -59,6 +59,20 @@ class DocSearchTest(unittest.TestCase):
         r = self.search("הלך", options={"forms": "all"}, headings_only=True)
         self.assertEqual([h["path"] for h in r["hits"]], [[], ["הלכות שבת"]])
 
+    def test_punctuation_in_the_query_is_ignored(self):
+        """פסיק, נקודה, סוגריים או מקף ארוך בשאילתה – כמו רווח (בטקסט עצמו הם ממילא לא חלק מהמילה)."""
+        paras = [{"t": "הר, שדה, בית", "h": 1}, {"t": "גוף על הר ושדה", "h": 0},
+                 {"t": "פרק ג – כתובות (סימן קט\"ו).", "h": 1}]
+        for q in ("הר, שדה, בית", "הר,שדה,בית", '"הר, שדה, בית"', "(הר) שדה; בית.", "הר שדה בית"):
+            for headings in (False, True):
+                r = self.svc.search({"doc": "punct", "paras": paras, "query": q, "headings_only": headings})
+                self.assertEqual([h["para"] for h in r["hits"]], [0], (q, headings))
+                self.assertEqual(r["hits"][0]["ranges"], [[0, 2], [4, 7], [9, 12]], q)     # המילים בלי הפסיקים
+        r = self.svc.search({"doc": "punct", "paras": paras, "query": "פרק ג – כתובות", "headings_only": True})
+        self.assertEqual([h["para"] for h in r["hits"]], [2])
+        r = self.svc.search({"doc": "punct", "paras": paras, "query": "הר|גבעה, שדה,", "options": {"forms": "all"}})
+        self.assertEqual(sorted(h["para"] for h in r["hits"]), [0, 1])
+
     def test_snippet_is_only_from_the_hit_paragraph(self):
         short = [{"t": "גלות מצרים – הכח להוציא טוב 256", "h": 0}, {"t": "גלות בבל 688", "h": 0},
                  {"t": "ריבוי עם ישראל 690", "h": 0}]
