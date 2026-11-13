@@ -52,6 +52,8 @@ namespace HebDocSearch.WordAddin
             _view.OptionsChanged += OnOptionsChanged;
             _view.ModeChanged += OnOptionsChanged;
             _view.QueryCleared += Reset;
+            // בזמן כתיבה במסמך לא עושים כלום. כשעוברים לשדה החיפוש – אם המסמך נערך, מתעדכנים עכשיו (רק השינויים)
+            _view.Search.Box.Enter += (s, e) => _addin.Preparer?.Poke(_doc);
             _view.Search.Box.TextChanged += (s, e) =>
             {
                 _live.Stop();
@@ -100,11 +102,7 @@ namespace HebDocSearch.WordAddin
                 var theme = Theme.Current();
                 if (theme != _view.CurrentTheme) _view.ApplyTheme(theme);
             }
-            if (_addin.Preparer != null)
-            {
-                _view.SetDocStatus(_addin.Preparer.Status(_doc));
-                _addin.Preparer.Poke(_doc);                    // נערך? – עדכון ברקע, כדי שהחיפוש הבא יהיה מיידי
-            }
+            if (_addin.Preparer != null) _view.SetDocStatus(_addin.Preparer.Status(_doc));
             // רוחב החלונית: נשמר כשהמשתמש גורר את הקצה (אחרי שהגרירה נעצרה)
             if (_initialWidth == 0 && Width > 50) _initialWidth = _savedWidth = Width;
             if (Width != _lastWidth) _lastWidth = Width;                       // עדיין נגרר

@@ -72,6 +72,7 @@ namespace HebDocSearch.WordAddin
             public bool ReadSaved;
             public bool SelChanged, SaveEvent;
             public int ReadEditKeys;            // מונה ההקשות (Typing.EditKeys) כשקראנו
+            public bool CacheDirty;             // מה שנשמר בדיסק על המסמך אינו מעודכן (יישמר כשהמסמך נסגר)
             public DateTime LastRead;
             public long LastReadMs;
         }
@@ -271,17 +272,21 @@ namespace HebDocSearch.WordAddin
             return s.ReadSaved && s.Doc.Saved && !AutoSaveOn(s.Doc);
         }
 
-        /// <summary>מהחלונית (כל ~חצי שנייה כשהיא פתוחה): אם הוקלד משהו במסמך – אחרי הפסקה בהקלדה קוראים אותו
-        /// שוב ומעדכנים את מפת החיפוש ברקע (רק השינויים), כדי שהחיפוש הבא יהיה מיידי.</summary>
+        /// <summary>המשתמש עבר לשדה החיפוש. בזמן הכתיבה במסמך התוסף לא עושה כלום; רק עכשיו, אם הוקלד משהו
+        /// במסמך מאז הקריאה האחרונה, קוראים אותו שוב (קריאה אחת) ושולחים לרכיב העזר רק את הפסקאות שהשתנו –
+        /// כך שעד שהמשתמש מסיים להקליד את מילות החיפוש, הכל כבר מעודכן.</summary>
         public void Poke(Word.Document doc)
         {
             var s = Find(doc);
-            if (s == null || s.Text == null || s.Reading || s.NeedsRead || !Typing.Active) return;
-            if (Typing.EditKeys == s.ReadEditKeys || Typing.IdleMs < 2000) return;
-            if ((DateTime.Now - s.LastRead).TotalSeconds < 5) return;
-            if (s.LastReadMs > 400) return;               // מסמך שקריאתו ארוכה – רק כשמחפשים, לא ברקע
-            s.NeedsRead = true;
-            Wake(s, 0);
+            if (s == null || s.Text == null || s.Reading || !Typing.Active) return;
+            if (Typing.EditKeys == s.ReadEditKeys) return;
+            if (s.LastReadMs > 400) return;               // מסמך שקריאתו ארוכה – רק כשמחפשים באמת
+            try
+            {
+                if (WordAvailable()) FocusGuard.Run(() => BeginRead(s));
+            }
+            catch (COMException e) { Log.Write("busy: " + e.Message); }
+            catch (Exception e) { Log.Error("refresh", e); }
         }
 
         public bool WillRead(Word.Document doc)
@@ -536,6 +541,7 @@ namespace HebDocSearch.WordAddin
                 {
                     s.NeedsHeadings = false;
                     if (s.NeedsVerify) Wake(s, 300);
+                    else if (previous != null) s.CacheDirty = true;     // אחרי עריכה: נשמר בדיסק רק כשהמסמך נסגר
                     else SaveCache(s);
                     return;
                 }
@@ -655,6 +661,7 @@ namespace HebDocSearch.WordAddin
             DocText dt = s.Text;
             string path = s.Path;
             if (path == null || dt == null || !dt.HasLevels || s.NeedsHeadings) return;
+            s.CacheDirty = false;
             bool saved;
             try { saved = FocusGuard.Run(() => s.Doc.Saved); }
             catch { saved = false; }
@@ -848,7 +855,8 @@ namespace HebDocSearch.WordAddin
             if (s.Text == withLevels)
             {
                 BeginIndex(s, s.Text);
-                SaveCache(s);
+                if (scan.Phase == 3) s.CacheDirty = true;               // בדיקה של פסקאות שנערכו – נשמר כשהמסמך נסגר
+                else SaveCache(s);
                 if (scan.Verify && changed)
                 {
                     try { HeadingsChanged?.Invoke(s.Doc); }

@@ -14,7 +14,9 @@
     {"cmd": "patch", "doc": "<מפתח>", "text": "<טביעת אצבע>", "base": "<טביעת האצבע של גרסה קודמת>",
      "ops": [[התחלה, כמה], "טקסט של פסקה חדשה", ...], "levels": "0010…"}
         אחרי עריכה: רק הפסקאות שהשתנו נשלחות. [התחלה, כמה] = פסקאות רצופות מהגרסה הקודמת (שבזיכרון או
-        בדיסק), ומחרוזת = פסקה חדשה. המילים המנורמלות של הפסקאות שלא השתנו לא מחושבות שוב.
+        בדיסק), ומחרוזת = פסקה חדשה. מפת החיפוש של המסמך לא נבנית מחדש: מחפשים במפה של הגרסה המלאה
+        האחרונה (בלי הפסקאות שנמחקו או שונו) ובמפה קטנה של הפסקאות החדשות בלבד (PatchedIndex) – העלות
+        היא לפי גודל השינוי ולא לפי גודל המסמך. רק כשהשינויים מצטברים להרבה – בונים מפה מלאה חדשה.
         → כמו index; need_paras אם הגרסה הקודמת לא בזיכרון ולא בדיסק
     {"cmd": "persist", "doc": "<מפתח>"}     שמירת המפה של הגרסה הזו בדיסק (התוסף שולח כשמסמך נסגר)
     {"cmd": "docx_headings", "path": "<קובץ>"}
@@ -46,11 +48,11 @@ import time
 import uuid
 import zlib
 from array import array
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 
 from .extract import KIND_BODY
 from .index import INDEX_VERSION, IndexDB, pack_paras
-from .normalize import normalize_text, tokenize
+from .normalize import normalize_text, restore_finals, tokenize
 from .search import Searcher, options_from_choices, parse_query
 
 DOC_PATH = "word://active-document"
@@ -58,6 +60,7 @@ DOC_PATH = "word://active-document"
 
 CACHE_MAX_AGE = 3 * 24 * 3600        # מפה של מסמך שלא נפתח 3 ימים נמחקת (ונבנית שוב כשהוא נפתח)
 CACHE_KEEP_BYTES = 2 * 1024 ** 3      # ובכל מקרה – לא יותר מזה בסך הכול (הישנות ביותר נמחקות קודם)
+PATCH_LIMIT = 400                     # עד כמה פסקאות שהשתנו מחפשים במפה נפרדת (או 4% מהמסמך, הגדול מביניהם)
 NORM_TABLE = "doc_norms"
 PROGRESS_INTERVAL = 0.25              # שניות בין שורות התקדמות              # המילים המנורמלות של כל פסקה (לעדכון חלקי אחרי עריכה)
 
@@ -286,7 +289,8 @@ class DocIndex:
         """לכל פסקה: שרשרת הכותרות שהיא נמצאת תחתיהן (מעבר אחד על המסמך; שרשראות זהות משותפות)."""
         paths, stack, current = [], [], ()
         for text, level in zip(self.texts, self.levels):
-            text = " ".join(text.split())
+            if 0 < level < 10:
+                text = " ".join(text.split())
             if 0 < level < 10 and text:
                 while stack and stack[-1][0] >= level:
                     stack.pop()
@@ -311,11 +315,91 @@ class DocIndex:
         path = self.paths[idx] if 0 <= idx < len(self.paths) else ()
         return path[-1] if path else ""
 
+    def dbs(self):
+        return [self.db]
+
+    def run(self, query, opts):
+        """→ ([(פסקה במסמך, תוצאה, מנוע, הדגשה)], צורות, ביטוי?, מספר מילים, הודעה)."""
+        if self.fid is None:
+            return [], Counter(), False, 0, ""
+        res = self.searcher.search(query, self.file_ids, opts)
+        found = [(self.map[h.para_idx], h, self.searcher, res.highlight) for h in res.hits]
+        return found, res.forms, bool(res.phrase), res.n_terms, res.message or ""
+
     def close(self):
         try:
             self.db.close()
         except Exception:
             pass
+
+
+class PatchedIndex:
+    """גרסה ערוכה של מסמך, בלי לבנות את מפת החיפוש מחדש.
+
+    מחפשים בשתי מפות: המפה של הגרסה המלאה האחרונה (base) – ממנה נלקחות רק תוצאות בפסקאות שעדיין
+    קיימות, עם המספר החדש שלהן; ומפה קטנה (delta) של הפסקאות שנוספו או שונו מאז. כל פסקה נבדקת בנפרד,
+    ולכן התוצאה זהה לחיפוש במפה מלאה של הגרסה החדשה. origin[i] = מספר הפסקה בגרסת הבסיס, או ‎-1.
+    """
+    on_disk = False
+    fid = 1
+
+    def __init__(self, paras, base, origin, norms):
+        self.all_paras = paras
+        self.levels = [int(p.get("h") or 0) for p in paras]
+        self.texts = [str(p.get("t") or "") for p in paras]
+        self.base = base
+        self.origin = origin
+        self.to_new = [-1] * len(base.texts)
+        fresh = []
+        for i, o in enumerate(origin):
+            if o >= 0:
+                self.to_new[o] = i
+            else:
+                fresh.append(i)
+        self.fresh = fresh
+        self.delta = None
+        if fresh:
+            self.delta = DocIndex([paras[i] for i in fresh], norms=[norms[i] for i in fresh] if norms is not None else None)
+        self.paths = DocIndex._heading_paths(self)
+
+    def with_levels(self, paras):
+        clone = object.__new__(PatchedIndex)
+        clone.__dict__.update(self.__dict__)
+        clone.all_paras = paras
+        clone.levels = [int(p.get("h") or 0) for p in paras]
+        clone.paths = DocIndex._heading_paths(clone)
+        return clone
+
+    heading_above = DocIndex.heading_above
+
+    def dbs(self):
+        return [self.base.db] + ([self.delta.db] if self.delta is not None else [])
+
+    def run(self, query, opts):
+        found, forms, phrase, n_terms, messages = [], Counter(), False, 0, []
+        for part, mapping in ((self.base, self.to_new), (self.delta, self.fresh)):
+            if part is None or part.fid is None:
+                continue
+            res = part.searcher.search(query, part.file_ids, opts)
+            phrase = phrase or bool(res.phrase)
+            n_terms = max(n_terms, res.n_terms)
+            messages.append(res.message or "")
+            for h in res.hits:
+                para = mapping[part.map[h.para_idx]]
+                if para < 0:
+                    continue                    # הפסקה נמחקה או שונתה מאז גרסת הבסיס
+                found.append((para, h, part.searcher, res.highlight))
+                for w in h.words:
+                    forms[restore_finals(w)] += 1
+        message = "" if found else next((m for m in messages if m), "")
+        return found, forms, phrase, n_terms, message
+
+    def close(self):
+        for db in self.dbs():
+            try:
+                db.close()
+            except Exception:
+                pass
 
 
 class DocSearchService:
@@ -333,10 +417,15 @@ class DocSearchService:
             self.report(frac)
 
     def _close_unused(self, old):
-        in_use = {id(e[k].db) for e in self.docs.values() for k in (False, True) if k in e}
+        in_use = {id(db) for e in self.docs.values() for k in (False, True) if k in e for db in e[k].dbs()}
         for k in (False, True):
-            if k in old and id(old[k].db) not in in_use:          # מפה משותפת (relevel) נסגרת רק כשאין בה שימוש
-                old[k].close()
+            if k in old:
+                for db in old[k].dbs():
+                    if id(db) not in in_use:          # מפה משותפת (relevel / בסיס של גרסה ערוכה) נסגרת רק כשאין בה שימוש
+                        try:
+                            db.close()
+                        except Exception:
+                            pass
 
     def _store(self, key, entry):
         self.docs[key] = entry
@@ -461,28 +550,31 @@ class DocSearchService:
 
         base = req.get("base")
         src = self._in_memory(base)
-        texts = norms = None
+        texts = norms = full = origin = None
         if src is not None:
             texts = src[False].texts
             norms = src.get("norms")
-            if norms is None:
-                norms = src["norms"] = load_norms(src[False].db, len(texts))
+            if isinstance(src[False], PatchedIndex):
+                full, origin = src[False].base, src[False].origin
+            else:
+                full = src[False]
+                if norms is None:
+                    norms = src["norms"] = load_norms(full.db, len(texts))
         elif self.cache is not None and base:
             opened = self.cache.open(base)
             if opened is not None:
                 db, texts = opened
-                try:
-                    norms = load_norms(db, len(texts))
-                finally:
-                    db.close()
+                norms = load_norms(db, len(texts))
+                full = DocIndex([{"t": t, "h": 0} for t in texts], db=db, on_disk=True)
         if texts is None:
             return {"ok": False, "need_paras": True}
 
-        new_texts, reuse = [], {}
+        new_texts, new_origin, reuse = [], [], {}
         try:
             for op in req.get("ops") or []:
                 if isinstance(op, str):
                     new_texts.append(op)
+                    new_origin.append(-1)
                     continue
                 start, count = int(op[0]), int(op[1])
                 if start < 0 or count < 0 or start + count > len(texts):
@@ -491,6 +583,7 @@ class DocSearchService:
                     for k in range(count):
                         reuse[len(new_texts) + k] = norms[start + k]
                 new_texts.extend(texts[start:start + count])
+                new_origin.extend(origin[start:start + count] if origin is not None else range(start, start + count))
         except (TypeError, ValueError, IndexError):
             return {"ok": False, "need_paras": True}
         levels = self._levels(req.get("levels"), len(new_texts))
@@ -500,12 +593,28 @@ class DocSearchService:
         new_norms = normalize_paras(new_texts, reuse, progress=lambda f: self._progress(0.8 * f))
         paras = [{"t": t, "h": lvl} for t, lvl in zip(new_texts, levels)]
         entry = {"paras": paras, "text": text, "norms": new_norms}
-        entry[False] = DocIndex(paras, norms=new_norms)            # בזיכרון; נשמר בדיסק כשהמסמך נסגר
+        changed = sum(1 for o in new_origin if o < 0)
+        rebuilt = changed > max(PATCH_LIMIT, len(new_texts) // 25)
+        if rebuilt:
+            entry[False] = DocIndex(paras, norms=new_norms)        # השינויים הצטברו – מפה מלאה חדשה (בזיכרון)
+        else:
+            entry[False] = PatchedIndex(paras, full, new_origin, new_norms)
+        # מפת הכותרות: אם הכותרות עצמן לא השתנו (רק המקום שלהן) – אותה מפה, עם המקומות החדשים
+        old_heads = src.get(True) if src is not None else None
+        if old_heads is not None:
+            hmap = [i for i, lvl in enumerate(levels) if 0 < lvl < 10]
+            if [old_heads.texts[j] for j in old_heads.map] == [new_texts[i] for i in hmap]:
+                heads = object.__new__(DocIndex)
+                heads.__dict__.update(old_heads.__dict__)
+                heads.all_paras, heads.levels, heads.texts, heads.map = paras, levels, new_texts, hmap
+                heads.paths = entry[False].paths
+                entry[True] = heads
         self._store(key, entry)
         self._index(key, None, True)
         if base and base != text:
             self._drop_text(base, key)
-        return self._result(entry[False], t0, reused=len(reuse), normalized=len(new_texts) - len(reuse))
+        return self._result(entry[False], t0, reused=len(reuse), normalized=len(new_texts) - len(reuse),
+                            changed=changed, rebuilt=rebuilt)
 
     def persist(self, req: dict) -> dict:
         """שומר בדיסק את המפה של הגרסה הזו (כדי שבפתיחה הבאה לא תיבנה שוב)."""
@@ -513,9 +622,15 @@ class DocSearchService:
         if entry is None or False not in entry or not entry.get("text") or self.cache is None:
             return {"ok": False, "error": "unknown document"}
         full = entry[False]
-        if full.on_disk:
+        if full.on_disk or self.cache.has(entry["text"]):
             self.cache.touch(entry["text"])
             return {"ok": True, "saved": False}
+        if isinstance(full, PatchedIndex):
+            # גרסה ערוכה: עכשיו (כשהמסמך נסגר) בונים לה מפה מלאה אחת, ישר לדיסק
+            db = self.cache.build(entry["text"], full.texts, entry.get("norms"))
+            if db is not None:
+                db.close()
+            return {"ok": db is not None, "saved": True}
         if entry.get("norms") is not None and load_norms(full.db, len(full.texts)) is None:
             _store_doc(full.db, full.texts, entry["norms"])    # (לא אמור לקרות – המילים נשמרות בבנייה)
         return {"ok": self.cache.save(entry["text"], full.db, len(full.texts)), "saved": True}
@@ -562,17 +677,16 @@ class DocSearchService:
         if idx.fid is None:                      # אין טקסט (למשל: אין כותרות במסמך)
             return {"ok": True, "total": 0, "shown": 0, "hits": [], "forms": [], "phrase": False,
                     "elapsed": 0.0, "message": "", "headings": headings}
-        res = idx.searcher.search(query, idx.file_ids, opts)
+        found, forms, phrase, res_terms, message = idx.run(query, opts)
         limit = max(1, int(req.get("limit") or 500))
         # בתוך מסמך אחד – לפי סדר הופעה במסמך כמו בחיפוש של Word, אבל ההתאמות המלאות קודם
-        hits = sorted(res.hits, key=lambda h: (-h.covered, h.para_idx, h.span[0] if h.span else 0))
+        found.sort(key=lambda x: (-x[1].covered, x[0], x[1].span[0] if x[1].span else 0))
         out = []
-        for h in hits[:limit]:
-            idx.searcher.materialize(h, res.highlight)
-            text = idx.texts[idx.map[h.para_idx]]
+        for para, h, searcher, highlight in found[:limit]:
+            searcher.materialize(h, highlight)
+            text = idx.texts[para]
             toks = tokenize(text)
             ranges = [[toks[p][0], toks[p][1]] for p in sorted(h.span) if p < len(toks)]
-            para = idx.map[h.para_idx]
             if only_headings:                   # הכותרת עצמה בלבד, בלי כותרות שכנות כ"הקשר"
                 snippet, last = [], 0
                 for a, b in ranges:
@@ -595,10 +709,10 @@ class DocSearchService:
                 "exact": bool(h.exact),
                 "covered": int(h.covered),
             })
-        return {"ok": True, "total": res.total, "shown": len(out), "hits": out,
-                "forms": [[f, c] for f, c in res.forms.most_common(30)], "phrase": bool(res.phrase),
-                "n_terms": res.n_terms, "elapsed": round(time.perf_counter() - t0, 3),
-                "message": res.message or "", "headings": headings}
+        return {"ok": True, "total": len(found), "shown": len(out), "hits": out,
+                "forms": [[f, c] for f, c in forms.most_common(30)], "phrase": phrase,
+                "n_terms": res_terms, "elapsed": round(time.perf_counter() - t0, 3),
+                "message": message, "headings": headings}
 
 
 def handle(service: DocSearchService, line: str, emit=None) -> dict:

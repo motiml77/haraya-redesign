@@ -61,6 +61,9 @@ namespace HebDocSearch.WordAddin
         /// <summary>מקש שיכול לשנות טקסט (גם Ctrl+V / Ctrl+Z / Delete נספרים – עדיף לקרוא פעם מיותרת).</summary>
         static bool CanEdit(int vk)
         {
+            // Ctrl+אות (בלי Alt) הוא פקודה: רק הדבקה, גזירה, ביטול/חזרה ומחיקות משנים טקסט (לא Ctrl+C / Ctrl+S / Ctrl+F)
+            if (GetKeyState(0x11) < 0 && GetKeyState(0x12) >= 0)
+                return vk == 0x56 || vk == 0x58 || vk == 0x5A || vk == 0x59 || vk == 0x0D || vk == 0x08 || vk == 0x2E;
             if (vk >= 0x21 && vk <= 0x28) return false;          // PageUp/Down, End, Home, חצים
             if (vk >= 0x10 && vk <= 0x12) return false;          // Shift, Ctrl, Alt
             if (vk >= 0xA0 && vk <= 0xA5) return false;          // Shift/Ctrl/Alt ימני ושמאלי
@@ -96,5 +99,8 @@ namespace HebDocSearch.WordAddin
 
         [DllImport("kernel32.dll")]
         static extern uint GetCurrentThreadId();
+
+        [DllImport("user32.dll")]
+        static extern short GetKeyState(int vKey);
     }
 }

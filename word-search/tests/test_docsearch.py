@@ -335,6 +335,81 @@ class PatchTest(unittest.TestCase):
         fresh.index({"doc": "f3", "paras": v3})
         self.compare(svc, fresh, "v3", "f3")
 
+    def test_edit_does_not_rebuild_the_search_map(self):
+        """אחרי עריכה קטנה המפה של המסמך לא נבנית שוב: מחפשים במפת הבסיס ובמפה קטנה של הפסקאות החדשות."""
+        v1 = big_doc()
+        v2, ops = self.edited(v1)
+        svc = self.service(cache=False)
+        svc.index({"doc": "v1", "text": "1:a", "paras": v1})
+        base_db = svc.docs["v1"][False].db
+        built = []
+        real = docsearch._store_doc
+
+        def store(db, texts, norms=None):
+            built.append(len(texts))
+            return real(db, texts, norms)
+
+        with mock.patch.object(docsearch, "_store_doc", side_effect=store):
+            r = svc.patch({"doc": "v2", "text": "1:b", "base": "1:a", "ops": ops, "levels": self.levels(v2)})
+        self.assertEqual((r["changed"], r["rebuilt"]), (2, False))
+        self.assertEqual(sorted(built), [2, sum(1 for p in v2 if p["h"])])      # רק 2 הפסקאות החדשות, ומפת הכותרות
+        idx = svc.docs["v2"][False]
+        self.assertIsInstance(idx, docsearch.PatchedIndex)
+        self.assertIs(idx.base.db, base_db)                                     # מפת הבסיס בשימוש חוזר, לא נסגרה
+        self.assertEqual(svc.search({"doc": "v2", "query": "זברה"})["total"], 2)
+        # פסקה שנמחקה (200 בגרסה הקודמת) לא חוזרת בתוצאות
+        gone = v1[200]["t"]
+        if gone.strip() and gone not in [p["t"] for p in v2]:
+            hits = svc.search({"doc": "v2", "query": '"' + " ".join(gone.split()[:3]) + '"', "limit": 5000})["hits"]
+            self.assertNotIn(gone, [v2[h["para"]]["t"] for h in hits])
+
+    def test_many_random_edits_equal_a_full_build_every_time(self):
+        import random
+        rnd = random.Random(11)
+        words = ["הלכה", "שבת", "זברה", "מוקצה", "ביום", "טוב", "דיני", "איסור", "ייחוד", "סיכום", "פרק"]
+        cur = big_doc(300)
+        svc = self.service(cache=False)
+        svc.index({"doc": "k0", "text": "t0", "paras": cur})
+        for step in range(1, 13):
+            nxt, ops, i = [], [], 0
+            while i < len(cur):
+                roll = rnd.random()
+                if roll < 0.02:                                    # מחיקה
+                    i += 1
+                elif roll < 0.05:                                  # פסקה חדשה / ששונתה
+                    text = " ".join(rnd.choice(words) for _ in range(rnd.randint(1, 12)))
+                    nxt.append({"t": text, "h": rnd.choice([0, 0, 0, 1, 2])})
+                    ops.append(text)
+                    if rnd.random() < 0.5:
+                        i += 1
+                else:
+                    if ops and isinstance(ops[-1], list) and ops[-1][0] + ops[-1][1] == i:
+                        ops[-1][1] += 1
+                    else:
+                        ops.append([i, 1])
+                    nxt.append(dict(cur[i]))
+                    i += 1
+            r = svc.patch({"doc": f"k{step}", "text": f"t{step}", "base": f"t{step - 1}", "ops": ops,
+                           "levels": self.levels(nxt)})
+            self.assertTrue(r["ok"], step)
+            fresh = self.service(cache=False)
+            fresh.index({"doc": "f", "paras": nxt})
+            self.compare(svc, fresh, f"k{step}", "f")
+            cur = nxt
+        self.assertIsInstance(svc.docs["k12"][False], docsearch.PatchedIndex)   # 12 עריכות, אף בנייה מחדש
+
+    def test_many_changes_build_a_new_map_once(self):
+        v1 = big_doc(300)
+        v2 = [{"t": f"חדש {i} זברה", "h": 0} for i in range(250)] + v1[250:]
+        svc = self.service(cache=False)
+        svc.index({"doc": "v1", "text": "1:a", "paras": v1})
+        with mock.patch.object(docsearch, "PATCH_LIMIT", 100):
+            r = svc.patch({"doc": "v2", "text": "1:b", "base": "1:a",
+                           "ops": [p["t"] for p in v2[:250]] + [[250, 50]], "levels": self.levels(v2)})
+        self.assertEqual((r["changed"], r["rebuilt"]), (250, True))
+        self.assertIsInstance(svc.docs["v2"][False], docsearch.DocIndex)
+        self.assertEqual(svc.search({"doc": "v2", "query": "זברה", "limit": 1000})["total"], 250)
+
     def test_patch_from_the_disk_in_a_new_session(self):
         v1 = big_doc()
         self.service().index({"doc": "v1", "text": "1:a", "paras": v1})          # נפתח בפעם קודמת
