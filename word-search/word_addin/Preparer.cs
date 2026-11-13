@@ -14,6 +14,11 @@
 // כותרות בלי Word: במסמך docx שמור, רמות הכותרות נקראות ישירות מהקובץ ברכיב העזר (כמו שחלונית הניווט
 // של Word קוראת אותן – תכונה של הפסקה, לא חיפוש). רק מה שלא התאים נבדק ב-Word.
 //
+// תמיד מוכן, בלי להפעיל את החלונית: התוסף עוקב ברקע אחרי כל מסמך פתוח (Watch, פעם בחצי שנייה, בלי
+// קריאות ל-Word כשאין מה לעשות). אחרי עריכה – כשההקלדה נעצרת לכמה שניות – המסמך נקרא שוב ולרכיב העזר
+// נשלחים רק השינויים; אם הסמן היה בפסקאות שאולי הפכו לכותרות – נבדקות רק הן. בזמן הקלדה – כלום.
+// ההמתנה ארוכה יותר במסמך שקריאתו לוקחת יותר זמן, כך שגם במסמך ענק Word לא מרגיש את זה.
+//
 // לא עושים פעמיים את אותה עבודה:
 //   * לכל מסמך נשמר בדיסק (HeadingCache) מה שנקרא ממנו. בפתיחה הבאה, אם הקובץ לא השתנה – הכותרות
 //     מוכנות מיד; אם השתנה – הרמות עוברות לפסקאות שלא השתנו, נבדקות רק הפסקאות החדשות, וברקע נעשה
@@ -75,6 +80,8 @@ namespace HebDocSearch.WordAddin
             public bool ReadSaved;
             public bool SelChanged, SaveEvent;
             public int ReadEditKeys;            // מונה ההקשות (Typing.EditKeys) כשקראנו
+            public int KeysSeen;                // מונה ההקשות כשהסמן זז במסמך הזה – הקשות שהגיעו אליו (ולא למסמך אחר)
+            public DateTime LastWatch;
             public readonly List<int[]> Touched = new List<int[]>();   // מקומות שבהם הסמן היה (אולי הוחל שם סגנון)
             public bool TouchOnly;              // NeedsHeadings רק בשביל בדיקת המקומות האלה (המסמך מוכן לחיפוש)
             public bool CacheDirty;             // מה שנשמר בדיסק על המסמך אינו מעודכן (יישמר כשהמסמך נסגר)
@@ -105,6 +112,7 @@ namespace HebDocSearch.WordAddin
 
         const int IncrementalLimit = 500;       // יותר פסקאות שהשתנו (למשל הדבקה גדולה) – קוראים את כל הכותרות
         const int TickMs = 30;
+        const int WatchMs = 500;                // כשאין עבודה: בדיקה אם מסמך נערך (בלי קריאות ל-Word)
         const int MaxFailures = 6;              // כישלונות רצופים (Word עסוק) לפני שמוותרים
 
         readonly ThisAddIn _addin;
@@ -247,6 +255,7 @@ namespace HebDocSearch.WordAddin
                 if (sel == null || sel.StoryType != Word.WdStoryType.wdMainTextStory) return;
                 var s = Find(sel.Document);
                 if (s == null) return;
+                s.KeysSeen = Typing.EditKeys;                       // הקשות שהגיעו למסמך הזה
                 int a = sel.Start, b = sel.End;
                 var list = s.Touched;
                 if (list.Count > 0)
@@ -302,7 +311,7 @@ namespace HebDocSearch.WordAddin
             {
                 // נערך רק אם הוקלד משהו במסמך, האורך השתנה, או שמסמך שהיה שמור כבר לא שמור (עריכה בעכבר:
                 // הדבקה, גרירה, תפריט). לחיצה בעכבר, גלילה או מעבר בין התוצאות – לא קוראים שוב.
-                if (Typing.EditKeys != s.ReadEditKeys) return false;
+                if (KeysPending(s)) return false;
                 if (s.Doc.Content.End != s.ReadEnd) return false;
                 return !(s.ReadSaved && !s.Doc.Saved);
             }
@@ -316,11 +325,14 @@ namespace HebDocSearch.WordAddin
         /// <summary>המשתמש עבר לשדה החיפוש. בזמן הכתיבה במסמך התוסף לא עושה כלום; רק עכשיו, אם הוקלד משהו
         /// במסמך מאז הקריאה האחרונה, קוראים אותו שוב (קריאה אחת) ושולחים לרכיב העזר רק את הפסקאות שהשתנו –
         /// כך שעד שהמשתמש מסיים להקליד את מילות החיפוש, הכל כבר מעודכן.</summary>
+        /// <summary>הוקלד משהו במסמך הזה מאז שנקרא (הקשות במסמך אחר לא נחשבות).</summary>
+        static bool KeysPending(DocState s) => unchecked(s.KeysSeen - s.ReadEditKeys) > 0;
+
         public void Poke(Word.Document doc)
         {
             var s = Find(doc);
             if (s == null || s.Text == null || s.Reading || !Typing.Active) return;
-            if (Typing.EditKeys == s.ReadEditKeys) return;
+            if (!KeysPending(s)) return;
             if (s.LastReadMs > 400) return;               // מסמך שקריאתו ארוכה – רק כשמחפשים באמת
             try
             {
@@ -360,6 +372,7 @@ namespace HebDocSearch.WordAddin
         {
             var sw = Stopwatch.StartNew();
             s.ReadEditKeys = Typing.EditKeys;
+            s.KeysSeen = s.ReadEditKeys;
             string raw = s.Doc.Content.Text;           // קריאה אחת של כל גוף המסמך
             DocNotes notes = ReadNotes(s.Doc, raw);    // ועוד קריאה אחת לכל סוג הערות (אם יש)
             s.ReadEnd = s.Doc.Content.End;
@@ -447,7 +460,13 @@ namespace HebDocSearch.WordAddin
                     pending = true;
                     if (s.NotBefore <= now && rank < nextRank) { next = s; nextRank = rank; }
                 }
-                if (!pending) { _timer.Stop(); return; }
+                if (!pending)
+                {
+                    _timer.Interval = WatchMs;                 // אין עבודה – רק מעקב, לאט
+                    Watch();
+                    return;
+                }
+                _timer.Interval = TickMs;
                 if (next == null) return;
 
                 if (next.NeedsRead)
@@ -643,7 +662,45 @@ namespace HebDocSearch.WordAddin
         {
             DateTime when = DateTime.Now.AddMilliseconds(delayMs);
             if (s.NotBefore < when) s.NotBefore = when;
+            _timer.Interval = TickMs;
             _timer.Start();
+        }
+
+        /// <summary>מעקב ברקע (גם כשהחלונית סגורה): מסמך שנערך – מתעדכן כשההקלדה נעצרת; מקומות שבהם הסמן היה –
+        /// נבדקים לכותרות כשהמשתמש לא מקליד. בלי שום קריאה ל-Word כשאין סימן לעריכה, חוץ מבדיקה זולה של
+        /// האורך והשמירה פעם בכמה שניות (עריכה בעכבר: הדבקה, גרירה, מחיקה בלי הזזת הסמן).</summary>
+        void Watch()
+        {
+            int typing = TypingIdleMs();
+            if (typing < 1500 || MouseButtonDown()) return;
+            DateTime now = DateTime.Now;
+            foreach (var s in _docs)
+            {
+                if (s.Text == null || s.Reading || s.NeedsRead || s.NeedsHeadings || s.Scan != null || s.DocxPending) continue;
+                bool edited = KeysPending(s);
+                if (!edited && (now - s.LastWatch).TotalSeconds >= 3)
+                {
+                    s.LastWatch = now;
+                    try
+                    {
+                        if (WordAvailable())
+                            edited = FocusGuard.Run(() => s.Doc.Content.End != s.ReadEnd || (s.ReadSaved && !s.Doc.Saved));
+                    }
+                    catch (COMException) { }
+                }
+                if (edited)
+                {
+                    // מסמך שקריאתו לוקחת יותר – מחכים להפסקה ארוכה יותר (2.5 עד 20 שניות)
+                    int wait = (int)Math.Min(20000, 2500 + 8 * s.LastReadMs);
+                    if (typing >= wait)
+                    {
+                        s.NeedsRead = true;
+                        Wake(s, 0);
+                    }
+                }
+                else if (s.Touched.Count > 0 && typing >= 3000)
+                    CheckTouched(s);                              // סגנון כותרת שהוחל במקום שבו הסמן היה?
+            }
         }
 
         void BeginIndex(DocState s, DocText dt, string docxPath = null)
