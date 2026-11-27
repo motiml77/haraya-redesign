@@ -710,6 +710,8 @@ namespace HebDocSearch.WordAddin
             s.FileReply = null;
             Background(() =>
             {
+                // רכיב העזר עונה לבקשה אחת בכל פעם: קודם מפת החיפוש (כדי שאפשר יהיה לחפש מיד), ואז הקובץ
+                for (int i = 0; i < 100 && (s.Indexing || s.IndexedKey == null) && s.Error == null; i++) Thread.Sleep(100);
                 var t = Stopwatch.StartNew();
                 Dictionary<string, object> reply;
                 try { reply = Call(new Dictionary<string, object> { ["cmd"] = "docx_headings", ["path"] = docxPath }, true, null, 20000); }
