@@ -172,3 +172,35 @@ jobs:
             הקבצים כאן מתחלפים אוטומטית בכל גרסה חדשה (עכשיו: ${{ steps.tag.outputs.name }}).
             קישור קבוע להתקנה בחלונות:
             https://github.com/${{ github.repository }}/releases/download/word-search-latest/HebDocSearch-Setup.exe
+
+  test-build:
+    # בנייה לבדיקה (כל דחיפה לענף שאינו main, בלי [release]): ההתקנה לחלונות מתפרסמת בקישור קבוע
+    # שעובד בלי התחברות ל-GitHub, נפרד לגמרי מהגרסה הרשמית (word-search-latest לא משתנה):
+    #   https://github.com/<owner>/<repo>/releases/download/word-search-test/HebDocSearch-Setup-test.exe
+    if: startsWith(github.ref, 'refs/heads/') && github.ref != 'refs/heads/main' && !contains(github.event.head_commit.message, '[release]')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          name: HebDocSearch-windows
+
+      - name: Fixed file name
+        run: |
+          mkdir -p test
+          cp out/HebDocSearch-Setup-*.exe test/HebDocSearch-Setup-test.exe
+          ls -la test
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: word-search-test
+          target_commitish: ${{ github.sha }}
+          name: חיפוש במסמכים – בנייה לבדיקה (לא גרסה רשמית)
+          prerelease: true
+          files: test/HebDocSearch-Setup-test.exe
+          body: |
+            בנייה לבדיקה – מתחלפת אוטומטית בכל שינוי (עכשיו: ${{ github.sha }}, ענף ${{ github.ref_name }}).
+            זו לא הגרסה הרשמית; הקישור הרשמי באתר לא משתנה.
+            קישור קבוע להתקנה לבדיקה בחלונות:
+            https://github.com/${{ github.repository }}/releases/download/word-search-test/HebDocSearch-Setup-test.exe
