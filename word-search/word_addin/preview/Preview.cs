@@ -45,6 +45,12 @@ namespace HebDocSearch.WordAddin
                             v.SetTabCount(false, 41);
                             v.SetCurrent(0, 3);
                         });
+                        Render(tag + "-8-outline", theme, scale, v =>
+                        {
+                            v.HeadingsOnly = true;
+                            v.ShowOutline(Outline(), false);
+                            v.SetCurrent(3, 14);
+                        });
                         Render(tag + "-4-empty", theme, scale, v =>
                         {
                             v.Query = "איסור ייחוד";
@@ -188,6 +194,27 @@ namespace HebDocSearch.WordAddin
             for (int i = 0; i < parts.Length; i += 2)
                 it.Snippet.Add(new Seg { Text = (string)parts[i], Kind = (int)parts[i + 1] });
             return it;
+        }
+
+        /// <summary>רשימת הכותרות של מסמך לדוגמה (לשונית "חיפוש בכותרות" בלי מילות חיפוש).</summary>
+        static List<ResultItem> Outline()
+        {
+            var rows = new (int, string)[]
+            {
+                (1, "הקדמה"), (1, "חלק א – הלכות שבת"), (2, "פרק א – הדלקת נרות"), (3, "זמן ההדלקה"),
+                (3, "מי מדליק, ודין אורח שמדליק בבית אחר (כותרת ארוכה שנשברת לשתי שורות ברוחב הזה)"),
+                (2, "פרק ב – קידוש"), (3, "קידוש של לילה"), (4, "על היין או על הפת"), (3, "קידוש של יום"),
+                (1, "חלק ב – הלכות יום טוב"), (2, "פרק ג – מוקצה"), (2, "פרק ד – Microsoft Word 2016 ועירוב תבשילין"),
+                (1, "נספחים"), (2, "מפתח מקורות"),
+            };
+            var items = new List<ResultItem>();
+            foreach (var (level, text) in rows)
+            {
+                var it = new ResultItem { Number = items.Count + 1, Level = level, HeadingHit = true, Outline = true, Terms = 1, Covered = 1 };
+                it.Snippet.Add(new Seg { Text = text, Kind = 0 });
+                items.Add(it);
+            }
+            return items;
         }
 
         static List<ResultItem> Sample(bool headings)

@@ -263,6 +263,20 @@ namespace HebDocSearch.WordAddin
             }, false);
         }
 
+        /// <summary>לשונית "חיפוש בכותרות" בלי מילות חיפוש: כל הכותרות של המסמך, מוזחות לפי הרמה.
+        /// refresh – אותה רשימה אחרי שינוי במסמך (נשארים במקום).</summary>
+        public void ShowOutline(List<ResultItem> items, bool refresh)
+        {
+            _searchingDelay.Stop();
+            List.SetItems(items, refresh);
+            List.SetMessage(null, "", null, false);
+            SetForms("");
+            _tabs.SetCount(0, null);
+            _tabs.SetCount(1, items.Count);
+            SetNavVisible(true, items.Count);
+            SetCount(Words.Headings(items.Count), "לחיצה על כותרת – מעבר אליה במסמך", false);
+        }
+
         /// <summary>מצב המסמך כשאין חיפוש פעיל (מתעדכן ברקע: "מכין…" → "מוכן").</summary>
         public void SetDocStatus(string docStatus)
         {

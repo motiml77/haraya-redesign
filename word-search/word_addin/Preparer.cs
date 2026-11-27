@@ -15,8 +15,8 @@
 // של Word קוראת אותן – תכונה של הפסקה, לא חיפוש). רק מה שלא התאים נבדק ב-Word.
 //
 // תמיד מוכן, בלי להפעיל את החלונית: התוסף עוקב ברקע אחרי כל מסמך פתוח (Watch, פעם בחצי שנייה, בלי
-// קריאות ל-Word כשאין מה לעשות). אחרי עריכה – כשההקלדה נעצרת לכמה שניות – המסמך נקרא שוב ולרכיב העזר
-// נשלחים רק השינויים; אם הסמן היה בפסקאות שאולי הפכו לכותרות – נבדקות רק הן. בזמן הקלדה – כלום.
+// קריאות ל-Word כשאין מה לעשות). אחרי עריכה – כשלא מקלידים 8 שניות (או מיד כשעוברים לחלונית החיפוש) –
+// המסמך נקרא שוב ולרכיב העזר נשלחים רק השינויים; אם הסמן היה בפסקאות שאולי הפכו לכותרות – נבדקות רק הן. בזמן הקלדה – כלום.
 // ההמתנה ארוכה יותר במסמך שקריאתו לוקחת יותר זמן, כך שגם במסמך ענק Word לא מרגיש את זה.
 //
 // לא עושים פעמיים את אותה עבודה:
@@ -333,7 +333,6 @@ namespace HebDocSearch.WordAddin
             var s = Find(doc);
             if (s == null || s.Text == null || s.Reading || !Typing.Active) return;
             if (!KeysPending(s)) return;
-            if (s.LastReadMs > 400) return;               // מסמך שקריאתו ארוכה – רק כשמחפשים באמת
             try
             {
                 if (WordAvailable()) FocusGuard.Run(() => BeginRead(s));
@@ -690,8 +689,9 @@ namespace HebDocSearch.WordAddin
                 }
                 if (edited)
                 {
-                    // מסמך שקריאתו לוקחת יותר – מחכים להפסקה ארוכה יותר (2.5 עד 20 שניות)
-                    int wait = (int)Math.Min(20000, 2500 + 8 * s.LastReadMs);
+                    // לא אחרי כל הפסקה קצרה בכתיבה: רק כשלא מקלידים 8 שניות (ובמסמך שקריאתו ארוכה – עד 30).
+                    // מי שעובר לחלונית החיפוש לפני כן – מתעדכן מיד (Poke).
+                    int wait = (int)Math.Min(30000, 8000 + 8 * s.LastReadMs);
                     if (typing >= wait)
                     {
                         s.NeedsRead = true;
@@ -1021,6 +1021,13 @@ namespace HebDocSearch.WordAddin
         }
 
         public int HeadingsFoundSoFar(Word.Document doc) => Find(doc)?.Scan?.Found ?? 0;
+
+        /// <summary>הטקסט של המסמך עם רמות הכותרות, אם הן כבר ידועות (לרשימת הכותרות בחלונית); אחרת null.</summary>
+        public DocText HeadingsText(Word.Document doc)
+        {
+            var s = Find(doc);
+            return s != null && s.Text != null && s.Text.HasLevels && (!s.NeedsHeadings || s.TouchOnly) ? s.Text : null;
+        }
 
         /// <summary>כשבוחרים "כותרות": משלימים את קריאת הכותרות עכשיו (עד budgetMs בכל קריאה).
         /// מחזיר true כשהכותרות מוכנות; אחרת – לקרוא שוב בעוד רגע (בינתיים Word מגיב).</summary>

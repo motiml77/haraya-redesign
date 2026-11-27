@@ -26,6 +26,9 @@ namespace HebDocSearch.WordAddin
         readonly PaneView _view = new PaneView { Dock = DockStyle.Fill };
         readonly Timer _timer = new Timer { Interval = 600 };
         readonly Timer _live = new Timer { Interval = 450 };     // חיפוש תוך כדי הקלדה (כמו ב-Word)
+        readonly Timer _countOther = new Timer { Interval = 700 };
+        Tuple<DocText, bool, int> _pendingCount;
+        string _outlineKey;                                  // הגרסה שרשימת הכותרות המוצגת נבנתה ממנה
         readonly Timer _headingsRetry = new Timer { Interval = 150 };   // השלמת קריאת הכותרות במנות
         int _lastWidth, _initialWidth, _savedWidth;           // רוחב החלונית – נשמר רק אחרי גרירה של המשתמש
         readonly JavaScriptSerializer _json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
@@ -68,6 +71,14 @@ namespace HebDocSearch.WordAddin
                 if (_addin.Preparer.ReadyForLive(_doc, _view.HeadingsOnly)) RunSearch();
                 else _view.ShowHint("לחצו Enter לחיפוש");
             };
+            _countOther.Tick += (s, e) =>
+            {
+                // המספר בלשונית השנייה – רק אחרי שהחיפוש "נרגע" (לא לכל אות שמקלידים), כדי לא לחפש פעמיים
+                _countOther.Stop();
+                var pending = _pendingCount;
+                _pendingCount = null;
+                if (pending != null && pending.Item3 == _generation && !_busy) CountOtherMode(pending.Item1, pending.Item2, pending.Item3);
+            };
             _headingsRetry.Tick += (s, e) =>
             {
                 _headingsRetry.Stop();
@@ -86,6 +97,7 @@ namespace HebDocSearch.WordAddin
         {
             if (IsDisposed || !ReferenceEquals(doc, _doc) || !Visible) return;
             if (_view.HeadingsOnly && _view.Query.Length > 0 && _lastKey != null) RunSearch();
+            else if (OutlineWanted) ShowOutline(true);
         }
 
         internal void FocusSearch()
@@ -103,6 +115,7 @@ namespace HebDocSearch.WordAddin
                 if (theme != _view.CurrentTheme) _view.ApplyTheme(theme);
             }
             if (_addin.Preparer != null) _view.SetDocStatus(_addin.Preparer.Status(_doc));
+            if (OutlineWanted && !_busy) RefreshOutline();
             // רוחב החלונית: נשמר כשהמשתמש גורר את הקצה (אחרי שהגרירה נעצרה)
             if (_initialWidth == 0 && Width > 50) _initialWidth = _savedWidth = Width;
             if (Width != _lastWidth) _lastWidth = Width;                       // עדיין נגרר
@@ -119,7 +132,75 @@ namespace HebDocSearch.WordAddin
             _items = new List<ResultItem>();
             _current = -1;
             _lastKey = null;
-            _view.ShowIdle(_addin.Preparer?.Status(_doc) ?? "");
+            _outlineKey = null;
+            if (OutlineWanted) ShowOutline(false);
+            else _view.ShowIdle(_addin.Preparer?.Status(_doc) ?? "");
+        }
+
+        // ================================================================ רשימת הכותרות
+        /// <summary>לשונית "חיפוש בכותרות" בלי מילות חיפוש: מציגים את כל הכותרות של המסמך.</summary>
+        bool OutlineWanted => _view.HeadingsOnly && _view.Query.Length == 0;
+
+        /// <summary>מהשעון: הכותרות נקראו בינתיים, או שהמסמך השתנה – מעדכנים את הרשימה (נשארים במקום).</summary>
+        void RefreshOutline()
+        {
+            DocText text = _addin.Preparer?.HeadingsText(_doc);
+            if (text == null)
+            {
+                // הכותרות עוד לא נקראו (מסמך שנפתח עכשיו) – מקדמים את הקריאה, במנה קצרה
+                try { _addin.Preparer?.EnsureHeadings(_doc, 150); }
+                catch (Exception ex) { Log.Error("outline", ex); }
+                return;
+            }
+            if (text.Key != _outlineKey) ShowOutline(true);
+        }
+
+        /// <summary>כל הכותרות, לפי הסדר, כל אחת מוזחת לפי הרמה שלה. לחיצה – מעבר לכותרת במסמך (כמו תוצאה).</summary>
+        void ShowOutline(bool refresh)
+        {
+            DocText text = _addin.Preparer?.HeadingsText(_doc);
+            if (text == null)
+            {
+                _outlineKey = null;
+                _items = new List<ResultItem>();
+                _view.ShowMessage("", "קורא את הכותרות של המסמך…", new[] { "הרשימה תופיע כאן מיד כשהן ייקראו." }, false);
+                return;
+            }
+            var items = new List<ResultItem>();
+            for (int i = 0; i < text.MainCount; i++)
+            {
+                int level = text.Levels[i];
+                if (level < 1 || level > 9) continue;
+                string t = text.Texts[i];
+                int a = 0, b = t.Length;
+                while (a < b && char.IsWhiteSpace(t[a])) a++;
+                while (b > a && char.IsWhiteSpace(t[b - 1])) b--;
+                if (b <= a) continue;
+                var item = new ResultItem
+                {
+                    Number = items.Count + 1, Para = i, Level = level, HeadingHit = true, Outline = true, Covered = 1, Terms = 1,
+                };
+                item.Ranges.Add(new[] { a, b });
+                item.Snippet.Add(new Seg { Text = t.Substring(a, b - a), Kind = 0 });
+                items.Add(item);
+            }
+            _searched = text;
+            _outlineKey = text.Key;
+            if (items.Count == 0)
+            {
+                _items = items;
+                _view.ShowMessage("אין כותרות", "אין במסמך כותרות", new[]
+                {
+                    "כותרות הן פסקאות בסגנונות 'כותרת 1' עד 'כותרת 9', או פסקאות עם רמת חלוקה.",
+                    "בלשונית 'תוצאות' מחפשים בכל הטקסט.",
+                }, false);
+                _view.SetTabCount(true, 0);
+                return;
+            }
+            bool same = refresh && _items.Count > 0 && _items[0].Outline;
+            _items = items;
+            if (!same) _current = -1;
+            _view.ShowOutline(items, same);
         }
 
         // ================================================================ חיפוש
@@ -141,6 +222,7 @@ namespace HebDocSearch.WordAddin
             if (_loading) return;
             SaveSettings();
             if (_view.Query.Length > 0 && _lastKey != null) RunSearch();
+            else if (_view.Query.Length == 0) Reset();          // מעבר בין הלשוניות בלי חיפוש: הסבר / רשימת הכותרות
         }
 
         Dictionary<string, object> Request(bool headingsOnly, int limit)
@@ -209,7 +291,9 @@ namespace HebDocSearch.WordAddin
                         _view.Update();
                         Log.Write($"search '{_view.Query}' headings={headings}: {reply["total"]} hits in {sw.ElapsedMilliseconds}ms" +
                                   (reply.ContainsKey("timing") ? $" ({reply["timing"]}, shown in {shown.ElapsedMilliseconds}ms)" : ""));
-                        CountOtherMode(text, headings, generation);
+                        _pendingCount = Tuple.Create(text, headings, generation);
+                        _countOther.Stop();
+                        _countOther.Start();
                     }
                     catch (Exception ex) { SearchFailed(ex); }
                 });
@@ -458,6 +542,8 @@ namespace HebDocSearch.WordAddin
                 if (_addin.Preparer != null) _addin.Preparer.HeadingsChanged -= OnHeadingsChanged;
                 _headingsRetry.Stop();
                 _headingsRetry.Dispose();
+                _countOther.Stop();
+                _countOther.Dispose();
                 _timer.Stop();
                 _timer.Dispose();
                 _live.Stop();

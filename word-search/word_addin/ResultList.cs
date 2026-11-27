@@ -30,6 +30,7 @@ namespace HebDocSearch.WordAddin
         public int Level;
         public int Covered, Terms;
         public bool HeadingHit;                       // חיפוש בכותרות בלבד: התוצאה היא הכותרת עצמה
+        public bool Outline;                          // שורה ברשימת הכותרות של המסמך (מוזחת לפי הרמה)
         public string NoPathText = "";                // מה לכתוב כשאין כותרת מעל
         public List<int[]> Ranges = new List<int[]>();
         public string[] Path = new string[0];
@@ -88,12 +89,13 @@ namespace HebDocSearch.WordAddin
         public int Count => _items.Count;
         public int SelectedIndex => _sel;
 
-        public void SetItems(List<ResultItem> items)
+        public void SetItems(List<ResultItem> items, bool keepPlace = false)
         {
+            int scroll = _scroll, sel = _sel;
             _items = items ?? new List<ResultItem>();
-            _sel = -1;
+            _sel = keepPlace && sel < _items.Count ? sel : -1;       // רענון של אותה רשימה – נשארים במקום
             _hover = -1;
-            _scroll = 0;
+            _scroll = keepPlace ? scroll : 0;
             Relayout();
         }
 
@@ -150,7 +152,15 @@ namespace HebDocSearch.WordAddin
         int TextRight => ClientSize.Width - PadX;
         int TextWidth => Math.Max(_m.S(60), TextRight - TextLeft);
 
-        Font TextFont(ResultItem it) => it.HeadingHit ? _m.ResultBold : _m.Result;
+        Font TextFont(ResultItem it) => it.Outline ? (it.Level <= 1 ? _m.ResultBold : _m.Result)
+                                      : it.HeadingHit ? _m.ResultBold : _m.Result;
+
+        // רשימת הכותרות: שורה קומפקטית, מוזחת לפי הרמה (כמו בחלונית הניווט של Word)
+        int OutlineIndent(ResultItem it) => Math.Min(8, Math.Max(0, it.Level - 1)) * _m.S(16);
+        int OutlinePad(ResultItem it) => it.Level <= 1 ? _m.S(7) : _m.S(4);
+        int ItemWidth(ResultItem it, int width) => it.Outline ? Math.Max(_m.S(60), width - OutlineIndent(it)) : width;
+        int ItemHeight(ResultItem it) => it.Outline ? 2 * OutlinePad(it) + it.TextHeight
+                                                    : PadTop + HeaderH + HeaderGap + it.TextHeight + PadBottom;
 
         void Relayout()
         {
@@ -193,12 +203,12 @@ namespace HebDocSearch.WordAddin
         void Estimate(ResultItem it, int width, float charW, float lineH)
         {
             it.Text = BuildText(it, null);
-            int lines = Math.Max(1, (int)Math.Ceiling(it.Text.Length * charW * 1.08 / Math.Max(1, width)));
+            int lines = Math.Max(1, (int)Math.Ceiling(it.Text.Length * charW * 1.08 / Math.Max(1, ItemWidth(it, width))));
             it.TextHeight = (int)Math.Ceiling(lines * lineH);
             it.Marks = new List<RectangleF>();
             it.LayoutWidth = width;
             it.Estimated = true;
-            it.Height = PadTop + HeaderH + HeaderGap + it.TextHeight + PadBottom;
+            it.Height = ItemHeight(it);
         }
 
         /// <summary>לפני ציור: תוצאות שעל המסך ועדיין משוערות – נמדדות עכשיו, והמקומות של מה שאחריהן מתעדכנים.</summary>
@@ -283,6 +293,8 @@ namespace HebDocSearch.WordAddin
             it.Text = BuildText(it, marks);
             it.Estimated = false;
             var font = TextFont(it);
+            int full = width;
+            width = ItemWidth(it, width);
             var size = g.MeasureString(it.Text.Length == 0 ? " " : it.Text, font, width, _format);
             it.TextHeight = (int)Math.Ceiling(size.Height);
 
@@ -305,8 +317,8 @@ namespace HebDocSearch.WordAddin
                         }
                 }
             }
-            it.LayoutWidth = width;
-            it.Height = PadTop + HeaderH + HeaderGap + it.TextHeight + PadBottom;
+            it.LayoutWidth = full;
+            it.Height = ItemHeight(it);
         }
 
         // ================================================================ ציור
@@ -351,6 +363,21 @@ namespace HebDocSearch.WordAddin
                 using (var b = new SolidBrush(selected ? _t.ItemSel : _t.ItemHover)) g.FillRectangle(b, row);
             if (selected)
                 using (var b = new SolidBrush(_t.SelBar)) g.FillRectangle(b, new Rectangle(ClientSize.Width - _m.S(3), y, _m.S(3), it.Height - 1));
+
+            if (it.Outline)
+            {
+                // כותרת ברשימת הכותרות: רק הטקסט, מוזח לפי הרמה; כותרת עליונה מודגשת ומעליה קו דק
+                if (it.Level <= 1 && index > 0)
+                    using (var pen = new Pen(_t.Separator))
+                        g.DrawLine(pen, Gutter, y, ClientSize.Width, y);
+                var area = new RectangleF(TextLeft, y + OutlinePad(it), ItemWidth(it, TextWidth), it.TextHeight + 2);
+                var hint = g.TextRenderingHint;
+                g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+                using (var b = new SolidBrush(it.Level <= 2 ? _t.Text : _t.TextDim))
+                    g.DrawString(it.Text, TextFont(it), b, area, _format);
+                g.TextRenderingHint = hint;
+                return;
+            }
 
             // ----- שורת הכותרת: מספר, שרשרת הכותרות, תגית -----
             int top = y + PadTop;
