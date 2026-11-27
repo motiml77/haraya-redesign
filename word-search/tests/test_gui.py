@@ -379,6 +379,39 @@ class SearchFlowTest(GuiBase):
         for h in win.result.hits:
             self.assertEqual(sorted(h.span), [min(h.span), min(h.span) + 1])   # צמודות
 
+    def test_only_the_word_button_opens_in_word(self):
+        """לחיצה על כרטיס רק מסמנת אותו; רק כפתור W פותח ב-Word (ולחיצה כפולה – תצוגה מובנית)."""
+        from PySide6.QtTest import QTest
+        win = self.new_window()
+        win.baskets.add_paths([self.docs])
+        settle(win)
+        win.search_edit.setText("שבת")
+        win.run_search()
+        settle(win)
+        view = win.results.list
+        view.delegate.word_ok = True                       # כאילו Word מותקן
+        opened, previewed = [], []
+        view.hitClicked.connect(opened.append)
+        view.hitPreview.connect(previewed.append)
+        view.grab()                                        # ציור – כדי שמקומות הכפתורים ייקבעו
+        row = next(i for i, r in enumerate(view.model().rows) if r[0] == "hit")
+        idx = view.model().index(row, 0)
+        rect = view.visualRect(idx)
+        rel = view.delegate.rects[row]
+        self.assertIn("word", rel)
+        QTest.mouseClick(view.viewport(), Qt.LeftButton, Qt.NoModifier, rect.center())
+        self.assertEqual((opened, previewed), ([], []))    # לחיצה על הכרטיס – לא פותחת כלום
+        self.assertEqual(view.delegate.action_at(idx, rect.center()), "card")
+        QTest.mouseClick(view.viewport(), Qt.LeftButton, Qt.NoModifier, rel["word"].translated(rect.topLeft()).center())
+        self.assertEqual(len(opened), 1)
+        self.assertEqual(previewed, [])
+        QTest.mouseClick(view.viewport(), Qt.LeftButton, Qt.NoModifier, rel["preview"].translated(rect.topLeft()).center())
+        self.assertEqual((len(opened), len(previewed)), (1, 1))
+        view.delegate.word_ok = False                      # בלי Word – אין כפתור W
+        view.viewport().update()
+        view.grab()
+        self.assertNotIn("word", view.delegate.rects[row])
+
     def test_empty_search_and_missing_basket_selection_are_friendly(self):
         win = self.new_window()
         win.baskets.add_paths([self.docs])

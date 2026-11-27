@@ -26,6 +26,8 @@ from PySide6.QtWidgets import (
 
 from ..normalize import restore_finals
 from ..search import SEG_GAP, SEG_MATCH, SEG_PARA
+from ..extract import DOC_EXTS, DOCX_EXTS
+from ..opener import word_automation_available
 from .icons import file_icon, ui_icon
 from .theme import C, T, ui_font
 from .widgets import BusyOverlay, SmoothScroller
@@ -144,6 +146,8 @@ class HitDelegate(QStyledItemDelegate):
         self.pad = T.pad + 2
         self.meta_h = max(self.fm_name.height(), 20)
         self.act = T.h_ctl - 6        # צלע כפתור פעולה קטן
+        self.f_word = ui_font(T.caption, 700)
+        self.word_ok = word_automation_available()      # יש Word לפתוח בו את המסמך במקום המדויק
         self.docs.clear()
         self.rects.clear()
 
@@ -242,7 +246,9 @@ class HitDelegate(QStyledItemDelegate):
         nw = self.fm_meta.horizontalAdvance(num)
         # ----- שמאל: פעולות, תגיות, מד התאמה (בכרטיס צר מוותרים קודם על התגיות ואז על המד) -----
         meter_w = 5 * 9
-        actions_w = 2 * (self.act + 2) + gap
+        in_word = self.word_ok and os.path.splitext(hit.path)[1].lower() in DOCX_EXTS | DOC_EXTS
+        word_w = self.act + 4 if in_word else 0          # כפתור "פתח ב-Word" (רק למסמכי Word, כשיש Word)
+        actions_w = 2 * (self.act + 2) + gap + (word_w + 4 if in_word else 0)
         budget = card.width() - 2 * pad - (nw + gap + T.icon + gap) - 3 * T.pad * 4 - actions_w
         badges = []
         if hit.exact:
@@ -258,6 +264,21 @@ class HitDelegate(QStyledItemDelegate):
                 budget -= w + 6
         show_meter = budget >= meter_w
         x = card.left() + pad
+        if in_word:
+            # כפתור Word: ריבוע כחול מעוגל עם W לבנה (כמו הסמל של Word) – רק לחיצה עליו פותחת את המסמך ב-Word
+            r = QRect(x, int(mid_y - self.act / 2), word_w, self.act)
+            active = self.hover_row == index.row() and self.hover_act == "word"
+            box = QRectF(r).adjusted(0.5, 1.5, -0.5, -1.5)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor("#0f3d86"))                       # צל דק מתחת – עומק עדין
+            painter.drawRoundedRect(box.translated(0, 1), 5, 5)
+            painter.setBrush(QColor("#2b6fd6" if active else "#185abd"))
+            painter.drawRoundedRect(box, 5, 5)
+            painter.setFont(self.f_word)
+            painter.setPen(QColor("#ffffff"))
+            painter.drawText(box, Qt.AlignCenter, "W")
+            rel["word"] = r.translated(-rect.topLeft())
+            x += word_w + 4
         for name, icon_name in (("folder", "folder"), ("preview", "eye")):
             r = QRect(x, int(mid_y - self.act / 2), self.act, self.act)
             active = self.hover_row == index.row() and self.hover_act == name
@@ -384,7 +405,7 @@ class HitDelegate(QStyledItemDelegate):
 
     # ----- ניתוב לחיצות ורמזים -----
     def action_at(self, index, pos):
-        """איזו פעולה נמצאת תחת העכבר: 'preview' / 'folder' / 'open_file' / 'open_dir' / 'card' / None."""
+        """איזו פעולה נמצאת תחת העכבר: 'word' / 'preview' / 'folder' / 'open_file' / 'open_dir' / 'card' / None."""
         if not index.isValid():
             return None
         row = self._row(index)
@@ -399,7 +420,8 @@ class HitDelegate(QStyledItemDelegate):
         if event.type() == QEvent.ToolTip and index.isValid():
             act = self.action_at(index, event.pos())
             row = self._row(index)
-            tips = {"preview": "תצוגה מובנית של המסמך", "folder": "הצג את הקובץ בתיקייה",
+            tips = {"word": "פתח ב-Word, במקום המדויק של התוצאה",
+                    "preview": "תצוגה מובנית של המסמך", "folder": "הצג את הקובץ בתיקייה",
                     "open_file": "פתח את המסמך", "open_dir": "הצג בתיקייה"}
             text = tips.get(act) or (ltr(row[1].path) if row[0] == "hit" else "")
             if text:
@@ -513,8 +535,8 @@ class ResultsList(QListView):
             self.hitPreview.emit(hit)
         elif act == "folder":
             self.folderClicked.emit(hit.path)
-        else:
-            self.hitClicked.emit(hit)
+        elif act == "word":
+            self.hitClicked.emit(hit)          # רק הכפתור פותח ב-Word; לחיצה על הכרטיס עצמו רק מסמנת אותו
 
     def mouseMoveEvent(self, e):
         pos = e.position().toPoint()
@@ -528,7 +550,7 @@ class ResultsList(QListView):
             for r in (old, row):
                 if r >= 0:
                     self.viewport().update(self.visualRect(self.model_.index(r, 0)))
-        self.viewport().setCursor(Qt.PointingHandCursor if act else Qt.ArrowCursor)
+        self.viewport().setCursor(Qt.PointingHandCursor if act and act != "card" else Qt.ArrowCursor)
         super().mouseMoveEvent(e)
 
     def leaveEvent(self, e):
@@ -539,9 +561,10 @@ class ResultsList(QListView):
         super().leaveEvent(e)
 
     def _on_activated(self, index):
+        """לחיצה כפולה או Enter על תוצאה: תצוגה מובנית של המסמך במקום התוצאה (לא פותח את Word)."""
         row = self.model_.rows[index.row()]
         if row[0] == "hit":
-            self.hitClicked.emit(row[1])
+            self.hitPreview.emit(row[1])
 
     def _context(self, pos):
         idx = self.indexAt(pos)
@@ -552,7 +575,9 @@ class ResultsList(QListView):
         menu = QMenu(self)
         if row[0] == "hit":
             hit = row[1]
-            menu.addAction(ui_icon("external"), "פתח במקום המדויק", lambda: self.hitClicked.emit(hit))
+            is_word = os.path.splitext(hit.path)[1].lower() in DOCX_EXTS | DOC_EXTS
+            menu.addAction(ui_icon("external"), "פתח ב-Word, במקום המדויק" if is_word and self.delegate.word_ok
+                           else "פתח במקום המדויק", lambda: self.hitClicked.emit(hit))
             menu.addAction(ui_icon("eye"), "תצוגה מובנית של המסמך", lambda: self.hitPreview.emit(hit))
         else:
             menu.addAction(ui_icon("external"), "פתח את המסמך", lambda: self.fileClicked.emit(path))
@@ -587,7 +612,7 @@ def syntax_table() -> str:
 def welcome_html() -> str:
     steps = (("צרו אוספים", "לכל אוסף שם משלו (שיעורים, תורה…) ובו תיקיות ומסמכי Word או PDF. אפשר גם לגרור לכאן מהסייר."),
              ("המפה נבנית לבד", "בפעם הראשונה כל מסמך נקרא פעם אחת; אחר כך רק מסמכים שהשתנו."),
-             ("חפשו", "הניקוד והסימנים לא משנים. התוצאות הכי מדויקות ראשונות, ולחיצה על תוצאה פותחת את המסמך במקום."))
+             ("חפשו", "הניקוד והסימנים לא משנים. התוצאות הכי מדויקות ראשונות. כפתור W בתוצאה פותח את המסמך ב-Word במקום המדויק, והעין – תצוגה מובנית."))
     rows = "".join(
         f'<tr><td align="right" valign="top"><b>{t}</b> – <span style="color:{C.text2}">{d}</span></td>'
         f'<td width="28" align="center" valign="top" style="color:{C.accent}; font-weight:600">{i}</td></tr>'
