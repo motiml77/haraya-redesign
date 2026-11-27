@@ -160,6 +160,105 @@ class DocCache:
                 pass
             return None
 
+    # ----- גרסה ערוכה: קובץ קטן של שינויים מעל מפה מלאה (במקום לבנות ולשמור מפה מלאה לכל גרסה) -----
+    def patch_file(self, text_hash):
+        name = re.sub(r"[^0-9A-Za-z]+", "-", str(text_hash or "")).strip("-")
+        return os.path.join(self.folder, f"patch-v{INDEX_VERSION}-{name}.json.z") if name else None
+
+    def save_patch(self, text_hash, base_hash, origin, fresh_texts):
+        """origin: לכל פסקה – המספר שלה במפת הבסיס, או ‎-1; fresh_texts: הטקסט של החדשות, לפי הסדר."""
+        path = self.patch_file(text_hash)
+        if not path:
+            return False
+        runs, i, n = [], 0, len(origin)
+        while i < n:                                 # רצפים: [התחלה בבסיס, כמה] או ‎-1 לפסקה חדשה
+            if origin[i] < 0:
+                runs.append(-1)
+                i += 1
+                continue
+            k = 1
+            while i + k < n and origin[i + k] == origin[i] + k:
+                k += 1
+            runs.append([origin[i], k])
+            i += k
+        data = zlib.compress(json.dumps({"base": base_hash, "runs": runs, "texts": fresh_texts},
+                                        ensure_ascii=False).encode("utf-8"), 1)
+        tmp = f"{path}.{uuid.uuid4().hex[:8]}.tmp"
+        try:
+            os.makedirs(self.folder, exist_ok=True)
+            with open(tmp, "wb") as f:
+                f.write(data)
+            os.replace(tmp, path)
+            return True
+        except OSError:
+            self._cleanup_tmp(tmp)
+            return False
+
+    def load_patch(self, text_hash):
+        """{"base": טביעת הבסיס, "origin": [...], "texts": [...]} או None."""
+        path = self.patch_file(text_hash)
+        if not path or not os.path.exists(path):
+            return None
+        try:
+            with open(path, "rb") as f:
+                d = json.loads(zlib.decompress(f.read()).decode("utf-8"))
+            origin = []
+            for r in d["runs"]:
+                if r == -1:
+                    origin.append(-1)
+                else:
+                    origin.extend(range(int(r[0]), int(r[0]) + int(r[1])))
+            if sum(1 for o in origin if o < 0) != len(d["texts"]):
+                raise ValueError("patch")
+            os.utime(path, None)
+            return {"base": str(d["base"]), "origin": origin, "texts": [str(t) for t in d["texts"]]}
+        except Exception:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            return None
+
+    # ----- איזו גרסה נשמרה אחרונה לכל מסמך (לפי מזהה המסמך) -----
+    def _registry_file(self):
+        return os.path.join(self.folder, f"docs-v{INDEX_VERSION}.json")
+
+    def registry(self):
+        try:
+            with open(self._registry_file(), encoding="utf-8") as f:
+                d = json.load(f)
+            return d if isinstance(d, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def remember(self, doc_id, text_hash, base_hash=None):
+        """המסמך doc_id שמור עכשיו בגרסה text_hash. קבצים של הגרסה הקודמת שלו שכבר לא נחוצים – נמחקים."""
+        if not doc_id or not text_hash:
+            return
+        reg = self.registry()
+        old = reg.get(doc_id) or {}
+        if old.get("text") == text_hash and old.get("base") == base_hash:
+            return
+        reg[doc_id] = {"text": text_hash, "base": base_hash}
+        if len(reg) > 500:
+            reg = dict(list(reg.items())[-500:])
+        tmp = self._registry_file() + f".{uuid.uuid4().hex[:8]}.tmp"
+        try:
+            os.makedirs(self.folder, exist_ok=True)
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(reg, f)
+            os.replace(tmp, self._registry_file())
+        except OSError:
+            self._cleanup_tmp(tmp)
+        needed = {text_hash, base_hash} | {v for e in reg.values() for v in (e.get("text"), e.get("base"))}
+        for stale in (old.get("text"), old.get("base")):
+            if stale and stale not in needed:
+                for f in (self.patch_file(stale), self.file(stale)):
+                    try:
+                        os.remove(f)                 # קובץ שפתוח עכשיו (ב-Windows) פשוט נשאר, עד הניקוי הבא
+                    except OSError:
+                        pass
+
     def _finish(self, tmp, path, count):
         """קובץ זמני מוכן → מחליף בבת אחת ופותח לקריאה (None אם לא הצליח)."""
         try:
@@ -241,6 +340,9 @@ class DocCache:
                     continue
                 if name.endswith(".tmp"):
                     if now - st.st_mtime > 3600:
+                        os.remove(full)
+                elif name.startswith("patch-v") and name.endswith(".json.z"):
+                    if f"patch-v{INDEX_VERSION}-" not in name or now - st.st_mtime > CACHE_MAX_AGE:
                         os.remove(full)
                 elif name.startswith("doc-v") and name.endswith(".sqlite3"):
                     files.append((st.st_mtime, st.st_size, full))
@@ -343,7 +445,8 @@ class PatchedIndex:
     on_disk = False
     fid = 1
 
-    def __init__(self, paras, base, origin, norms):
+    def __init__(self, paras, base, origin, norms, base_text=None):
+        self.base_text = base_text          # טביעת האצבע של גרסת הבסיס (לשמירה בדיסק כקובץ שינויים)
         self.all_paras = paras
         self.levels = [int(p.get("h") or 0) for p in paras]
         self.texts = [str(p.get("t") or "") for p in paras]
@@ -471,7 +574,7 @@ class DocSearchService:
             return None
         opened = self.cache.open(text)
         if opened is None:
-            return None
+            return self._from_patch(text, levels)
         db, texts = opened
         levels = self._levels(levels, len(texts))
         if levels is None:
@@ -479,6 +582,79 @@ class DocSearchService:
             return None
         paras = [{"t": t, "h": lvl} for t, lvl in zip(texts, levels)]
         return {"paras": paras, "text": text, "norms": None, False: DocIndex(paras, db=db, on_disk=True)}
+
+    def _base_index(self, base_text):
+        """מפת הבסיס המלאה של גרסה ערוכה: מהזיכרון אם היא שם, אחרת מהדיסק. None אם איננה."""
+        src = self._in_memory(base_text)
+        if src is not None and isinstance(src[False], DocIndex):
+            return src[False]
+        opened = self.cache.open(base_text) if self.cache is not None else None
+        if opened is None:
+            return None
+        db, texts = opened
+        return DocIndex([{"t": t, "h": 0} for t in texts], db=db, on_disk=True)
+
+    def _from_patch(self, text, levels):
+        """גרסה ערוכה שנשמרה כקובץ שינויים קטן מעל מפה מלאה: נטענת בלי לבנות כלום מחדש."""
+        patch = self.cache.load_patch(text)
+        if patch is None:
+            return None
+        base = self._base_index(patch["base"])
+        if base is None:
+            return None
+        origin, fresh = patch["origin"], iter(patch["texts"])
+        if any(o >= len(base.texts) for o in origin):
+            return None
+        texts = [base.texts[o] if o >= 0 else next(fresh) for o in origin]
+        levels = self._levels(levels, len(texts))
+        if levels is None:
+            return None
+        paras = [{"t": t, "h": lvl} for t, lvl in zip(texts, levels)]
+        idx = PatchedIndex(paras, base, origin, None, patch["base"])
+        idx.saved = True
+        return {"paras": paras, "text": text, "norms": None, False: idx}
+
+    def _merged_norms(self, base, origin, texts):
+        """המילים המנורמלות של גרסה ערוכה: של הפסקאות שלא השתנו – מהמפה של הבסיס, בלי לעבד אותן שוב."""
+        base_norms = load_norms(base.db, len(base.texts))
+        reuse = {i: base_norms[o] for i, o in enumerate(origin) if o >= 0} if base_norms is not None else None
+        return normalize_paras(texts, reuse, progress=lambda f: self._progress(0.8 * f))
+
+    def _diff_against_saved(self, paras, text, doc_id):
+        """נשלחו כל הפסקאות, אבל גרסה קודמת של אותו מסמך שמורה: משווים פסקה-פסקה ובונים רק את מה שהשתנה."""
+        if self.cache is None or not doc_id:
+            return None
+        prev_text = (self.cache.registry().get(doc_id) or {}).get("text")
+        if not prev_text or prev_text == text:
+            return None
+        prev = self._in_memory(prev_text) or self._from_disk(prev_text, None)
+        if prev is None:
+            return None
+        pidx = prev[False]
+        if isinstance(pidx, PatchedIndex):
+            base, base_text, to_base = pidx.base, pidx.base_text, pidx.origin
+        else:
+            base, base_text, to_base = pidx, prev_text, None
+        where = {}
+        for j in range(len(pidx.texts) - 1, -1, -1):
+            where.setdefault(pidx.texts[j], []).append(j)          # לכל טקסט – המקומות שלו, הראשון בסוף הרשימה
+        origin = []
+        for p in paras:
+            slots = where.get(str(p.get("t") or ""))
+            if slots:
+                j = slots.pop()
+                origin.append(to_base[j] if to_base is not None else j)
+            else:
+                origin.append(-1)
+        changed = sum(1 for o in origin if o < 0)
+        if changed > max(PATCH_LIMIT, len(paras) // 25):
+            self._close_unused(prev)                      # השתנה יותר מדי – מפה מלאה חדשה
+            return None
+        entry = {"paras": paras, "text": text, "norms": None,
+                 False: PatchedIndex(paras, base, origin, None, base_text)}
+        if to_base is not None and pidx.delta is not None and self._in_memory(prev_text) is None:
+            pidx.delta.close()                            # המפה הקטנה של הגרסה הקודמת (נטענה רק להשוואה)
+        return entry
 
     def _known(self, text, levels):
         """הטקסט הזה כבר מוכר – בזיכרון (גרסה עם רמות אחרות) או בדיסק."""
@@ -489,8 +665,12 @@ class DocSearchService:
                 return self._with_levels(src, levels)
         return self._from_disk(text, levels)
 
-    def _build(self, paras, text):
-        """בונה מפה מלאה מפסקאות שנשלחו – בדיסק אם אפשר, אחרת בזיכרון."""
+    def _build(self, paras, text, doc_id=None):
+        """בונה מפה מפסקאות שנשלחו – רק את מה שהשתנה מהגרסה השמורה של המסמך, אם יש; אחרת מפה מלאה
+        (בדיסק אם אפשר, אחרת בזיכרון)."""
+        entry = self._diff_against_saved(paras, text, doc_id)
+        if entry is not None:
+            return entry
         texts = [str(p.get("t") or "") for p in paras]
         norms = normalize_paras(texts, progress=lambda f: self._progress(0.85 * f))
         db = self.cache.build(text, texts, norms) if self.cache is not None and text else None
@@ -509,7 +689,7 @@ class DocSearchService:
                 if entry is None:
                     return None
             else:
-                entry = self._build(paras, text)
+                entry = self._build(paras, text, req.get("id"))
             self._store(key, entry)
         self.docs.move_to_end(key)
         if only_headings not in entry:
@@ -533,7 +713,7 @@ class DocSearchService:
         if full is None:
             return {"ok": False, "need_paras": True}
         self._index(key, None, True)
-        return self._result(full, t0)
+        return self._result(full, t0, patched=isinstance(full, PatchedIndex))
 
     def patch(self, req: dict) -> dict:
         """גרסה חדשה של מסמך מגרסה קודמת + הפסקאות שהשתנו בלבד."""
@@ -550,26 +730,22 @@ class DocSearchService:
 
         base = req.get("base")
         src = self._in_memory(base)
-        texts = norms = full = origin = None
-        if src is not None:
-            texts = src[False].texts
-            norms = src.get("norms")
-            if isinstance(src[False], PatchedIndex):
-                full, origin = src[False].base, src[False].origin
-            else:
-                full = src[False]
-                if norms is None:
-                    norms = src["norms"] = load_norms(full.db, len(texts))
-        elif self.cache is not None and base:
-            opened = self.cache.open(base)
-            if opened is not None:
-                db, texts = opened
-                norms = load_norms(db, len(texts))
-                full = DocIndex([{"t": t, "h": 0} for t in texts], db=db, on_disk=True)
-        if texts is None:
+        if src is None and self.cache is not None and base:
+            src = self._from_disk(base, None)             # מפה מלאה או קובץ שינויים – מפתיחה קודמת
+        if src is None:
             return {"ok": False, "need_paras": True}
 
-        new_texts, new_origin, reuse = [], [], {}
+        def refuse():
+            self._close_unused(src)                       # (מפה שנפתחה מהדיסק רק בשביל הבקשה הזו)
+            return {"ok": False, "need_paras": True}
+
+        texts = src[False].texts
+        if isinstance(src[False], PatchedIndex):
+            full, origin, base_text = src[False].base, src[False].origin, src[False].base_text
+        else:
+            full, origin, base_text = src[False], None, base
+
+        new_texts, new_origin = [], []
         try:
             for op in req.get("ops") or []:
                 if isinstance(op, str):
@@ -578,27 +754,25 @@ class DocSearchService:
                     continue
                 start, count = int(op[0]), int(op[1])
                 if start < 0 or count < 0 or start + count > len(texts):
-                    return {"ok": False, "need_paras": True}
-                if norms is not None:
-                    for k in range(count):
-                        reuse[len(new_texts) + k] = norms[start + k]
+                    return refuse()
                 new_texts.extend(texts[start:start + count])
                 new_origin.extend(origin[start:start + count] if origin is not None else range(start, start + count))
         except (TypeError, ValueError, IndexError):
-            return {"ok": False, "need_paras": True}
+            return refuse()
         levels = self._levels(req.get("levels"), len(new_texts))
         if levels is None:
-            return {"ok": False, "need_paras": True}
+            return refuse()
 
-        new_norms = normalize_paras(new_texts, reuse, progress=lambda f: self._progress(0.8 * f))
         paras = [{"t": t, "h": lvl} for t, lvl in zip(new_texts, levels)]
-        entry = {"paras": paras, "text": text, "norms": new_norms}
+        entry = {"paras": paras, "text": text, "norms": None}
         changed = sum(1 for o in new_origin if o < 0)
         rebuilt = changed > max(PATCH_LIMIT, len(new_texts) // 25)
         if rebuilt:
-            entry[False] = DocIndex(paras, norms=new_norms)        # השינויים הצטברו – מפה מלאה חדשה (בזיכרון)
+            # השינויים הצטברו – מפה מלאה חדשה (בזיכרון); המילים של הפסקאות שלא השתנו לא מעובדות שוב
+            entry["norms"] = self._merged_norms(full, new_origin, new_texts)
+            entry[False] = DocIndex(paras, norms=entry["norms"])
         else:
-            entry[False] = PatchedIndex(paras, full, new_origin, new_norms)
+            entry[False] = PatchedIndex(paras, full, new_origin, None, base_text)   # רק הפסקאות החדשות מעובדות
         # מפת הכותרות: אם הכותרות עצמן לא השתנו (רק המקום שלהן) – אותה מפה, עם המקומות החדשים
         old_heads = src.get(True) if src is not None else None
         if old_heads is not None:
@@ -613,27 +787,46 @@ class DocSearchService:
         self._index(key, None, True)
         if base and base != text:
             self._drop_text(base, key)
-        return self._result(entry[False], t0, reused=len(reuse), normalized=len(new_texts) - len(reuse),
+        self._close_unused(src)                           # מפת בסיס שנפתחה מהדיסק ולא נשארה בשימוש
+        return self._result(entry[False], t0, reused=len(new_texts) - changed, normalized=changed,
                             changed=changed, rebuilt=rebuilt)
 
     def persist(self, req: dict) -> dict:
-        """שומר בדיסק את המפה של הגרסה הזו (כדי שבפתיחה הבאה לא תיבנה שוב)."""
+        """שומר בדיסק את הגרסה הזו, כדי שבפתיחה הבאה לא תיבנה שוב. גרסה ערוכה נשמרת כקובץ שינויים קטן
+        מעל המפה המלאה שלה (זול – נקרא אחרי כל עדכון); מפה מלאה שבזיכרון – מועתקת לדיסק."""
         entry = self.docs.get(str(req.get("doc") or "")) or self._in_memory(req.get("text"))
         if entry is None or False not in entry or not entry.get("text") or self.cache is None:
             return {"ok": False, "error": "unknown document"}
-        full = entry[False]
-        if full.on_disk or self.cache.has(entry["text"]):
-            self.cache.touch(entry["text"])
-            return {"ok": True, "saved": False}
+        full, text, doc_id = entry[False], entry["text"], req.get("id")
         if isinstance(full, PatchedIndex):
-            # גרסה ערוכה: עכשיו (כשהמסמך נסגר) בונים לה מפה מלאה אחת, ישר לדיסק
-            db = self.cache.build(entry["text"], full.texts, entry.get("norms"))
-            if db is not None:
-                db.close()
-            return {"ok": db is not None, "saved": True}
-        if entry.get("norms") is not None and load_norms(full.db, len(full.texts)) is None:
+            if getattr(full, "saved", False) and os.path.exists(self.cache.patch_file(text)):
+                self.cache.touch(full.base_text)
+                try:
+                    os.utime(self.cache.patch_file(text), None)
+                except OSError:
+                    pass
+                self.cache.remember(doc_id, text, full.base_text)
+                return {"ok": True, "saved": False}
+            ok = bool(full.base_text)
+            if ok and not full.base.on_disk:                       # מפת הבסיס עוד רק בזיכרון – קודם היא
+                ok = self.cache.save(full.base_text, full.base.db, len(full.base.texts))
+            if ok:
+                self.cache.touch(full.base_text)
+                ok = self.cache.save_patch(text, full.base_text, full.origin, [full.texts[i] for i in full.fresh])
+            if ok:
+                full.saved = True
+                self.cache.remember(doc_id, text, full.base_text)
+            return {"ok": ok, "saved": ok, "patch": True}
+        if full.on_disk or self.cache.has(text):
+            self.cache.touch(text)
+            self.cache.remember(doc_id, text)
+            return {"ok": True, "saved": False}
+        if load_norms(full.db, len(full.texts)) is None and entry.get("norms") is not None:
             _store_doc(full.db, full.texts, entry["norms"])    # (לא אמור לקרות – המילים נשמרות בבנייה)
-        return {"ok": self.cache.save(entry["text"], full.db, len(full.texts)), "saved": True}
+        ok = self.cache.save(text, full.db, len(full.texts))
+        if ok:
+            self.cache.remember(doc_id, text)
+        return {"ok": ok, "saved": True}
 
     def docx_headings(self, req: dict) -> dict:
         t0 = time.perf_counter()

@@ -15,14 +15,16 @@ namespace HebDocSearch.WordAddin
         public DocSnapshot Snap;
         public long FileTicks, FileSize;     // הקובץ בדיסק כשנשמר המטמון
         public bool Verified;                // הרמות נקראו מהמסמך כשהוא היה זהה לקובץ הזה בדיסק
+        public long VerifiedAt;              // מתי הרמות נבדקו במלואן בפעם האחרונה (UTC ticks; 0 – אף פעם)
     }
 
     internal static class HeadingCache
     {
         const int Magic = 0x31535748;        // "HWS1"
-        const int Version = 2;
+        const int Version = 3;               // (קובץ מגרסה 2 עדיין נקרא: בלי VerifiedAt)
         const int KeepFiles = 5000;                          // בכל מקרה – לא יותר מזה
         static readonly TimeSpan MaxAge = TimeSpan.FromDays(3);   // מסמך שלא נפתח 3 ימים – נמחק (וייקרא שוב כשייפתח)
+        static long _lastCleanup;                                 // הקובץ נשמר אחרי כל עדכון – הניקוי רק פעם ברבע שעה
 
         public static string Dir
         {
@@ -110,7 +112,12 @@ namespace HebDocSearch.WordAddin
                     try { File.Delete(temp); } catch { }
                     throw;
                 }
-                Cleanup();
+                long now = DateTime.UtcNow.Ticks;
+                if (now - System.Threading.Interlocked.Read(ref _lastCleanup) > TimeSpan.FromMinutes(15).Ticks)
+                {
+                    System.Threading.Interlocked.Exchange(ref _lastCleanup, now);
+                    Cleanup();
+                }
             }
             catch (Exception ex)
             {
@@ -149,6 +156,7 @@ namespace HebDocSearch.WordAddin
             w.Write(e.FileTicks);
             w.Write(e.FileSize);
             w.Write(e.Verified);
+            w.Write(e.VerifiedAt);
             w.Write(s.TextHash ?? "");
             w.Write(n);
             w.Write(s.Levels, 0, n);
@@ -170,10 +178,13 @@ namespace HebDocSearch.WordAddin
         internal static CacheEntry Read(Stream stream, string docPath)
         {
             var r = new BinaryReader(stream, Encoding.UTF8);
-            if (r.ReadInt32() != Magic || r.ReadInt32() != Version) return null;
+            if (r.ReadInt32() != Magic) return null;
+            int version = r.ReadInt32();
+            if (version != Version && version != 2) return null;
             string path = r.ReadString();
             if (docPath != null && !string.Equals(path, docPath, StringComparison.OrdinalIgnoreCase)) return null;
             var e = new CacheEntry { FileTicks = r.ReadInt64(), FileSize = r.ReadInt64(), Verified = r.ReadBoolean() };
+            if (version >= 3) e.VerifiedAt = r.ReadInt64();
             var s = new DocSnapshot { TextHash = r.ReadString() };
             int n = r.ReadInt32();
             if (n < 0 || n > 20_000_000) return null;

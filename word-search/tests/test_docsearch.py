@@ -331,7 +331,7 @@ class PatchTest(unittest.TestCase):
         v3[0] = {"t": "כותרת חדשה", "h": 1}
         r = svc.patch({"doc": "v3", "text": "1:c", "base": "1:b", "ops": ["כותרת חדשה", [1, len(v2) - 1]],
                        "levels": self.levels(v3)})
-        self.assertEqual(r["normalized"], 1)
+        self.assertEqual(r["changed"], 3)                                  # שלוש פסקאות שונות ממפת הבסיס
         fresh.index({"doc": "f3", "paras": v3})
         self.compare(svc, fresh, "v3", "f3")
 
@@ -438,25 +438,129 @@ class PatchTest(unittest.TestCase):
         self.assertEqual(svc.patch({"doc": "x", "text": "2:b", "base": "2:a", "ops": [[0, 99]], "levels": "0"}), need)
         self.assertEqual(svc.patch({"doc": "x", "text": "2:b", "base": "2:a", "ops": [[0, 2]], "levels": "0"}), need)
 
-    def test_persist_on_close_makes_the_next_session_instant(self):
+    def test_persist_of_an_edited_version_is_a_small_file_of_changes(self):
+        """גרסה ערוכה נשמרת כקובץ שינויים קטן (בלי לבנות מפה מלאה), ובפתיחה הבאה נטענת ממנו מיד."""
         v1 = big_doc()
         v2, ops = self.edited(v1)
         svc = self.service()
         svc.index({"doc": "v1", "text": "1:a", "paras": v1})
         svc.patch({"doc": "v2", "text": "1:b", "base": "1:a", "ops": ops, "levels": self.levels(v2)})
-        self.assertFalse(svc.cache.has("1:b"))                                   # בזמן העבודה – רק בזיכרון
-        self.assertEqual(svc.persist({"doc": "v2"}), {"ok": True, "saved": True})
-        self.assertTrue(svc.cache.has("1:b"))
-        again = self.service()
-        r = again.index({"doc": "v2", "text": "1:b", "levels": self.levels(v2)})
-        self.assertTrue(r["ok"] and r["cached"])
+        built = []
+        with mock.patch.object(docsearch, "_store_doc", side_effect=lambda *a, **k: built.append(1)):
+            self.assertEqual(svc.persist({"doc": "v2", "id": "d1"}), {"ok": True, "saved": True, "patch": True})
+            self.assertEqual(svc.persist({"doc": "v2", "id": "d1"}), {"ok": True, "saved": False})   # כבר שמור
+        self.assertEqual(built, [])                                              # שום מפה לא נבנתה בשביל השמירה
+        self.assertFalse(svc.cache.has("1:b"))
+        patch_file = svc.cache.patch_file("1:b")
+        self.assertLess(os.path.getsize(patch_file), os.path.getsize(svc.cache.file("1:a")) / 20)
+
+        again = self.service()                                                   # Word נפתח מחדש
+        real = docsearch.normalize_paras
+        counted = []
+
+        def count(texts, reuse=None, progress=None):
+            counted.append(len(texts) - len(reuse or {}))
+            return real(texts, reuse, progress)
+
+        with mock.patch.object(docsearch, "normalize_paras", side_effect=count):
+            r = again.index({"doc": "v2", "text": "1:b", "levels": self.levels(v2)})   # בלי פסקאות
+        self.assertTrue(r["ok"] and r["patched"])
+        self.assertEqual(sum(counted), 2 + sum(1 for p in v2 if p["h"]))         # 2 הפסקאות שהשתנו, ומפת הכותרות
         fresh = self.service(cache=False)
         fresh.index({"doc": "f", "paras": v2})
         self.compare(again, fresh, "v2", "f")
-        # ומשם אפשר להמשיך בעדכון חלקי (המילים המנורמלות נשמרו גם הן)
-        r = again.patch({"doc": "v3", "text": "1:c", "base": "1:b", "ops": ["חדש", [1, len(v2) - 1]],
-                         "levels": "0" + self.levels(v2)[1:]})
-        self.assertEqual(r["normalized"], 1)
+        # ומשם ממשיכים בעדכון חלקי, ושוב שומרים – מעל אותה מפת בסיס
+        v3 = [{"t": "חדש זברה", "h": 0}] + v2[1:]
+        r = again.patch({"doc": "v3", "text": "1:c", "base": "1:b", "ops": ["חדש זברה", [1, len(v2) - 1]],
+                         "levels": self.levels(v3)})
+        self.assertEqual((r["ok"], r["changed"], r["rebuilt"]), (True, 3, False))
+        self.assertTrue(again.persist({"doc": "v3", "id": "d1"})["patch"])
+        self.assertFalse(os.path.exists(patch_file))                             # הגרסה הקודמת של המסמך נמחקה
+        self.assertTrue(again.cache.has("1:a"))                                  # מפת הבסיס נשארת
+        third = self.service()
+        self.assertTrue(third.index({"doc": "v3", "text": "1:c", "levels": self.levels(v3)})["ok"])
+        fresh.index({"doc": "f3", "paras": v3})
+        self.compare(third, fresh, "v3", "f3")
+
+    def test_patch_on_top_of_a_saved_patch_in_a_new_session(self):
+        v1 = big_doc()
+        v2, ops = self.edited(v1)
+        svc = self.service()
+        svc.index({"doc": "v1", "text": "1:a", "paras": v1})
+        svc.patch({"doc": "v2", "text": "1:b", "base": "1:a", "ops": ops, "levels": self.levels(v2)})
+        svc.persist({"doc": "v2", "id": "d1"})
+        again = self.service()                       # הפעם התוסף שולח מיד עדכון מעל הגרסה השמורה
+        v3 = v2[:-1]
+        r = again.patch({"doc": "v3", "text": "1:c", "base": "1:b", "ops": [[0, len(v3)]], "levels": self.levels(v3)})
+        self.assertEqual((r["ok"], r["changed"]), (True, 2))
+        fresh = self.service(cache=False)
+        fresh.index({"doc": "f3", "paras": v3})
+        self.compare(again, fresh, "v3", "f3")
+
+    def test_full_send_of_a_known_document_builds_only_what_changed(self):
+        """התוסף שלח את כל הפסקאות (לא ידע מה השתנה), אבל גרסה קודמת של אותו מסמך שמורה: לא בונים מחדש."""
+        v1 = big_doc()
+        v2, _ = self.edited(v1)
+        first = self.service()
+        first.index({"doc": "v1", "text": "1:a", "paras": v1, "id": "d1"})
+        self.assertEqual(first.persist({"doc": "v1", "id": "d1"}), {"ok": True, "saved": False})
+        svc = self.service()
+        built = []
+        real = docsearch._store_doc
+
+        def store(db, texts, norms=None):
+            built.append(len(texts))
+            return real(db, texts, norms)
+
+        with mock.patch.object(docsearch, "_store_doc", side_effect=store):
+            r = svc.index({"doc": "v2", "text": "1:b", "paras": v2, "id": "d1"})
+        self.assertTrue(r["ok"] and r["patched"])
+        self.assertEqual(sorted(built), [2, sum(1 for p in v2 if p["h"])])       # רק 2 הפסקאות החדשות, ומפת הכותרות
+        fresh = self.service(cache=False)
+        fresh.index({"doc": "f", "paras": v2})
+        self.compare(svc, fresh, "v2", "f")
+        # מסמך אחר (מזהה אחר) עם אותו טקסט כמעט – נבנה רגיל
+        other = self.service()
+        self.assertFalse(other.index({"doc": "o", "text": "1:z", "paras": v2[:-1], "id": "d2"})["patched"])
+        # פסקאות זהות שחוזרות, ופסקאות שהוחלף הסדר שלהן
+        v4 = [v2[5], v2[5]] + v2[::-1]
+        r = svc.index({"doc": "v4", "text": "1:d", "paras": v4, "id": "d1"})
+        self.assertTrue(r["ok"])
+        fresh.index({"doc": "f4", "paras": v4})
+        self.compare(svc, fresh, "v4", "f4")
+
+    def test_a_document_changed_a_lot_is_built_in_full(self):
+        v1 = big_doc(300)
+        first = self.service()
+        first.index({"doc": "v1", "text": "1:a", "paras": v1, "id": "d1"})
+        first.persist({"doc": "v1", "id": "d1"})
+        v2 = [{"t": f"אחר לגמרי {i}", "h": 0} for i in range(300)]
+        svc = self.service()
+        with mock.patch.object(docsearch, "PATCH_LIMIT", 100):
+            r = svc.index({"doc": "v2", "text": "1:b", "paras": v2, "id": "d1"})
+        self.assertTrue(r["ok"] and r["cached"] and not r["patched"])
+        svc.persist({"doc": "v2", "id": "d1"})
+        self.assertEqual(svc.cache.registry()["d1"], {"text": "1:b", "base": None})
+
+    def test_old_files_of_changes_are_removed(self):
+        v1 = big_doc(300)
+        svc = self.service()
+        svc.index({"doc": "v1", "text": "1:a", "paras": v1})
+        svc.patch({"doc": "v2", "text": "1:b", "base": "1:a", "ops": ["חדש", [1, 299]], "levels": "0" * 300})
+        svc.persist({"doc": "v2"})
+        path = svc.cache.patch_file("1:b")
+        self.assertTrue(os.path.exists(path))
+        old = time.time() - 3 * 24 * 3600 - 60
+        os.utime(path, (old, old))
+        svc.cache.cleanup()
+        self.assertFalse(os.path.exists(path))
+        self.assertTrue(svc.persist({"doc": "v2"})["saved"])      # נמחק – נשמר שוב
+        self.assertTrue(os.path.exists(path))
+        with open(path, "wb") as f:                               # קובץ שינויים פגום – מבקשים את הפסקאות
+            f.write(b"junk")
+        again = self.service()
+        self.assertEqual(again.index({"doc": "v2", "text": "1:b", "levels": "0" * 300}),
+                         {"ok": False, "need_paras": True})
 
     def test_progress_lines_before_the_reply(self):
         lines = "\n".join([json.dumps({"cmd": "index", "doc": "p", "paras": big_doc(9000), "progress": True},

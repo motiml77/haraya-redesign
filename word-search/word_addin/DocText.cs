@@ -706,7 +706,7 @@ namespace HebDocSearch.WordAddin
             return Norm(a) == Norm(b);
         }
 
-        static string Norm(string s)
+        internal static string Norm(string s)
         {
             if (s == null) return "";
             var chars = new StringBuilder(s.Length);
