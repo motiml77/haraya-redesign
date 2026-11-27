@@ -265,8 +265,12 @@ namespace HebDocSearch.WordAddin
             Color bg = !Enabled ? T.BtnBg : Hover ? T.BtnHover : T.BtnBg;
             Draw.Box(g, new Rectangle(0, 0, Width, Height), M.S(2), bg, T.BtnBorder, 1f);
             float s = Width * 0.62f;
-            Draw.Chevron(g, new RectangleF((Width - s) / 2, (Height - s) / 2, s, s), Enabled ? T.BtnGlyph : T.BtnGlyphOff,
-                         Math.Max(1.4f, M.Scale * 1.5f), Glyph);
+            var box = new RectangleF((Width - s) / 2, (Height - s) / 2, s, s);
+            Color fg = Enabled ? T.BtnGlyph : T.BtnGlyphOff;
+            float stroke = Math.Max(1.4f, M.Scale * 1.5f);
+            if (Glyph == 's') Draw.Sun(g, box, fg, Math.Max(1.2f, M.Scale * 1.3f));
+            else if (Glyph == 'm') Draw.Moon(g, box, fg, stroke);
+            else Draw.Chevron(g, box, fg, stroke, Glyph);
         }
     }
 

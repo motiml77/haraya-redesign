@@ -78,9 +78,19 @@ namespace HebDocSearch.WordAddin
             MenuBg = H("#ffffff"), MenuText = H("#262626"), MenuDim = H("#707070"), MenuSel = H("#f0f0f0"), MenuBorder = H("#c8c6c4"),
         };
 
+        /// <summary>מצב שהמשתמש בחר בלחצן שבחלונית, בלי קשר ל-Word: null – כמו ב-Word, false – בהיר, true – כהה.</summary>
+        public static bool? Forced;
+
+        /// <summary>ערכת הנושא של החלונית: מה שהמשתמש בחר (Forced), או כמו ב-Office.</summary>
+        public static Theme Current()
+        {
+            if (Forced.HasValue) return Forced.Value ? DarkGray : Light;
+            return Office();
+        }
+
         /// <summary>ערכת הנושא הנוכחית של Office (קובץ ← חשבון ← ערכת נושא של Office).
         /// 0 צבעוני, 3 אפור כהה, 4 שחור, 5 לבן, 6 לפי הגדרות המערכת.</summary>
-        public static Theme Current()
+        public static Theme Office()
         {
             int value = OfficeThemeValue();
             switch (value)
@@ -269,6 +279,47 @@ namespace HebDocSearch.WordAddin
             }
             using (var p = RoundPen(color, stroke))
                 g.DrawLines(p, pts);
+            g.SmoothingMode = old;
+        }
+
+        /// <summary>שמש (מעבר למצב בהיר): עיגול וקרניים.</summary>
+        public static void Sun(Graphics g, RectangleF box, Color color, float stroke)
+        {
+            var old = g.SmoothingMode;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            float s = Math.Min(box.Width, box.Height);
+            float cx = box.X + box.Width / 2, cy = box.Y + box.Height / 2, r = s * 0.17f;
+            using (var p = RoundPen(color, stroke))
+            {
+                g.DrawEllipse(p, cx - r, cy - r, 2 * r, 2 * r);
+                for (int i = 0; i < 8; i++)
+                {
+                    double a = i * Math.PI / 4;
+                    float c = (float)Math.Cos(a), n = (float)Math.Sin(a);
+                    g.DrawLine(p, cx + c * s * 0.29f, cy + n * s * 0.29f, cx + c * s * 0.40f, cy + n * s * 0.40f);
+                }
+            }
+            g.SmoothingMode = old;
+        }
+
+        /// <summary>ירח (מעבר למצב כהה): סהר.</summary>
+        public static void Moon(Graphics g, RectangleF box, Color color, float stroke)
+        {
+            var old = g.SmoothingMode;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            float s = Math.Min(box.Width, box.Height);
+            float cx = box.X + box.Width / 2, cy = box.Y + box.Height / 2, r = s * 0.32f;
+            using (var outer = new GraphicsPath())
+            using (var inner = new GraphicsPath())
+            using (var crescent = new Region())
+            {
+                outer.AddEllipse(cx - r, cy - r, 2 * r, 2 * r);
+                inner.AddEllipse(cx - r * 0.35f, cy - r * 1.25f, 2 * r, 2 * r);
+                crescent.MakeEmpty();
+                crescent.Union(outer);
+                crescent.Exclude(inner);
+                using (var b = new SolidBrush(color)) g.FillRegion(b, crescent);
+            }
             g.SmoothingMode = old;
         }
 

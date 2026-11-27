@@ -55,6 +55,13 @@ namespace HebDocSearch.WordAddin
             _view.OptionsChanged += OnOptionsChanged;
             _view.ModeChanged += OnOptionsChanged;
             _view.QueryCleared += Reset;
+            _view.ThemeModeChanged += mode =>
+            {
+                // הלחצן בחלונית: כהה / בהיר בלי קשר ל-Word (או חזרה – כמו ב-Word). חל על כל החלוניות, ונשמר.
+                Theme.Forced = mode;
+                _view.ApplyTheme(Theme.Current());
+                SaveSettings();
+            };
             // בזמן כתיבה במסמך לא עושים כלום. כשעוברים לשדה החיפוש – אם המסמך נערך, מתעדכנים עכשיו (רק השינויים)
             _view.Search.Box.Enter += (s, e) => _addin.Preparer?.Poke(_doc);
             _view.Search.Box.TextChanged += (s, e) =>
@@ -496,6 +503,9 @@ namespace HebDocSearch.WordAddin
                 int Get(string key, int fallback) => s.ContainsKey(key) ? Convert.ToInt32(s[key]) : fallback;
                 bool GetB(string key, bool fallback) => s.ContainsKey(key) ? Convert.ToBoolean(s[key]) : fallback;
                 _view.SetOptions(Get("forms", 1), Get("spelling", 0), Get("distance", 0), Get("near", 3), GetB("ordered", true), GetB("headings", false));
+                string mode = s.ContainsKey("theme") ? Convert.ToString(s["theme"]) : "word";
+                Theme.Forced = mode == "dark" ? true : mode == "light" ? (bool?)false : null;
+                _view.ApplyTheme(Theme.Current());
                 _savedWidth = _lastWidth = _initialWidth = 0;
             }
             catch (Exception e) { Log.Error("settings", e); }
@@ -514,6 +524,7 @@ namespace HebDocSearch.WordAddin
                     ["near"] = _view.Near,
                     ["ordered"] = _view.Ordered,
                     ["headings"] = _view.HeadingsOnly,
+                    ["theme"] = Theme.Forced == null ? "word" : Theme.Forced.Value ? "dark" : "light",
                 };
                 int logical = SavedWidth();
                 if (_initialWidth > 0 && _savedWidth != _initialWidth) logical = (int)Math.Round(_savedWidth / Assets.SystemScale);

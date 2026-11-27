@@ -33,6 +33,7 @@ namespace HebDocSearch.WordAddin
         readonly Chip _dist = new Chip { Key = "מרחק:" };
         readonly IconButton _next = new IconButton { Glyph = 'd', Tip = "מעבר לתוצאה הבאה במסמך (F3)" };
         readonly IconButton _prev = new IconButton { Glyph = 'u', Tip = "מעבר לתוצאה הקודמת במסמך (Shift+F3)" };
+        readonly IconButton _mode = new IconButton { Glyph = 'm' };      // מצב כהה / בהיר של החלונית
         readonly TabStrip _tabs = new TabStrip();
         public readonly ResultList List = new ResultList();
         readonly ToolTip _tip = new ToolTip();
@@ -61,13 +62,19 @@ namespace HebDocSearch.WordAddin
         public event Action<int> ResultActivated;
         public event Action<int> PopOutRequested;      // "הצג בחלון נפרד"
         public event Action QueryCleared;
+        public event Action<bool?> ThemeModeChanged;   // הלחצן: true כהה, false בהיר, null כמו ב-Word
 
         public PaneView()
         {
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint
                      | ControlStyles.ResizeRedraw, true);
             RightToLeft = RightToLeft.No;          // הכיוון מטופל בציור ובפריסה (מימין לשמאל)
-            Controls.AddRange(new Control[] { Search, _words, _dist, _next, _prev, _tabs, List });
+            Controls.AddRange(new Control[] { Search, _words, _dist, _mode, _next, _prev, _tabs, List });
+            _mode.MouseUp += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Left) ThemeModeChanged?.Invoke(!_t.Dark);        // הפוך ממה שמוצג עכשיו
+                else if (e.Button == MouseButtons.Right) ThemeModeChanged?.Invoke(null);    // חזרה: כמו ב-Word
+            };
             Search.Submit += s => SubmitRequested?.Invoke(s);
             Search.Navigate += d => FocusList();             // חץ למטה מהשדה – לרשימה (בלי לזוז במסמך)
             Search.Cleared += () => QueryCleared?.Invoke();
@@ -139,6 +146,11 @@ namespace HebDocSearch.WordAddin
                 old?.Dispose();
             }
             BackColor = t.PaneBg;
+            _mode.Glyph = t.Dark ? 's' : 'm';
+            _mode.Tip = (t.Dark ? "מעבר למצב בהיר" : "מעבר למצב כהה") +
+                        (Theme.Forced.HasValue ? " · לחיצה ימנית – כמו ב-Word" : " (עכשיו – כמו ב-Word)");
+            _tip.SetToolTip(_mode, _mode.Tip);
+            _mode.Invalidate();
             foreach (Control c in Controls)
                 if (c is ThemedControl tc) tc.ApplyTheme(t, _m);
             List.ApplyTheme(t, _m);
@@ -155,12 +167,15 @@ namespace HebDocSearch.WordAddin
             Search.SetBounds(pad, y, Math.Max(10, w - 2 * pad), Search.PreferredHeight);
             y = Search.Bottom + _m.S(8);
 
-            // שבבים – מימין לשמאל, וגולשים לשורה נוספת כשאין מקום
+            // שבבים – מימין לשמאל, וגולשים לשורה נוספת כשאין מקום. בקצה השמאלי – לחצן מצב כהה / בהיר.
             int chipH = _m.S(26), x = w - pad, rowTop = y;
+            int modeB = _m.S(24);
+            _mode.SetBounds(pad, y + (chipH - modeB) / 2, modeB, modeB);
+            int chipsLeft = _mode.Right + _m.S(6);
             foreach (var chip in new[] { _words, _dist })
             {
-                int cw = Math.Min(chip.PreferredWidth, w - 2 * pad);
-                if (x - cw < pad && x != w - pad)
+                int cw = Math.Min(chip.PreferredWidth, w - pad - chipsLeft);
+                if (x - cw < chipsLeft && x != w - pad)
                 {
                     rowTop += chipH + _m.S(6);
                     x = w - pad;
