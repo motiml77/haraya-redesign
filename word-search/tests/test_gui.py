@@ -455,6 +455,128 @@ class SearchFlowTest(GuiBase):
         self.assertEqual(basket.kids[-1].kind, "add")                         # שורת "הוספה לאוסף…"
 
 
+class ViewerSizeTest(GuiBase):
+    """חלון התצוגה המובנית: גודל מוכן מהתפריט או גרירה – והחלון הבא נפתח באותו גודל ומקום."""
+
+    def viewer(self, win, close_others=True):
+        if close_others:
+            for v in list(win.viewers):
+                v.close()
+            settle(win)
+        hit = next(r[1] for r in win.results.list.model().rows if r[0] == "hit")
+        before = set(map(id, win.viewers))
+        win.preview_hit(hit)
+        settle(win)
+        return next(v for v in win.viewers if id(v) not in before)
+
+    def searched(self):
+        win = self.new_window()
+        win.baskets.add_paths([self.docs])
+        settle(win)
+        win.search_edit.setText("שבת")
+        win.run_search()
+        settle(win)
+        return win
+
+    def test_size_is_remembered_for_the_next_window(self):
+        from hebsearch.gui import viewer_base
+        win = self.searched()
+        v = self.viewer(win)
+        avail = v._avail()
+        self.assertTrue(avail.contains(v.frameGeometry()))              # בפעם הראשונה: בתוך המסך
+        first = v.geometry()
+        v.set_size("small")
+        settle(win)
+        small = v.geometry()
+        self.assertNotEqual(small.size(), first.size())
+        self.assertEqual(v.current_size(), "small")
+        self.assertLess(small.width(), first.width())
+        self.assertTrue(avail.contains(v.frameGeometry()))
+        v2 = self.viewer(win)                                            # חלון חדש – אותו גודל ואותו מקום
+        self.assertEqual(v2.geometry(), small)
+        # גרירה ידנית של השוליים (גודל ומקום חופשיים) – נשמרת גם היא, בלי לסגור את החלון
+        v2.setGeometry(avail.x() + 30, avail.y() + 40, 700, 430)
+        settle(win)
+        v2._geo_timer.timeout.emit()
+        self.assertEqual(v2.current_size(), "")
+        v3 = self.viewer(win)
+        self.assertEqual(v3.geometry(), QRect(avail.x() + 30, avail.y() + 40, 700, 430))
+        # התפריט מסמן את הגודל הנוכחי
+        v3.set_size("large")
+        settle(win)
+        marked = [a.text() for a in v3._size_menu().actions() if not a.icon().isNull()]
+        self.assertEqual(marked, ["גדול"])
+        self.assertEqual([a.text() for a in v3._size_menu().actions() if a.data()],
+                         ["קטן", "בינוני", "גדול", "חצי מסך – ימין", "חצי מסך – שמאל", "מסך מלא"])
+        self.assertTrue(win.settings.contains(viewer_base.GEOMETRY_KEY))
+
+    def test_half_screen_and_full_screen(self):
+        win = self.searched()
+        v = self.viewer(win)
+        avail = v._avail()
+        v.set_size("half-left")
+        settle(win)
+        frame = v.frameGeometry()
+        self.assertEqual((frame.x(), frame.y(), frame.height()), (avail.x(), avail.y(), avail.height()))
+        self.assertGreaterEqual(frame.width(), avail.width() // 2)       # (במסך קטן – לא פחות מרוחב הסרגל)
+        self.assertLess(frame.width(), avail.width())
+        self.assertEqual(v.current_size(), "half-left")
+        v.set_size("half-right")
+        settle(win)
+        self.assertEqual(v.frameGeometry().right(), avail.right())
+        v.set_size("full")
+        settle(win)
+        self.assertTrue(v.isMaximized())
+        self.assertEqual(v.current_size(), "full")
+        hit = next(r[1] for r in win.results.list.model().rows if r[0] == "hit")
+        win.preview_hit(hit)                                             # מעבר לתוצאה באותו חלון
+        settle(win)
+        self.assertTrue(v.isMaximized())                                 # לא מבטל את "מסך מלא"
+        v2 = self.viewer(win)                                            # וגם החלון הבא נפתח במסך מלא
+        self.assertTrue(v2.isMaximized())
+        v2.set_size("medium")
+        settle(win)
+        self.assertFalse(v2.isMaximized())
+        self.assertTrue(avail.contains(v2.frameGeometry()))
+
+    def test_saved_place_outside_the_screen_is_ignored(self):
+        win = self.searched()
+        v = self.viewer(win)
+        avail = v._avail()
+        v.setGeometry(avail.right() + 5000, avail.bottom() + 5000, 600, 500)   # מסך שני שנותק
+        settle(win)
+        v._save_geometry()
+        v2 = self.viewer(win)
+        self.assertTrue(avail.contains(v2.geometry().topLeft()))
+        self.assertGreater(avail.intersected(v2.frameGeometry()).width(), v2.width() - 8)
+
+    def test_two_documents_do_not_cover_each_other(self):
+        win = self.searched()
+        win.search_edit.setText("הלך")
+        win.options.update(forms="all")
+        win.run_search()
+        settle(win)
+        hits = [r[1] for r in win.results.list.model().rows if r[0] == "hit"]
+        paths = []
+        for h in hits:
+            if h.path not in paths:
+                paths.append(h.path)
+        self.assertGreaterEqual(len(paths), 2)
+        for v in list(win.viewers):
+            v.close()
+        settle(win)
+        first = next(h for h in hits if h.path == paths[0])
+        win.preview_hit(first)
+        settle(win)
+        win.viewers[0].set_size("small")
+        settle(win)
+        win.preview_hit(next(h for h in hits if h.path == paths[1]))
+        settle(win)
+        a, b = win.viewers[0], win.viewers[1]
+        self.assertEqual(a.size(), b.size())
+        self.assertNotEqual(a.pos(), b.pos())
+
+
 class EditingInWordTest(GuiBase):
     """מסמך שנערך עכשיו ב-Word: בחזרה לחלון לא נקרא שוב (רק נרשם), ונקרא לפני חיפוש – ורק אם השתנה."""
 
