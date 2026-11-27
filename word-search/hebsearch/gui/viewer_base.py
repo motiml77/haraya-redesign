@@ -240,7 +240,9 @@ class HitViewer(QMainWindow):
     def showEvent(self, e):
         # כל הכפתורים שבסרגל תמיד נראים: החלון לא קטן מהרוחב שהם צריכים (עד רוחב המסך)
         avail = self._avail()
-        self.setMinimumWidth(min(max(self.minimumWidth(), self.minimumSizeHint().width()), avail.width()))
+        left, _top, right, _bottom = self._frame_margins()
+        room = avail.width() - max(16, left + right)           # במסך צר מאוד: החלון כולו, עם המסגרת, בתוך המסך
+        self.setMinimumWidth(max(320, min(max(self.minimumWidth(), self.minimumSizeHint().width()), room)))
         super().showEvent(e)
 
     def resizeEvent(self, e):

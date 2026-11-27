@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -457,6 +458,29 @@ class SearchFlowTest(GuiBase):
 
 class ViewerSizeTest(GuiBase):
     """חלון התצוגה המובנית: גודל מוכן מהתפריט או גרירה – והחלון הבא נפתח באותו גודל ומקום."""
+
+    def setUp(self):
+        # מסך הבדיקה קטן (800 נקודות), ורוחב הסרגל תלוי בגופן של כל מערכת: כאן הסרגל "צר", כדי שהגדלים
+        # המוכנים ייכנסו במסך בכל מערכת
+        from PySide6.QtCore import QSize
+        from hebsearch.gui import viewer_base
+        patcher = mock.patch.object(viewer_base.HitViewer, "minimumSizeHint", lambda self: QSize(300, 200))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_window_with_a_wide_toolbar_still_fits_a_narrow_screen(self):
+        from PySide6.QtCore import QSize
+        from hebsearch.gui import viewer_base
+        win = self.searched()
+        with mock.patch.object(viewer_base.HitViewer, "minimumSizeHint", lambda self: QSize(1400, 200)):
+            v = self.viewer(win)
+            avail = v._avail()
+            self.assertLessEqual(v.frameGeometry().width(), avail.width())
+            for name in ("small", "half-left", "half-right", "large"):
+                v.set_size(name)
+                settle(win)
+                frame = v.frameGeometry()
+                self.assertTrue(avail.x() <= frame.x() and frame.right() <= avail.right(), name)
 
     def viewer(self, win, close_others=True):
         if close_others:
